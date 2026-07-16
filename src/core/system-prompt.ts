@@ -59,9 +59,9 @@ herdr pane split --current --direction right --no-focus
 # Read the returned pane_id from JSON, then:
 herdr pane rename <pane_id> "<role>"
 
-# Launch pi as the worker thread. The extension path is the
-# pi-threading repo root + /src/index.ts (cwd is the project).
-herdr pane run <pane_id> "minipi --extension ./src/index.ts --thread-id <role>"
+# Launch minipi as the worker thread. Extension auto-loads from installed package.
+
+herdr pane run <pane_id> "minipi --thread-id <role>"
 
 # Wait for it to be ready
 herdr wait agent-status <pane_id> --status idle --timeout 30000
