@@ -3,6 +3,8 @@ import type { ThreadStore } from "./core/types";
 import { formatThreadLine } from "./core/format";
 import { resumeThread, suspendThread } from "./core/thread-ops";
 import type { Inbox } from "./inbox";
+import { existsSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
+import { join } from "node:path";
 
 /** Slash commands: the human operator's view of the same operations the
  *  thread_* tools give the model. */
@@ -106,6 +108,69 @@ export function registerCommands(pi: ExtensionAPI, store: ThreadStore, inbox: In
         return;
       }
       ctx.ui.notify("Thread resumed (Open). Queued inbox drained.", "info");
+    },
+  });
+
+  pi.registerCommand("/thread-models", {
+    description: "Show or set worker models: /thread-models [role model] (--reset to clear)",
+    async handler(args, ctx) {
+      if (!checkActive(store, ctx)) return;
+      const modelsPath = join(ctx.cwd, ".thread", "models.json");
+      const trimmed = args.trim();
+
+      // --reset: delete file, notify defaults
+      if (trimmed === "--reset") {
+        if (existsSync(modelsPath)) {
+          unlinkSync(modelsPath);
+        }
+        ctx.ui.notify("Cleared .thread/models.json — defaults restored.", "info");
+        return;
+      }
+
+      // No args → show config
+      if (!trimmed) {
+        let models: Record<string, string> = {};
+        if (existsSync(modelsPath)) {
+          try {
+            models = JSON.parse(readFileSync(modelsPath, "utf8")) as Record<string, string>;
+          } catch {
+            ctx.ui.notify(`.thread/models.json exists but is invalid JSON.`, "error");
+            return;
+          }
+        }
+        const entries = Object.entries(models);
+        if (!entries.length) {
+          ctx.ui.notify("No models configured (.thread/models.json absent or empty).", "info");
+          return;
+        }
+        const lines = entries.map(([role, model]) => `  ${role}: ${model}`).join("\n");
+        ctx.ui.notify(`Worker models:\n${lines}`, "info");
+        return;
+      }
+
+      // role + model → set and persist
+      const parts = trimmed.split(/\s+/);
+      if (parts.length < 2) {
+        ctx.ui.notify("Usage: /thread-models [role model] (--reset to clear)", "warning");
+        return;
+      }
+      const [role, model] = parts;
+      let models: Record<string, string> = {};
+      if (existsSync(modelsPath)) {
+        try {
+          models = JSON.parse(readFileSync(modelsPath, "utf8")) as Record<string, string>;
+        } catch {
+          ctx.ui.notify(`.thread/models.json exists but is invalid JSON — not overwriting.`, "error");
+          return;
+        }
+      }
+      models[role] = model;
+      try {
+        writeFileSync(modelsPath, JSON.stringify(models, null, 2));
+        ctx.ui.notify(`Set ${role} → ${model} in .thread/models.json.`, "info");
+      } catch (e) {
+        ctx.ui.notify(e instanceof Error ? e.message : String(e), "error");
+      }
     },
   });
 }
