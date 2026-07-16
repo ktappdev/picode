@@ -31,12 +31,18 @@ You direct workers via thread_send(expects=true). You maintain full project cont
 
 ### Worker Dispatch
 
+**Startup — discover workspace once:**
+\`\`\`bash
+# Always same workspace — only need this once per session
+herdr pane list --current
+herdr workspace list
+\`\`\`
+From these you know: your pane id, your workspace id, how many panes exist, which ones contain agents. Cache these values — do not re-discover every time.
+
 When given a task, always check for existing workers first, then spawn if needed:
 
 **Step 1 — Check existing workers:**
-\`\`\`bash
-herdr pane list --workspace "$HERDR_WORKSPACE_ID"
-\`\`\`
+Run \`herdr pane list --workspace <cached_workspace_id>\` only if pane state has changed (you just created or killed a pane). Otherwise skip — use cached knowledge.
 Look for panes whose label/agent_status indicates a worker thread (idle/done).
 Then run \`thread_list\` to cross-check thread identities and roles.
 
