@@ -66,12 +66,14 @@ export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: I
       return;
     }
 
-    // Coordinator: read-only tool set. Filter against actual active tools
-    // so stale entries silently no-op. bash/edit/write are always excluded.
-    if (store.role === "coordinator") {
+    // Read-only roles: coordinator + read-only subtypes (reviewer, scout,
+    // designer). Builder and generic worker keep full tools.
+    const READ_ONLY_ROLES = new Set(["coordinator", "reviewer", "scout", "designer"]);
+    if (READ_ONLY_ROLES.has(store.role)) {
       const active = pi.getActiveTools();
       const ALLOWED = new Set([
         "read",
+        "bash",
         "thread_send",
         "thread_wait",
         "thread_list",
@@ -80,9 +82,9 @@ export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: I
         "thread_suspend",
         "thread_resume",
       ]);
-      const readOnlyTools = active.filter(name => ALLOWED.has(name));
-      pi.setActiveTools(readOnlyTools);
-      console.log(`[thread] Coordinator mode: restricted to ${readOnlyTools.length} tools (${readOnlyTools.join(", ")})`);
+      const filtered = active.filter(name => ALLOWED.has(name));
+      pi.setActiveTools(filtered);
+      console.log(`[thread] ${store.role} mode: restricted to ${filtered.length} tools (${filtered.join(", ")})`);
     }
 
     // Defer initial drain to next tick — calling pi.sendUserMessage
