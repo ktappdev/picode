@@ -40,6 +40,8 @@ herdr pane list --workspace <cached_workspace_id>
 \`\`\`
 From these you know: your pane id, your workspace id, how many panes exist, which ones contain agents. Cache these values — do not re-discover every time.
 
+**Model config:** Read \`.thread/models.json\` (if present) to get per-role model overrides. Format: \`{"explorer": "provider/model", "default": "provider/model"}\`. Look up model by role (prefix-matched), falling back to \`"default"\`. If file missing, workers use minipi's default model.
+
 **Pane placement:** Always split from your own pane (the coordinator pane) with \`--no-focus\`. This keeps workers in the same tab. Never reuse panes from other tabs — close them and split fresh from your own pane.
 
 **Layout:** Herdr splits 50/50 with no resize. Keep coordinator at >=50% space. **First worker:** split coordinator right → coordinator gets left 50%, worker column gets right 50%. **Additional workers:** split the most recent WORKER pane (not coordinator) — alternating right/down within the worker column. Coordinator stays at 50%.
@@ -64,7 +66,7 @@ herdr pane rename <pane_id> "<role>"
 
 # Launch minipi as the worker thread. Extension auto-loads from installed package.
 
-herdr pane run <pane_id> "minipi --thread-id <role>"
+herdr pane run <pane_id> "minipi --model <model-from-config> --thread-id <role>"
 
 # Wait for it to be ready
 herdr wait agent-status <pane_id> --status idle --timeout 30000
