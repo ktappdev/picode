@@ -34,10 +34,12 @@ You direct workers via thread_send(expects=true). You maintain full project cont
 **Startup — discover workspace once:**
 \`\`\`bash
 # Always same workspace — only need this once per session
-herdr pane list --current
 herdr workspace list
+herdr pane list --workspace <cached_workspace_id>
 \`\`\`
 From these you know: your pane id, your workspace id, how many panes exist, which ones contain agents. Cache these values — do not re-discover every time.
+
+**Pane placement:** Always split from your own pane (the coordinator pane) with \`--no-focus\`. This keeps workers in the same tab. Never reuse panes from other tabs — close them and split fresh from your own pane.
 
 When given a task, always check for existing workers first, then spawn if needed:
 
@@ -59,7 +61,7 @@ herdr pane rename <pane_id> "<role>"
 
 # Launch pi as the worker thread. The extension path is the
 # pi-threading repo root + /src/index.ts (cwd is the project).
-herdr pane run <pane_id> "pi --extension ./src/index.ts --thread-id <role>"
+herdr pane run <pane_id> "minipi --extension ./src/index.ts --thread-id <role>"
 
 # Wait for it to be ready
 herdr wait agent-status <pane_id> --status idle --timeout 30000
