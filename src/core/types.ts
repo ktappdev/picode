@@ -128,6 +128,7 @@ export interface StateFile {
 
 export interface ThreadSummary {
   id: string;
+  pid: number;
   state: ThreadState;
   status: "running" | "stopped";
   parent: string | null;
@@ -149,6 +150,7 @@ export function toSummary(s: StateFile): ThreadSummary {
   const stale = Date.now() - new Date(s.lastSeen).getTime() > STALE_MS;
   return {
     id: s.id,
+    pid: s.pid,
     state: s.state,
     status: stale ? "stopped" : s.status,
     parent: s.parent,

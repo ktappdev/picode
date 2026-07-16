@@ -13,6 +13,24 @@ import { createLocalFsAdapter } from "./adapter/local-fs";
  *  restored from the storage adapter at init, persisted on every change, kept
  *  fresh by the heartbeat, and live-drained by the inbox watcher. */
 
+/** Check whether a process with the given PID is still alive on this machine.
+ *  Signal 0 is a null signal — doesn't actually send anything, just checks
+ *  existence and permission.  Returns false for dead processes (ESRCH) and
+ *  for permission-denied processes (EPERM — likely a different user's, so
+ *  we can't claim it's stale). */
+function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e: unknown) {
+    if (e instanceof Error && (e as NodeJS.ErrnoException).code === "ESRCH") {
+      return false;
+    }
+    // EPERM or other — process exists but we can't signal it; treat as alive
+    return true;
+  }
+}
+
 const KNOWN_STATES: readonly ThreadState[] = [
   "idle",
   "thinking",
@@ -142,52 +160,90 @@ export function createThreadStore(
       }
 
       // Acquire init lock BEFORE checks to close the TOCTOU window between
-      // checking and persisting. fx openSync with 'wx' (exclusive create)
-      // fails with EEXIST if another process holds the lock — two threads
-      // can never simultaneously pass the duplicate-ID or singleton-coordinator
-      // checks and then both persist.
+      // checking and persisting. We write our PID into the lock file so a
+      // later process can detect a stale lock (process killed mid-init) and
+      // recover instead of leaving the workspace bricked.
       fs.mkdirSync(store.threadDir, { recursive: true });
       const lockPath = path.join(store.threadDir, "init.lock");
       let lockFd: number | null = null;
       try {
         lockFd = fs.openSync(lockPath, "wx");
+        // Write PID so stale-lock detection can verify liveness.
+        fs.writeSync(lockFd, String(process.pid));
       } catch (e: unknown) {
-        const msg = e instanceof Error && (e as NodeJS.ErrnoException).code === "EEXIST"
-          ? `Thread "${store.threadId}" is already starting (init.lock held). ` +
-            `Wait a moment and retry, or use a different --thread-id.`
-          : `Failed to acquire init lock for thread "${store.threadId}": ${String(e)}`;
-        throw new Error(msg);
-      }
-
-      // Duplicate thread ID enforcement: IDs must be unique across running threads.
-      // Check before first persist — if another thread with our ID is already running,
-      // block startup to prevent shared state file corruption.
-      {
-        const all = await store.listThreads();
-        const dup = all.find(t => t.id === store.threadId && t.status === "running");
-        if (dup) {
+        if (e instanceof Error && (e as NodeJS.ErrnoException).code === "EEXIST") {
+          // Lock file exists — check if it's stale (holder process died).
+          let stale = false;
+          try {
+            const content = fs.readFileSync(lockPath, "utf-8").trim();
+            const holderPid = parseInt(content, 10);
+            if (!Number.isNaN(holderPid) && !isPidAlive(holderPid)) {
+              stale = true;
+            }
+          } catch {
+            // Can't read lock file — treat as stale (malformed/unreadable).
+            stale = true;
+          }
+          if (stale) {
+            try { fs.unlinkSync(lockPath); } catch { /* best-effort */ }
+            // Retry: the lock was stale, now try to acquire it fresh.
+            lockFd = fs.openSync(lockPath, "wx");
+            fs.writeSync(lockFd, String(process.pid));
+          } else {
+            throw new Error(
+              `Thread "${store.threadId}" is already starting (init.lock held). ` +
+              `Wait a moment and retry, or use a different --thread-id.`
+            );
+          }
+        } else {
           throw new Error(
-            `Thread "${store.threadId}" already exists and is running. ` +
-            `Use a unique --thread-id (e.g. --thread-id ${store.threadId}-2).`
-          );
-        }
-      }
-
-      // Coordinator singleton enforcement: only one active coordinator per workspace
-      if (store.role === "coordinator") {
-        const threads = await store.listThreads();
-        const activeCoord = threads.find(
-          t => t.id !== store.threadId && t.role === "coordinator" && t.status === "running"
-        );
-        if (activeCoord) {
-          throw new Error(
-            `Coordinator "${activeCoord.id}" already exists. Cannot start another coordinator. ` +
-            `Use a different role (e.g. --thread-role worker).`
+            `Failed to acquire init lock for thread "${store.threadId}": ${String(e)}`
           );
         }
       }
 
       try {
+        // Duplicate thread ID enforcement: IDs must be unique across running threads.
+        // Check before first persist — if another thread with our ID is already running,
+        // block startup to prevent shared state file corruption.
+        // BUT also verify the PID is actually alive: a crashed process left behind
+        // "running" status in state.json is a stale artifact, not a real conflict.
+        {
+          const all = await store.listThreads();
+          const dup = all.find(t => t.id === store.threadId && t.status === "running");
+          if (dup) {
+            // If state.json includes the PID (Rev 10+), verify it's still alive.
+            // Dead PID + stale status → treat as dead, allow startup.
+            if (typeof dup.pid === "number" && !isPidAlive(dup.pid)) {
+              // Stale — the previous instance crashed. Proceed.
+            } else {
+              throw new Error(
+                `Thread "${store.threadId}" already exists and is running. ` +
+                `Use a unique --thread-id (e.g. --thread-id ${store.threadId}-2).`
+              );
+            }
+          }
+        }
+
+        // Coordinator singleton enforcement: only one active coordinator per workspace
+        if (store.role === "coordinator") {
+          const threads = await store.listThreads();
+          const activeCoord = threads.find(
+            t => t.id !== store.threadId && t.role === "coordinator" && t.status === "running"
+          );
+          if (activeCoord) {
+            // Stale check: if the coordinator PID is dead, it's not really running.
+            if (typeof activeCoord.pid === "number" && !isPidAlive(activeCoord.pid)) {
+              // Stale — the previous coordinator crashed. Proceed.
+            } else {
+              throw new Error(
+                `Coordinator "${activeCoord.id}" already exists. Cannot start another coordinator. ` +
+                `Use a different role (e.g. --thread-role worker).`
+              );
+            }
+          }
+        }
+
         try {
           store.sessionFile = ctx.sessionManager.getSessionFile() ?? null;
         } catch {
@@ -209,14 +265,19 @@ export function createThreadStore(
     async shutdown(reason: string) {
       store.stopHeartbeat();
       store.stopWatcher();
-      if (reason === "quit") {
-        // Deliberate resting states survive a clean exit (replies arrive in
-        // the durable inbox); only interrupted work reads as "stopped".
+      // Always mark as stopped — a stale "running" status from a crashed or
+      // killed process blocks restart until STALE_MS elapses or the PID
+      // check fires. The PID check handles crashes, but the first new launch
+      // after a clean exit (reason: "quit") needs the status updated too.
+      // Only deliberate resting states (done, on-hold) survive a clean exit.
+      if (reason !== "quit") {
+        store.state = "stopped";
+      } else {
         const preserved = new Set(["done", "on-hold"]);
         if (!preserved.has(store.state)) store.state = "stopped";
-        store.status = "stopped";
-        await store.persist();
       }
+      store.status = "stopped";
+      await store.persist();
     },
 
     async listThreads(): Promise<ThreadSummary[]> {
