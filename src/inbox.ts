@@ -1,6 +1,6 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { ThreadStore, Envelope, Urgency } from "./core/types";
-import { DEFAULT_OBLIGATION_DEADLINE_MS, STALE_MS } from "./core/types";
+import { STALE_MS } from "./core/types";
 import { mintEnvelopeId } from "./core/ids";
 import { nowIso } from "./core/time";
 
@@ -69,6 +69,9 @@ export interface Inbox {
   /** Push parts into this session as ONE user message (steer if any part is
    *  urgency=high). */
   inject(parts: Injection[], ctx: ExtensionContext): void;
+  /** Commit staged messages from claimed/ to processed/ — call after the
+   *  caller's inject() has safely queued the drained messages. */
+  finalizeDrain(): Promise<void>;
   /** False while an idle-time injection is in preflight or a compaction is
    *  running — drains and nudges wait (messages stay durable on disk). This
    *  is the §7.7 declare-and-shrink gate: we only claim envelopes when we
@@ -190,12 +193,9 @@ export function createInbox(store: ThreadStore, pi: ExtensionAPI): Inbox {
     }
 
     if (opts.expects) {
-      // Every expects send SHOULD carry a deadline; when the caller omits
-      // one the client MUST apply the fallback (§9.2) — without it,
-      // checkDeadlines never fires and a silent counterparty means zero
-      // automatic recovery.
-      const deadline =
-        opts.deadline ?? new Date(Date.now() + DEFAULT_OBLIGATION_DEADLINE_MS).toISOString();
+      // deadlineFromSeconds already applies the default, so deadline is
+      // always set for expects sends (§9.2).
+      const deadline = opts.deadline!;
       store.obligations.push({
         id,
         to,
@@ -327,11 +327,17 @@ export function createInbox(store: ThreadStore, pi: ExtensionAPI): Inbox {
     // disk; watcher/turn-end/heartbeat retry.
     if (!canInject()) return;
     const messages = await store.adapter.drainInbox(store.threadId);
+    if (messages.length === 0) return;
     const parts: Injection[] = [];
     for (const msg of messages) {
       parts.push(...(await deliver(msg, ctx)));
     }
     emit(parts, ctx, collect);
+    // Standalone path: inject() is synchronous (pi.sendUserMessage is queued
+    // before this returns), so finalize here. Collect path: the heartbeat
+    // caller finalizes after its own inject() — committing now would
+    // archive messages that haven't been injected yet.
+    if (!collect) await store.adapter.finalizeDrain(store.threadId);
   }
 
   async function checkDeadlines(ctx: ExtensionContext, collect?: Injection[]): Promise<void> {
@@ -368,6 +374,9 @@ export function createInbox(store: ThreadStore, pi: ExtensionAPI): Inbox {
     drainInbox,
     isTargetLive,
     checkDeadlines,
+    /** Commit staged messages to processed/ — call after the heartbeat's
+     *  inject() or any path that used a collect array. */
+    finalizeDrain: () => store.adapter.finalizeDrain(store.threadId),
     inject,
     canInject,
     noteCompactionStart,

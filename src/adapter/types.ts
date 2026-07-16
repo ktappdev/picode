@@ -27,9 +27,15 @@ export interface StorageAdapter {
    *  its `deliverAfter` (if present) has passed. */
   enqueueMessage(message: Envelope): Promise<void>;
   /** Claim and return all *due* pending messages for this thread (FIFO
-   *  order), atomically removing them from the pending set. Envelopes whose
-   *  `deliverAfter` is still in the future stay queued. */
+   *  order). Claimed messages move to a "claimed/" staging area — if the
+   *  process crashes after drain but before the caller processes them,
+   *  the next configure() drains claimed/ back to inbox (no at-most-once loss).
+   *  Envelopes whose `deliverAfter` is still in the future stay queued. */
   drainInbox(threadId: string): Promise<Envelope[]>;
+  /** Called after caller successfully processes and injects all drained
+   *  messages — moves them from claimed/ to processed/ (audit trail).
+   *  Messages not finalized before a crash are recovered at next configure(). */
+  finalizeDrain(threadId: string): Promise<void>;
   /** Live-drain trigger. Not a durability guarantee — cold-start drain via
    *  drainInbox() at session_start is what makes delivery durable. Returns
    *  a disposer. */

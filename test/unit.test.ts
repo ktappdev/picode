@@ -1704,6 +1704,9 @@ function createFakeAdapter(): StorageAdapter {
       );
       return due;
     },
+    async finalizeDrain(_id) {
+      // in-memory: no-op — drain already removed from inboxes array
+    },
     watchInbox() {
       return () => {};
     },
@@ -1929,12 +1932,13 @@ describe("state: restore rules (§11.2)", () => {
   it("done/stopped restore to idle; unknown legacy states settle to open", async () => {
     const adapter = createLocalFsAdapter();
     await adapter.configure(tmpDir);
-    await adapter.saveState("a", baseState("a", { state: "done" }));
+    await adapter.saveState("a", baseState("a", { state: "done", status: "stopped" }));
     // A state.json from a pre-Rev-8 file may carry a state this revision
     // no longer knows (e.g. "listening") — it must settle to open.
     await adapter.saveState("b", {
       ...baseState("b"),
       state: "listening" as unknown as StateFile["state"],
+      status: "stopped",
     });
 
     const stubPi = {
@@ -1971,6 +1975,7 @@ describe("state: restore rules (§11.2)", () => {
       "a",
       baseState("a", {
         state: "open",
+        status: "stopped",
         obligations: [{ id: "a/x", to: "bob", summary: "s", sentAt: new Date().toISOString() }],
         owed: [{ id: "boss/q", from: "boss", summary: "?", receivedAt: new Date().toISOString() }],
         barriers: [
@@ -1994,6 +1999,205 @@ describe("state: restore rules (§11.2)", () => {
     assert.strictEqual(store.obligations.length, 1);
     assert.strictEqual(store.owed.length, 1);
     assert.strictEqual(store.barriers.length, 1);
+  });
+});
+
+describe("state: init() enforcement", () => {
+  function mkPi(id?: string, role?: string) {
+    return {
+      sendUserMessage: () => {},
+      registerTool: () => {},
+      registerCommand: () => {},
+      getFlag: (name: string) => {
+        if (name === "thread-id" && id) return id;
+        if (name === "thread-role" && role) return role;
+        return undefined;
+      },
+      appendEntry: () => {},
+    } as unknown as ExtensionAPI;
+  }
+
+  function mkCtx(dir: string): ExtensionContext {
+    return {
+      cwd: dir,
+      ui: { setStatus: () => {} },
+      sessionManager: { getEntries: () => [], getSessionFile: () => undefined },
+    } as unknown as ExtensionContext;
+  }
+
+  it("role defaults to 'worker' when no --thread-role flag is given", async () => {
+    const adapter = createLocalFsAdapter();
+    await adapter.configure(tmpDir);
+    const store = createThreadStore(mkPi("new-thread"), adapter);
+    await store.init(tmpDir, mkCtx(tmpDir));
+    assert.strictEqual(store.role, "worker");
+  });
+
+  it("duplicate thread ID: init() throws when another running thread has the same ID", async () => {
+    const adapter = createLocalFsAdapter();
+    await adapter.configure(tmpDir);
+    await adapter.saveState(
+      "dup",
+      baseState("dup", { status: "running", lastSeen: new Date().toISOString() }),
+    );
+    const store = createThreadStore(mkPi("dup"), adapter);
+    await assert.rejects(
+      () => store.init(tmpDir, mkCtx(tmpDir)),
+      /already exists and is running/,
+    );
+  });
+
+  it("duplicate thread ID: init() succeeds when existing same-ID thread is stale/stopped", async () => {
+    const adapter = createLocalFsAdapter();
+    await adapter.configure(tmpDir);
+    await adapter.saveState(
+      "old",
+      baseState("old", {
+        status: "stopped",
+        lastSeen: new Date(Date.now() - STALE_MS - 1000).toISOString(),
+      }),
+    );
+    const store = createThreadStore(mkPi("old"), adapter);
+    await store.init(tmpDir, mkCtx(tmpDir));
+    assert.strictEqual(store.threadId, "old");
+  });
+
+  it("singleton coordinator: init() throws when a running coordinator exists", async () => {
+    const adapter = createLocalFsAdapter();
+    await adapter.configure(tmpDir);
+    await adapter.saveState(
+      "coord1",
+      baseState("coord1", {
+        role: "coordinator",
+        status: "running",
+        lastSeen: new Date().toISOString(),
+      }),
+    );
+    const store = createThreadStore(mkPi("coord2", "coordinator"), adapter);
+    await assert.rejects(
+      () => store.init(tmpDir, mkCtx(tmpDir)),
+      /Coordinator "coord1" already exists/,
+    );
+  });
+
+  it("singleton coordinator: init() succeeds when existing coordinator is stale/stopped", async () => {
+    const adapter = createLocalFsAdapter();
+    await adapter.configure(tmpDir);
+    await adapter.saveState(
+      "coord1",
+      baseState("coord1", {
+        role: "coordinator",
+        status: "stopped",
+        lastSeen: new Date(Date.now() - STALE_MS - 1000).toISOString(),
+      }),
+    );
+    const store = createThreadStore(mkPi("coord2", "coordinator"), adapter);
+    await store.init(tmpDir, mkCtx(tmpDir));
+    assert.strictEqual(store.role, "coordinator");
+  });
+
+  it("singleton coordinator: init() succeeds when no other coordinator exists", async () => {
+    const adapter = createLocalFsAdapter();
+    await adapter.configure(tmpDir);
+    const store = createThreadStore(mkPi("coord1", "coordinator"), adapter);
+    await store.init(tmpDir, mkCtx(tmpDir));
+    assert.strictEqual(store.role, "coordinator");
+    assert.strictEqual(store.threadId, "coord1");
+  });
+
+  it("shutdown preserves done/on-hold; interrupted states become stopped", async () => {
+    // done survives shutdown
+    const a1 = createLocalFsAdapter();
+    await a1.configure(tmpDir);
+    const s1 = createThreadStore(mkPi("done-thread"), a1);
+    await s1.init(tmpDir, mkCtx(tmpDir));
+    s1.state = "done";
+    await s1.persist();
+    await s1.shutdown("quit");
+    assert.strictEqual(s1.state, "done");
+    assert.strictEqual(s1.status, "stopped");
+
+    // on-hold survives shutdown
+    const a2 = createLocalFsAdapter();
+    const dir2 = mkdtempSync(join(tmpdir(), "pi-thread-unit-"));
+    try {
+      await a2.configure(dir2);
+      const s2 = createThreadStore(mkPi("held-thread"), a2);
+      await s2.init(dir2, mkCtx(dir2));
+      s2.state = "on-hold";
+      await s2.persist();
+      await s2.shutdown("quit");
+      assert.strictEqual(s2.state, "on-hold");
+      assert.strictEqual(s2.status, "stopped");
+    } finally {
+      rmSync(dir2, { recursive: true, force: true });
+    }
+
+    // open (interrupted) → stopped
+    const a3 = createLocalFsAdapter();
+    const dir3 = mkdtempSync(join(tmpdir(), "pi-thread-unit-"));
+    try {
+      await a3.configure(dir3);
+      const s3 = createThreadStore(mkPi("open-thread"), a3);
+      await s3.init(dir3, mkCtx(dir3));
+      s3.state = "open";
+      await s3.persist();
+      await s3.shutdown("quit");
+      assert.strictEqual(s3.state, "stopped");
+      assert.strictEqual(s3.status, "stopped");
+    } finally {
+      rmSync(dir3, { recursive: true, force: true });
+    }
+  });
+
+  it("init() restores obligations, owed, and barriers from previous state file", async () => {
+    const adapter = createLocalFsAdapter();
+    await adapter.configure(tmpDir);
+    await adapter.saveState(
+      "t1",
+      baseState("t1", {
+        status: "stopped",
+        obligations: [
+          { id: "t1/o1", to: "alice", summary: "task", sentAt: new Date().toISOString() },
+        ],
+        owed: [
+          { id: "boss/q1", from: "boss", summary: "review", receivedAt: new Date().toISOString() },
+        ],
+        barriers: [
+          { id: "b1", pending: ["t1/o1"], mode: "all", createdAt: new Date().toISOString() },
+        ],
+      }),
+    );
+    const store = createThreadStore(mkPi("t1"), adapter);
+    await store.init(tmpDir, mkCtx(tmpDir));
+    assert.strictEqual(store.obligations.length, 1);
+    assert.strictEqual(store.owed.length, 1);
+    assert.strictEqual(store.barriers.length, 1);
+    assert.strictEqual(store.obligations[0].id, "t1/o1");
+    assert.strictEqual(store.owed[0].id, "boss/q1");
+    assert.strictEqual(store.barriers[0].id, "b1");
+  });
+});
+
+describe("core: toSummary() stale marking", () => {
+  it("marks status as stopped when lastSeen is past STALE_MS", () => {
+    const fresh = toSummary(baseState("fresh", { lastSeen: new Date().toISOString() }));
+    assert.strictEqual(fresh.status, "running");
+    const stale = toSummary(
+      baseState("stale", { lastSeen: new Date(Date.now() - STALE_MS - 1000).toISOString() }),
+    );
+    assert.strictEqual(stale.status, "stopped");
+  });
+
+  it("stale status override does not mutate the stored state field", () => {
+    const s = toSummary(
+      baseState("ghost", {
+        state: "open",
+        lastSeen: new Date(Date.now() - STALE_MS - 5000).toISOString(),
+      }),
+    );
+    assert.strictEqual(s.state, "open");
+    assert.strictEqual(s.status, "stopped");
   });
 });
 

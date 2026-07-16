@@ -66,6 +66,13 @@ export function createRestateAdapter(opts: { url?: string }): StorageAdapter & J
       return thread(threadId).drainInbox();
     },
 
+    // Restate is transactional: drainInbox atomically removes messages from
+    // the persistent queue, so a crash after drain is no worse than a crash
+    // before — the RPC either committed or it didn't. No claimed/ staging needed.
+    async finalizeDrain(_threadId: string) {
+      // no-op: at-most-once is inherent in the RPC transaction boundary
+    },
+
     watchInbox(_threadId: string, cb: () => void): () => void {
       // No push-based watch across a network boundary — poll instead. Worse
       // live-latency than local fs.watch, same durability guarantee (the

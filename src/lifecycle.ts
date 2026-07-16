@@ -59,18 +59,30 @@ export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: I
         ctx.shutdown();
         return;
       }
-      throw e;
+      // Non-Error throwable (string, number, etc.) — notify and shutdown
+      // instead of re-throwing, which would crash pi.
+      ctx.ui.notify(String(e), "error");
+      ctx.shutdown();
+      return;
     }
 
-    // Defer initial drain to next tick
+    // Coordinator: read-only tool set. Filter against actual active tools
+    // so stale entries silently no-op. bash/edit/write are always excluded.
     if (store.role === "coordinator") {
       const active = pi.getActiveTools();
-      const readOnlyTools = active.filter(name =>
-        name.startsWith("thread_") ||
-        ["read", "bash", "grep", "glob", "ls", "find", "ripgrep", "rg", "thread_status", "thread_list", "thread_journal", "thread_send", "thread_wait", "thread_suspend", "thread_resume"].includes(name)
-      );
+      const ALLOWED = new Set([
+        "read",
+        "thread_send",
+        "thread_wait",
+        "thread_list",
+        "thread_status",
+        "thread_journal",
+        "thread_suspend",
+        "thread_resume",
+      ]);
+      const readOnlyTools = active.filter(name => ALLOWED.has(name));
       pi.setActiveTools(readOnlyTools);
-      console.log(`[thread] Coordinator mode: restricted to ${readOnlyTools.length} tools`);
+      console.log(`[thread] Coordinator mode: restricted to ${readOnlyTools.length} tools (${readOnlyTools.join(", ")})`);
     }
 
     // Defer initial drain to next tick — calling pi.sendUserMessage
@@ -89,6 +101,11 @@ export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: I
       await inbox.drainInbox(ctx, parts);
       await inbox.checkDeadlines(ctx, parts);
       inbox.inject(parts, ctx);
+      // Commit the drain's claimed/ → processed/ now that inject() has
+      // safely queued the messages — if we crash after inject(), pi
+      // handles its own internal queue; the adapter-level concern is the
+      // file move from claimed/ to processed/.
+      await inbox.finalizeDrain();
     });
   });
 

@@ -74,6 +74,24 @@ export function createLocalFsAdapter(): StorageAdapter & JournalAdapter {
     async configure(baseDir: string) {
       root = path.join(baseDir, ".thread", "threads");
       fs.mkdirSync(root, { recursive: true });
+      // Recover claimed/ messages left by a crashed process (§7.6 at-most-once):
+      // move them back to inbox so the next drain re-claims them.
+      if (fs.existsSync(root)) {
+        for (const d of fs.readdirSync(root, { withFileTypes: true })) {
+          if (!d.isDirectory()) continue;
+          const claimedDir = path.join(root, d.name, "inbox", "claimed");
+          if (!fs.existsSync(claimedDir)) continue;
+          const inbox = path.join(root, d.name, "inbox");
+          for (const f of fs.readdirSync(claimedDir)) {
+            if (!f.endsWith(".json")) continue;
+            try {
+              fs.renameSync(path.join(claimedDir, f), path.join(inbox, f));
+            } catch {
+              // race — harmless
+            }
+          }
+        }
+      }
     },
 
     async loadState(threadId: string): Promise<StateFile | undefined> {
@@ -147,6 +165,7 @@ export function createLocalFsAdapter(): StorageAdapter & JournalAdapter {
 
     async drainInbox(threadId: string): Promise<Envelope[]> {
       const dir = inboxDir(threadId);
+      const claimedDir = path.join(dir, "claimed");
       const processedDir = path.join(dir, "processed");
       let files: string[];
       try {
@@ -157,6 +176,7 @@ export function createLocalFsAdapter(): StorageAdapter & JournalAdapter {
       } catch {
         return [];
       }
+      fs.mkdirSync(claimedDir, { recursive: true });
       fs.mkdirSync(processedDir, { recursive: true });
       // Best-effort GC of the expired backlog, at most once per
       // PRUNE_INTERVAL_MS per thread, done *before* anything from this
@@ -179,8 +199,8 @@ export function createLocalFsAdapter(): StorageAdapter & JournalAdapter {
         // Not due yet (§6 deliverAfter): stays queued; a later drain
         // (heartbeat, boot) picks it up once the instant passes.
         if (msg.deliverAfter && new Date(msg.deliverAfter).getTime() > now) continue;
-        // Expired (Rev 10 §6 expiresAt): never delivered — claimed into
-        // processed/ as audit trail without being returned.
+        // Expired (Rev 10 §6 expiresAt): never delivered — moved directly
+        // to processed/ as audit trail without being returned.
         if (msg.expiresAt && new Date(msg.expiresAt).getTime() <= now) {
           try {
             fs.renameSync(full, path.join(processedDir, f));
@@ -189,16 +209,32 @@ export function createLocalFsAdapter(): StorageAdapter & JournalAdapter {
           }
           continue;
         }
-        // Rename before returning it as claimed: if the caller throws after
-        // this, the message is already moved and won't be redelivered.
+        // Move to claimed/ first — at-most-once: if the caller crashes
+        // before finalizeDrain, configure() recovers these back to inbox.
         try {
-          fs.renameSync(full, path.join(processedDir, f));
+          fs.renameSync(full, path.join(claimedDir, f));
         } catch {
           continue; // already claimed — shouldn't happen (single reader)
         }
         claimed.push(msg);
       }
       return claimed;
+    },
+
+    async finalizeDrain(threadId: string) {
+      const dir = inboxDir(threadId);
+      const claimedDir = path.join(dir, "claimed");
+      const processedDir = path.join(dir, "processed");
+      if (!fs.existsSync(claimedDir)) return;
+      fs.mkdirSync(processedDir, { recursive: true });
+      for (const f of fs.readdirSync(claimedDir)) {
+        if (!f.endsWith(".json")) continue;
+        try {
+          fs.renameSync(path.join(claimedDir, f), path.join(processedDir, f));
+        } catch {
+          // race — harmless
+        }
+      }
     },
 
     watchInbox(threadId: string, cb: () => void): () => void {

@@ -1,5 +1,6 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import * as crypto from "node:crypto";
+import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ThreadStore, ThreadState, ThreadSummary, StateFile } from "./core/types";
 import { HEARTBEAT_MS, CLIENT_CAPABILITIES } from "./core/types";
@@ -140,6 +141,24 @@ export function createThreadStore(
         store.role = store.role ?? s.role ?? "worker";
       }
 
+      // Acquire init lock BEFORE checks to close the TOCTOU window between
+      // checking and persisting. fx openSync with 'wx' (exclusive create)
+      // fails with EEXIST if another process holds the lock — two threads
+      // can never simultaneously pass the duplicate-ID or singleton-coordinator
+      // checks and then both persist.
+      fs.mkdirSync(store.threadDir, { recursive: true });
+      const lockPath = path.join(store.threadDir, "init.lock");
+      let lockFd: number | null = null;
+      try {
+        lockFd = fs.openSync(lockPath, "wx");
+      } catch (e: unknown) {
+        const msg = e instanceof Error && (e as NodeJS.ErrnoException).code === "EEXIST"
+          ? `Thread "${store.threadId}" is already starting (init.lock held). ` +
+            `Wait a moment and retry, or use a different --thread-id.`
+          : `Failed to acquire init lock for thread "${store.threadId}": ${String(e)}`;
+        throw new Error(msg);
+      }
+
       // Duplicate thread ID enforcement: IDs must be unique across running threads.
       // Check before first persist — if another thread with our ID is already running,
       // block startup to prevent shared state file corruption.
@@ -169,14 +188,22 @@ export function createThreadStore(
       }
 
       try {
-        store.sessionFile = ctx.sessionManager.getSessionFile() ?? null;
-      } catch {
-        store.sessionFile = null;
+        try {
+          store.sessionFile = ctx.sessionManager.getSessionFile() ?? null;
+        } catch {
+          store.sessionFile = null;
+        }
+        store.startedAt = nowIso();
+        store.status = "running";
+        await store.persist();
+        ctx.ui.setStatus("thread", `[${store.threadId}:${store.state}]`);
+      } finally {
+        // Always release the init lock, even if persist or checks threw.
+        if (lockFd !== null) {
+          fs.closeSync(lockFd);
+          try { fs.unlinkSync(lockPath); } catch { /* best-effort */ }
+        }
       }
-      store.startedAt = nowIso();
-      store.status = "running";
-      await store.persist();
-      ctx.ui.setStatus("thread", `[${store.threadId}:${store.state}]`);
     },
 
     async shutdown(reason: string) {
