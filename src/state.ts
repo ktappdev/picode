@@ -131,7 +131,7 @@ export function createThreadStore(
       }
 
       const flagParent = pi.getFlag("thread-parent");
-      store.parent = typeof flagParent === "string" && flagParent ? flagParent : null;
+      store.parent = typeof flagParent === "string" && flagParent ? flagParent : (store.threadId !== "coordinator" ? "coordinator" : null);
       const flagRole = pi.getFlag("thread-role");
       if (typeof flagRole === "string" && flagRole) {
         store.role = flagRole;
