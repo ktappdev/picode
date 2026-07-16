@@ -139,8 +139,9 @@ export function createThreadStore(
         store.role = "coordinator";
       } else {
         // Auto-detect worker subtype from thread-id if it matches a known role
-        const KNOWN_ROLES = new Set(["builder", "reviewer", "scout", "designer", "explorer", "tester"]);
-        store.role = KNOWN_ROLES.has(store.threadId) ? store.threadId : "worker";
+        const KNOWN_ROLES = ["builder", "reviewer", "scout", "designer", "explorer", "tester"];
+        const prefix = KNOWN_ROLES.find(r => store.threadId === r || store.threadId.startsWith(r + "-") || store.threadId.startsWith(r + "_") || store.threadId.startsWith(r + "."));
+        store.role = prefix ?? "worker";
       }
 
       store.threadDir = path.join(store.threadsRootDir, store.threadId);
