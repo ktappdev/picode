@@ -42,7 +42,7 @@ From these you know: your pane id, your workspace id, how many panes exist, whic
 
 **Pane placement:** Always split from your own pane (the coordinator pane) with \`--no-focus\`. This keeps workers in the same tab. Never reuse panes from other tabs — close them and split fresh from your own pane.
 
-**Layout:** Herdr splits 50/50 with no resize. Keep coordinator at >=50% space. Alternate split directions — first worker split right, second split down, third right again. Workers share remaining space equally.
+**Layout:** Herdr splits 50/50 with no resize. Keep coordinator at >=50% space. **First worker:** split coordinator right → coordinator gets left 50%, worker column gets right 50%. **Additional workers:** split the most recent WORKER pane (not coordinator) — alternating right/down within the worker column. Coordinator stays at 50%.
 
 When given a task, always check for existing workers first, then spawn if needed:
 
