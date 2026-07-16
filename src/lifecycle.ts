@@ -3,6 +3,7 @@ import type { ThreadStore, ThreadState } from "./core/types";
 import type { Inbox, Injection } from "./inbox";
 import { threadModelPrompt } from "./core/system-prompt";
 import { journalMode, shouldJournal } from "./journal";
+import * as path from "node:path";
 
 /** Wiring into pi's event stream: state transitions across the turn cycle,
  *  the silent-debtor nudge, journal cadence triggers, and the thread-model
@@ -64,6 +65,17 @@ export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: I
       ctx.ui.notify(String(e), "error");
       ctx.shutdown();
       return;
+    }
+
+    // Coordinator must run inside herdr
+    if (store.role === "coordinator" && process.env.HERDR_ENV !== "1") {
+      ctx.ui.notify("Coordinator must run inside herdr (HERDR_ENV=1). Shutting down.", "error");
+      ctx.shutdown();
+      return;
+    }
+
+    if (store.role === "coordinator") {
+      console.log(`[thread] Coordinator started. Models config: ${path.join(ctx.cwd, ".thread", "models.json")}`);
     }
 
     // Read-only roles: coordinator + read-only subtypes (reviewer, scout,

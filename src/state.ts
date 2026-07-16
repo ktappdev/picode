@@ -144,6 +144,24 @@ export function createThreadStore(
         store.role = prefix ?? "worker";
       }
 
+      // Auto-create default models config for coordinator
+      if (store.role === "coordinator") {
+        const modelsPath = path.join(cwd, ".thread", "models.json");
+        if (!fs.existsSync(modelsPath)) {
+          const defaultModels = {
+            builder: "deepseek/deepseek-v4-pro",
+            reviewer: "deepseek/deepseek-v4-pro",
+            tester: "deepseek/deepseek-v4-pro",
+            designer: "deepseek/deepseek-v4-pro",
+            explorer: "deepseek/deepseek-v4-flash",
+            scout: "deepseek/deepseek-v4-flash",
+            default: "deepseek/deepseek-v4-flash",
+          };
+          fs.writeFileSync(modelsPath, JSON.stringify(defaultModels, null, 2) + "\n");
+          console.log(`[thread] Default models written to ${modelsPath}`);
+        }
+      }
+
       store.threadDir = path.join(store.threadsRootDir, store.threadId);
 
       // Restore previous state if present. Debts and barriers are durable
