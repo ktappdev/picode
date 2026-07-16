@@ -58,7 +58,7 @@ Then run \`thread_list\` to cross-check thread identities and roles.
 **Spawning a worker:**
 \`\`\`bash
 # Split a pane (direction based on layout — right for wide, down for tall)
-herdr pane split --current --direction right --no-focus
+herdr pane split <your-pane-id> --direction right --no-focus
 # Read the returned pane_id from JSON, then:
 herdr pane rename <pane_id> "<role>"
 
