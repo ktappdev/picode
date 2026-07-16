@@ -25,19 +25,76 @@ pi -e git:github.com/OFRBG/pi-threading@main --thread-id my-thread
 Start any number of pi processes in the same working directory, each with a unique `--thread-id`:
 
 ```bash
-# Terminal 1
-cd ~/project
-pi --thread-id coordinator
+# Coordinator (role auto-detected from id)
+minipi --thread-id coordinator
 
-# Terminal 2
-cd ~/project
-pi --thread-id worker-a
+# Workers (role + parent auto-detected from id)
+minipi --thread-id builder
+minipi --thread-id explorer
+minipi --thread-id tester
 
-# Terminal 3
-pi --thread-id worker-b
+# Prefix matching: builder-1 → role "builder"
+minipi --thread-id builder-1
+minipi --thread-id reviewer-a
+
+# Generic worker: any id not matching a known role
+minipi --thread-id my-worker
 ```
 
+`--thread-role` and `--thread-parent` are now optional. Role is auto-detected from `--thread-id` (exact match or prefix: `builder-1` → `builder`). Parent auto-defaults to `coordinator` for non-coordinator threads.
+
 Threads share state via `.thread/threads/<id>/` in the project directory. Each thread gets a journal, a state file, and an inbox for cross-thread envelopes.
+
+## Worker Roles
+
+Each thread has a role that shapes its system prompt. The role is auto-detected from `--thread-id`:
+
+| Role | Subtype | Description |
+|------|---------|-------------|
+| `coordinator` | — | Directs workers, delegates tasks, maintains project context. Cannot write/edit files. |
+| `builder` | Worker | Implements code changes, edits files, runs type checks. |
+| `reviewer` | Worker | Reviews diffs, audits for bugs/security/quality. Read-only. |
+| `scout` / `explorer` | Worker | Explores codebase, finds files, answers architecture questions. Read-only. |
+| `tester` | Worker | Writes and runs tests, reproduces bugs, checks coverage. |
+| `designer` | Worker | Designs UI specs for builder implementation. Read-only. |
+
+Prefix matching: `builder-1`, `builder-a`, `builder_foo`, `builder.task` all resolve to role `builder`. Any id that doesn't match a known role (or prefix) defaults to a generic `worker` role with base worker rules only.
+
+## Worker Models
+
+Override which LLM model each worker role uses via `.thread/models.json`:
+
+```json
+{
+  "builder": "anthropic/claude-sonnet-4",
+  "reviewer": "anthropic/claude-haiku-4",
+  "explorer": "anthropic/claude-haiku-4",
+  "default": "anthropic/claude-sonnet-4"
+}
+```
+
+- Roles match by prefix (e.g., `builder` key matches `builder-1`, `builder-a`)
+- Falls back to `"default"` key, then to minipi's default model
+- Coordinator reads this file on startup and passes the model to each worker spawn command
+- Human operator can manage via slash command:
+
+| Command | Effect |
+|---------|--------|
+| `/thread-models` | Show current config |
+| `/thread-models builder anthropic/claude-sonnet-4` | Set model for a role |
+| `/thread-models --reset` | Delete file, restore defaults |
+
+## Coordinator Mode
+
+When a thread has role `coordinator` (auto-detected from `--thread-id coordinator`):
+
+- **Write/edit tools are disabled** — coordinator reads, searches, and delegates only
+- **Bash is read-only** — `ls`, `grep`, `find`, `cat`, plus `herdr` commands for pane management
+- **Auto-spawns workers via [herdr](https://github.com/earendil-works/herdr)** — a terminal multiplexer that manages panes and tabs
+- **Pane reuse** — checks existing panes first, reuses idle/done workers instead of spawning duplicates
+- **Layout** — spawns workers in the same tab, 50/50 split (coordinator left, workers stacked in right column)
+- **Model config** — reads `.thread/models.json` for per-role model overrides when spawning
+- **Self-improving** — updates its own system prompt (`src/core/system-prompt.ts`) when it discovers gaps in rules, workflow, or defaults during operation
 
 ## The message model
 
@@ -86,12 +143,13 @@ Messages arrive as `[<kind> from <sender> #<id>]` — kind (request/reply/reply+
 | `/thread-send <to> <body>` | Send a high-urgency note to another thread |
 | `/thread-suspend`          | Mark On Hold                               |
 | `/thread-resume`           | Resume from On Hold                        |
+| `/thread-models`           | Show/set/reset worker model config         |
 
 ## Flags
 
 - `--thread-id <id>` — stable identity for this thread (e.g., `coordinator`, `worker-a`); also the opt-in trigger — omit it and the extension does nothing
-- `--thread-parent <id>` — parent thread id, the escalation target ("I'm stuck" → request to parent at high urgency)
-- `--thread-role <role>` — role label, targetable via `thread_send to="role:<role>"`
+- `--thread-role <role>` — role label, targetable via `thread_send to="role:<role>"`. Optional — auto-detected from `--thread-id` (exact match or prefix: `builder-1` → `builder`). Known roles: coordinator, builder, reviewer, scout/explorer, tester, designer. Unknown ids default to `worker`.
+- `--thread-parent <id>` — parent thread id, the escalation target ("I'm stuck" → request to parent at high urgency). Optional — auto-defaults to `coordinator` for non-coordinator threads.
 - `--thread-journal <turn|done|off>` — journal cadence (default `turn`; each entry is one forked model call, rate-limited to one entry per ~2 minutes of same-task tool turns, plus a wrap-up entry when a run ends with unjournaled work; structural changes — new obligations, barriers — always journal immediately)
 - `--thread-journal-model <model>` — model for the journal fork (e.g. `deepseek/deepseek-chat` to keep entries cheap). Default: the thread's own model. A pinned model must resolve on the machine the thread runs on, or journaling fails (loudly, on stderr)
 - `--thread-storage <local|restate>` — storage backend (default `local`, the filesystem; see [Running with the Restate adapter](#running-with-the-restate-adapter))
