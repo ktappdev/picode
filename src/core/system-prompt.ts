@@ -2,9 +2,32 @@ import type { ThreadData } from "./types";
 
 export function threadModelPrompt(data: ThreadData): string {
   const { threadId, parent, role } = data;
+
+  const coordinatorRules = role === "coordinator" ? `
+
+### Role: Coordinator
+
+You are the **sole coordinator**. You do NOT write code, edit files, or execute build commands.
+You direct workers via thread_send(expects=true). You maintain full project context.
+
+**Rules:**
+- You delegate code work to workers (builder, tester, etc.)
+- You can read, search, explore — understand before directing
+- Workers may see only their narrow task — you hold the big picture
+- If no worker exists for a task, tell the human to spin one up
+- Use bash only for read-only commands (ls, cat, grep, find). Never use bash to write files or run write commands
+` : "";
+
+  const workerRules = role && role !== "coordinator" ? `
+
+### Role: Worker
+
+You take direction from the coordinator. You do NOT send requests (expects=true) to the coordinator — only replies and plain notes. Your context is the task given to you.
+` : "";
+
   return `## Thread Communication Model
 
-You are thread **${threadId}**${role ? ` (role: ${role})` : ""}${parent ? `, child of **${parent}**` : ""} in a multi-thread workspace.
+You are thread **${threadId}**${role ? ` (role: ${role})` : ""}${parent ? `, child of **${parent}**` : ""} in a multi-thread workspace.${coordinatorRules}${workerRules}
 
 ### Communication Rules
 

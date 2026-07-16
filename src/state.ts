@@ -140,6 +140,20 @@ export function createThreadStore(
         store.role = store.role ?? s.role ?? null;
       }
 
+      // Coordinator singleton enforcement: only one active coordinator per workspace
+      if (store.role === "coordinator") {
+        const threads = await store.listThreads();
+        const activeCoord = threads.find(
+          t => t.id !== store.threadId && t.role === "coordinator" && t.status === "running"
+        );
+        if (activeCoord) {
+          throw new Error(
+            `Coordinator "${activeCoord.id}" already exists. Cannot start another coordinator. ` +
+            `Use a different role (e.g. --thread-role worker).`
+          );
+        }
+      }
+
       try {
         store.sessionFile = ctx.sessionManager.getSessionFile() ?? null;
       } catch {

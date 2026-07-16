@@ -53,6 +53,17 @@ export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: I
 
     await store.init(ctx.cwd, ctx);
 
+    // Defer initial drain to next tick
+    if (store.role === "coordinator") {
+      const active = pi.getActiveTools();
+      const readOnlyTools = active.filter(name =>
+        name.startsWith("thread_") ||
+        ["read", "bash", "grep", "glob", "ls", "find", "ripgrep", "rg", "thread_status", "thread_list", "thread_journal", "thread_send", "thread_wait", "thread_suspend", "thread_resume"].includes(name)
+      );
+      pi.setActiveTools(readOnlyTools);
+      console.log(`[thread] Coordinator mode: restricted to ${readOnlyTools.length} tools`);
+    }
+
     // Defer initial drain to next tick — calling pi.sendUserMessage
     // synchronously from session_start deadlocks turn scheduling.
     setImmediate(() => void inbox.drainInbox(ctx));

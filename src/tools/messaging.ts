@@ -115,6 +115,22 @@ export function registerMessagingTools(pi: ExtensionAPI, store: ThreadStore, inb
         );
       }
 
+      // Coordinator hierarchy: workers cannot send NEW requests to coordinator
+      // (replies with re=<id> are allowed, even with expects=true for follow-ups)
+      if (expects && !params.re) {
+        const threads = await store.listThreads();
+        const coordTargets = targets.filter(t => {
+          const th = threads.find(x => x.id === t);
+          return th?.role === "coordinator";
+        });
+        if (coordTargets.length > 0 && store.role !== "coordinator") {
+          return err(
+            `Workers cannot direct the coordinator. Only the coordinator delegates work. ` +
+            `Reply to the coordinator with re=<id>, or send a plain note instead of setting expects=true.`
+          );
+        }
+      }
+
       // Soft warning, not a hard failure (§9.1): the discharge gate in the
       // engine is what actually protects the ledger — this is the send-side
       // half of the silent-debtor nudge, catching misdirected replies before
