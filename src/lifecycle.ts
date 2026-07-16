@@ -51,7 +51,16 @@ export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: I
       return;
     }
 
-    await store.init(ctx.cwd, ctx);
+    try {
+      await store.init(ctx.cwd, ctx);
+    } catch (e) {
+      if (e instanceof Error) {
+        ctx.ui.notify(e.message, "error");
+        ctx.shutdown();
+        return;
+      }
+      throw e;
+    }
 
     // Defer initial drain to next tick
     if (store.role === "coordinator") {
