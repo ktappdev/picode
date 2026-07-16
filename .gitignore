@@ -2,7 +2,8 @@ node_modules/
 *.tgz
 .env
 .pi/
-.thread/
+.thread/*
+!.thread/models.json
 live-workspace/
 package-lock.json
 PROTOCOL-FORMALISM.md
