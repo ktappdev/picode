@@ -147,10 +147,11 @@ export function createThreadStore(
         const all = await store.listThreads();
         const dup = all.find(t => t.id === store.threadId && t.status === "running");
         if (dup) {
-          throw new Error(
+          console.error(
             `Thread "${store.threadId}" already exists and is running. ` +
             `Use a unique --thread-id (e.g. --thread-id ${store.threadId}-2).`
           );
+          process.exit(1);
         }
       }
 
@@ -161,10 +162,11 @@ export function createThreadStore(
           t => t.id !== store.threadId && t.role === "coordinator" && t.status === "running"
         );
         if (activeCoord) {
-          throw new Error(
+          console.error(
             `Coordinator "${activeCoord.id}" already exists. Cannot start another coordinator. ` +
             `Use a different role (e.g. --thread-role worker).`
           );
+          process.exit(1);
         }
       }
 
