@@ -107,7 +107,7 @@ export interface StateFile {
   pid: number;
   cwd: string;
   parent: string | null;
-  role: string | null;
+  role: string;
   sessionFile: string | null;
   state: ThreadState;
   status: "running" | "stopped";
@@ -131,7 +131,7 @@ export interface ThreadSummary {
   state: ThreadState;
   status: "running" | "stopped";
   parent: string | null;
-  role: string | null;
+  role: string;
   lastSeen: string;
   /** Coordination load, so observers can see who is waiting on what without
    *  reading each thread's full state: sent-side debts... */
@@ -152,7 +152,7 @@ export function toSummary(s: StateFile): ThreadSummary {
     state: s.state,
     status: stale ? "stopped" : s.status,
     parent: s.parent,
-    role: s.role ?? null,
+    role: s.role ?? "worker",
     lastSeen: s.lastSeen,
     obligations: s.obligations?.length ?? 0,
     owed: s.owed?.length ?? 0,
@@ -184,7 +184,7 @@ export interface ThreadData {
   threadDir: string;
   threadsRootDir: string;
   parent: string | null;
-  role: string | null;
+  role: string;
   sessionFile: string | null;
   startedAt: string;
   state: ThreadState;

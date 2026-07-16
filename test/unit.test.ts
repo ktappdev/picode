@@ -1509,7 +1509,7 @@ function baseState(id: string, overrides: Partial<StateFile> = {}): StateFile {
     pid: 1,
     cwd: "/virtual",
     parent: null,
-    role: null,
+    role: "worker",
     sessionFile: null,
     state: "open",
     status: "running",

@@ -36,7 +36,7 @@ export function createThreadStore(
     threadDir: "",
     threadsRootDir: "",
     parent: null,
-    role: null,
+    role: "worker",
     sessionFile: null,
     startedAt: "",
     state: "idle",
@@ -114,7 +114,7 @@ export function createThreadStore(
       const flagParent = pi.getFlag("thread-parent");
       store.parent = typeof flagParent === "string" && flagParent ? flagParent : null;
       const flagRole = pi.getFlag("thread-role");
-      store.role = typeof flagRole === "string" && flagRole ? flagRole : null;
+      store.role = typeof flagRole === "string" && flagRole ? flagRole : "worker";
 
       store.threadDir = path.join(store.threadsRootDir, store.threadId);
 
@@ -137,7 +137,21 @@ export function createThreadStore(
               : "open";
         store.holdReason = store.state === "on-hold" ? (s.holdReason ?? null) : null;
         store.parent = store.parent ?? s.parent ?? null;
-        store.role = store.role ?? s.role ?? null;
+        store.role = store.role ?? s.role ?? "worker";
+      }
+
+      // Duplicate thread ID enforcement: IDs must be unique across running threads.
+      // Check before first persist — if another thread with our ID is already running,
+      // block startup to prevent shared state file corruption.
+      {
+        const all = await store.listThreads();
+        const dup = all.find(t => t.id === store.threadId && t.status === "running");
+        if (dup) {
+          throw new Error(
+            `Thread "${store.threadId}" already exists and is running. ` +
+            `Use a unique --thread-id (e.g. --thread-id ${store.threadId}-2).`
+          );
+        }
       }
 
       // Coordinator singleton enforcement: only one active coordinator per workspace
