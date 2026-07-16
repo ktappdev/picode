@@ -53,7 +53,7 @@ herdr pane rename <pane_id> "<role>"
 
 # Launch pi as the worker thread. The extension path is the
 # pi-threading repo root + /src/index.ts (cwd is the project).
-herdr pane run <pane_id> "pi --thread-id <role> --thread-role <role> --thread-parent coordinator --extension $PWD/src/index.ts --thread-journal off"
+herdr pane run <pane_id> "pi --thread-id <role> --thread-parent coordinator"
 
 # Wait for it to be ready
 herdr wait agent-status <pane_id> --status idle --timeout 30000

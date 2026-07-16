@@ -133,7 +133,15 @@ export function createThreadStore(
       const flagParent = pi.getFlag("thread-parent");
       store.parent = typeof flagParent === "string" && flagParent ? flagParent : null;
       const flagRole = pi.getFlag("thread-role");
-      store.role = typeof flagRole === "string" && flagRole ? flagRole : "worker";
+      if (typeof flagRole === "string" && flagRole) {
+        store.role = flagRole;
+      } else if (store.threadId === "coordinator") {
+        store.role = "coordinator";
+      } else {
+        // Auto-detect worker subtype from thread-id if it matches a known role
+        const KNOWN_ROLES = new Set(["builder", "reviewer", "scout", "designer", "explorer", "tester"]);
+        store.role = KNOWN_ROLES.has(store.threadId) ? store.threadId : "worker";
+      }
 
       store.threadDir = path.join(store.threadsRootDir, store.threadId);
 
