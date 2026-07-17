@@ -33,7 +33,7 @@ import type {
 import { createThreadStore } from "../src/state";
 import { createInbox } from "../src/inbox";
 import type { Injection } from "../src/inbox";
-import { registerLifecycle } from "../src/lifecycle";
+import { registerLifecycle, computeTps } from "../src/lifecycle";
 import { registerTools } from "../src/tools/index";
 import { registerCommands } from "../src/commands";
 import {
@@ -2413,5 +2413,56 @@ describe("commands: /thread-journal", () => {
     h.store.threadId = "";
     await callCommand(h, "/thread-journal", "status");
     assert.match(h.notifications[0].text, /hasn't opted into picode/);
+  });
+});
+
+describe("lifecycle: footer tps (computeTps)", () => {
+  // Anchor scenario from the bug report: output=100, stream=1000ms → 100 t/s.
+  // The old code used message.timestamp (set at partial creation, ~50ms
+  // after turn_start) as the end time, giving 100/0.05s = 2000 t/s. With
+  // the real end time from message_end, the same inputs now report 100.
+  it("100 output tokens over 1000ms → ' 100t/s'", () => {
+    const t0 = 1_000_000_000_000;
+    const rate = computeTps(t0, t0 + 1000, 0, 100);
+    assert.equal(rate, " 100t/s");
+  });
+
+  it("5000 output tokens over 2000ms → ' 2500t/s'", () => {
+    const t0 = 1_000_000_000_000;
+    const rate = computeTps(t0, t0 + 2000, 0, 5000);
+    assert.equal(rate, " 2500t/s");
+  });
+
+  it("isolates this turn's output from the cumulative branch total", () => {
+    // Prior turn produced 40k output; this turn adds 10k. Without the
+    // outputAtTurnStart subtraction, we'd report 50k/1s = 50000 t/s.
+    const t0 = 1_000_000_000_000;
+    const rate = computeTps(t0, t0 + 1000, 40_000, 50_000);
+    assert.equal(rate, " 10000t/s");
+  });
+
+  it("returns empty string when turn_start hasn't fired (fresh session)", () => {
+    assert.equal(computeTps(0, 0, 0, 0), "");
+    assert.equal(computeTps(0, 1_000_000_000_000, 0, 100), "");
+  });
+
+  it("returns empty string when message_end hasn't fired yet", () => {
+    // turn_start set, but no assistant message has finished.
+    const t0 = 1_000_000_000_000;
+    assert.equal(computeTps(t0, 0, 0, 100), "");
+  });
+
+  it("returns empty string when this turn produced no output", () => {
+    // Tool-only turn: assistant output is unchanged from turn_start.
+    const t0 = 1_000_000_000_000;
+    assert.equal(computeTps(t0, t0 + 1000, 100, 100), "");
+  });
+
+  it("guards against negative/zero elapsed time", () => {
+    const t0 = 1_000_000_000_000;
+    // endTime < startTime (clock skew / wrong order) → no rate.
+    assert.equal(computeTps(t0, t0 - 1, 0, 100), "");
+    // endTime == startTime → no rate (would be Infinity).
+    assert.equal(computeTps(t0, t0, 0, 100), "");
   });
 });
