@@ -128,12 +128,83 @@ From these you know: your pane id, your workspace id, how many panes exist, whic
 
 **Pane placement:** Always split from your own pane (the coordinator pane) with \`--no-focus\`. This keeps workers in the same tab. Never reuse panes from other tabs — close them and split fresh from your own pane.
 
-**Layout:** Adaptive based on caller pane aspect ratio (per herdr skill: "split a wide pane to the right and a narrow or tall pane down"). Herdr splits halve the longer dimension, bringing the new pane closer to square. Coordinator stays at >=50% of the original screen — workers are always siblings of the coordinator (or the most recent worker), never stacked deep.
-- **First worker:** split coordinator right (coord always 50% left, worker area 50% right)
-- **Subsequent workers:** query the most recent worker pane's rect, split the LONGER dimension — wide → right, tall/narrow → down
-- Use \`herdr pane layout --pane <id>\` to get width/height; \`jq\` to parse
-- If \`herdr pane layout\` fails (older herdr, RPC not available), fall back to \`--direction right\`
-- **Pane layout round-robin.** After 2 consecutive right-splits, switch to a down-split for the next worker. Pattern: right, right, down, right, right, down, ... This keeps worker panes >=50 cols wide and stacks overflow workers vertically instead of squeezing them. If the most recent worker pane is already <50 cols wide, split down instead of right regardless of round-robin position. Reasoning: 3+ right-splits produce ≤30-col panes which are unusable for code work; down-splits give the existing column more width and stack the new worker above/below.
+**Pane Layout Algorithm**
+
+**Rule:** Never split the coordinator pane after initial setup. All subsequent splits happen on worker panes.
+
+**Split Queue:** Maintain a queue of panes to split, each with a direction (V or H).
+
+**Initial Setup:**
+1. Split coordinator right → worker area (first pane)
+2. Initialize queue: [(worker_pane, "down")]
+
+**When spawning a new worker:**
+1. Dequeue first entry: (pane_id, direction)
+2. Split pane_id in direction → creates new_pane
+3. Compute opposite direction: "right" if direction was "down", else "down"
+4. Enqueue both: (pane_id, opposite) and (new_pane, opposite)
+5. Assign task to new_pane
+
+**Layout Pattern:**
+\`\`\`plaintext
+Step 1: V split coordinator → W1
++----------+-------+
+|          |       |
+| coord    |  W1   |
+|          |       |
++----------+-------+
+
+Step 2: H split W1 → W1 (top), W2 (bottom)
++----------+-------+
+|          | W1    |
+| coord    +-------+
+|          | W2    |
++----------+-------+
+
+Step 3: V split W1 → W1 (left), W3 (right)
++----------+----+--+
+|          | W3 |W1|
+| coord    +----+  |
+|          | W2    |
++----------+-------+
+
+Step 4: V split W2 → W2 (left), W4 (right)
++----------+----+--+
+|          | W3 |W1|
+| coord    +----+--+
+|          | W4 |W2|
++----------+----+--+
+
+Step 5: H split W3 → W3 (top), W5 (bottom)
++----------+----+--+
+|          | W5 |  |
+|          +----+W1|
+| coord    | W3 |  |
+|          +----+--+
+|          | W4 |W2|
++----------+----+--+
+
+Step 6: H split W4 → W4 (top), W6 (bottom)
++----------+----+--+
+|          | W5 |  |
+|          +----+W1|
+| coord    | W3 |  |
+|          +----+--+
+|          | W6 |  |
+|          +----+W2|
+|          | W4 |  |
++----------+----+--+
+\`\`\`
+
+**Properties:**
+- Coordinator stays at full height on the left
+- Workers tile on the right in a grid pattern
+- Grid expands evenly (balanced aspect ratios)
+- Predictable layout (easy to reason about)
+- Works for any number of workers
+
+**For auto-splits (beyond initial pattern):**
+Continue the queue pattern — it naturally fills the next available slot.
 
 When given a task, always check for existing workers first, then spawn if needed:
 
