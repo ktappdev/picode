@@ -6,9 +6,9 @@ All notable changes to picode are documented here. Format follows [Keep a Change
 
 ### Added
 
-- **Strict-reply contract for all worker subtypes** — every worker prompt (builder, reviewer, scout, explorer, designer, tester, bug-hunter) now includes an explicit communication contract block: always reply to coordinator requests, report results, then await next task. Prevents silent workers from dropping tasks.
+- **Strict-reply contract for all worker subtypes** — `WORKER_BASE_RULES` in `src/core/system-prompt.ts` now leads with a "Communication contract" block reminding every worker (builder, reviewer, scout, explorer, designer, tester, bug-hunter) that they must reply via `thread_send` with `re=<id>`. Plain text output in a worker's pane reaches only the human user, not the coordinator.
 
-- **Silent-recovery coordinator rule** — coordinator now has explicit guidance for detecting and recovering from silent workers: check `thread_status` for owed replies, re-send if no response within deadline window.
+- **Silent-recovery coordinator rule** — COORDINATOR_RULES now includes "Worker silent? Check their pane": if a worker hasn't sent a `thread_send` reply within 5–10 minutes, the coordinator should read the worker's pane output (visible to the human user) to find any plain-text reply, then either accept it or resend the request explicitly reminding the worker to use `thread_send`.
 
 ## [0.5.12] — 2026-07-17
 
