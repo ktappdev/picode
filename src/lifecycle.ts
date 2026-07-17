@@ -4,6 +4,7 @@ import type { Inbox, Injection } from "./inbox";
 import { threadModelPrompt } from "./core/system-prompt";
 import { journalMode, shouldJournal } from "./journal";
 import { roleEmoji } from "./core/roles";
+import { purgeStaleThreads } from "./tools/purge";
 import { execSync } from "node:child_process";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -256,6 +257,22 @@ export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: I
       ctx.ui.notify("Coordinator must run inside herdr (HERDR_ENV=1). Shutting down.", "error");
       ctx.shutdown();
       return;
+    }
+
+    // Auto-purge stale thread data on coordinator startup (fire-and-forget)
+    if (store.role === "coordinator") {
+      try {
+        const root = execSync("git rev-parse --show-toplevel", {
+          encoding: "utf-8",
+          stdio: ["ignore", "pipe", "ignore"],
+        }).trim();
+        const result = purgeStaleThreads(root, store.threadId, false);
+        if (result.count > 0) {
+          console.log(`[thread] Auto-purged ${result.count} stale thread(s) on startup`);
+        }
+      } catch {
+        // Non-fatal — git not available or purge failed
+      }
     }
 
     // Current-task widget: workers only (§ — coordinator routes, doesn't

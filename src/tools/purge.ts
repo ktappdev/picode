@@ -47,6 +47,67 @@ function effectiveStatus(s: StateFile): string {
   return s.status || "unknown";
 }
 
+/** Purge stale thread data directories. Returns { purged, skipped, count }. */
+export function purgeStaleThreads(
+  root: string,
+  currentThreadId: string | undefined,
+  force: boolean,
+): { purged: string[]; skipped: { id: string; reason: string }[]; count: number } {
+  const threadsDir = join(root, ".thread", "threads");
+
+  if (!existsSync(threadsDir)) {
+    return { purged: [], skipped: [], count: 0 };
+  }
+
+  let entries: string[];
+  try {
+    entries = readdirSync(threadsDir).filter(e => existsSync(join(threadsDir, e, "state.json")));
+  } catch {
+    entries = [];
+  }
+
+  const purged: string[] = [];
+  const skipped: { id: string; reason: string }[] = [];
+
+  for (const id of entries) {
+    const dirPath = join(threadsDir, id);
+    const state = readStateJson(dirPath);
+
+    if (!state) {
+      skipped.push({ id, reason: "no state.json" });
+      continue;
+    }
+
+    if (currentThreadId && id === currentThreadId) {
+      skipped.push({ id, reason: "current thread" });
+      continue;
+    }
+
+    if (!isStale(state)) {
+      skipped.push({ id, reason: `active (${effectiveStatus(state)})` });
+      continue;
+    }
+
+    const hasDebts = (state.obligations?.length ?? 0) > 0 || (state.owed?.length ?? 0) > 0;
+    if (hasDebts && !force) {
+      skipped.push({
+        id,
+        reason: `has pending debts (obligations: ${state.obligations?.length ?? 0}, owed: ${state.owed?.length ?? 0})`,
+      });
+      continue;
+    }
+
+    try {
+      rmSync(dirPath, { recursive: true, force: true });
+      purged.push(id);
+    } catch (e) {
+      skipped.push({ id, reason: `delete failed: ${String(e)}` });
+    }
+  }
+
+  return { purged, skipped, count: purged.length };
+}
+
 export function registerPurgeTool(pi: ExtensionAPI) {
   pi.registerTool({
     name: "thread_purge",
@@ -63,89 +124,17 @@ export function registerPurgeTool(pi: ExtensionAPI) {
     }),
     async execute(_id, params, _signal, _onUpdate, ctx) {
       const currentThreadId = pi.getFlag("thread-id") as string | undefined;
-
       const root = findProjectRoot();
-      const threadsDir = join(root, ".thread", "threads");
-
-      if (!existsSync(threadsDir)) {
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify({
-                ok: true,
-                purged: [],
-                skipped: [],
-                count: 0,
-                message: "No .thread/threads directory found",
-              }),
-            },
-          ],
-          details: { ok: true, purged: [], skipped: [], count: 0 },
-        };
-      }
-
-      let entries: string[];
-      try {
-        entries = readdirSync(threadsDir).filter(e =>
-          existsSync(join(threadsDir, e, "state.json")),
-        );
-      } catch {
-        entries = [];
-      }
-
-      const purged: string[] = [];
-      const skipped: { id: string; reason: string }[] = [];
-
-      for (const id of entries) {
-        const dirPath = join(threadsDir, id);
-        const state = readStateJson(dirPath);
-
-        // Skip if no state.json (shouldn't happen due to filter, but defensive)
-        if (!state) {
-          skipped.push({ id, reason: "no state.json" });
-          continue;
-        }
-
-        // Never delete the current thread
-        if (currentThreadId && id === currentThreadId) {
-          skipped.push({ id, reason: "current thread" });
-          continue;
-        }
-
-        // Skip if thread is not stale
-        if (!isStale(state)) {
-          skipped.push({ id, reason: `active (${effectiveStatus(state)})` });
-          continue;
-        }
-
-        // Skip if has pending debts (unless force)
-        const hasDebts = (state.obligations?.length ?? 0) > 0 || (state.owed?.length ?? 0) > 0;
-        if (hasDebts && !params.force) {
-          skipped.push({
-            id,
-            reason: `has pending debts (obligations: ${state.obligations?.length ?? 0}, owed: ${state.owed?.length ?? 0})`,
-          });
-          continue;
-        }
-
-        // Delete
-        try {
-          rmSync(dirPath, { recursive: true, force: true });
-          purged.push(id);
-        } catch (e) {
-          skipped.push({ id, reason: `delete failed: ${String(e)}` });
-        }
-      }
+      const result = purgeStaleThreads(root, currentThreadId, params.force ?? false);
 
       return {
         content: [
           {
             type: "text" as const,
-            text: JSON.stringify({ ok: true, purged, skipped, count: purged.length }),
+            text: JSON.stringify({ ok: true, ...result }),
           },
         ],
-        details: { ok: true, purged, skipped, count: purged.length },
+        details: { ok: true, ...result },
       };
     },
   });
