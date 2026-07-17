@@ -1,7 +1,7 @@
 import type { StateFile, Envelope, ThreadSummary } from "../core/types";
 
 /**
- * Storage backend for pi-threading (PROTOCOL-FORMALISM.md §5). Domain-shaped
+ * Storage backend for picode (PROTOCOL-FORMALISM.md §5). Domain-shaped
  * (not a generic fs shim) so it maps cleanly onto both a local filesystem and
  * an RPC-based backend like Restate, whose durable state is per-key get/set
  * on a virtual object rather than a file tree.

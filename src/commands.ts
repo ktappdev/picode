@@ -10,7 +10,7 @@ import { join } from "node:path";
  *  thread_* tools give the model. */
 
 const NOT_ACTIVE =
-  "This session hasn't opted into pi-threading — restart pi with --thread-id <id> to activate.";
+  "This session hasn't opted into picode — restart pi with --thread-id <id> to activate.";
 
 /** store.threadId is only ever set by state.ts's init(), which lifecycle.ts
  *  skips entirely when the opt-in gate is closed — so an empty id means this

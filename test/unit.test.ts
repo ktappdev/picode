@@ -1463,7 +1463,7 @@ describe("commands: slash commands", () => {
     const h = makeHarness(tmpDir);
     h.store.threadId = ""; // simulate: init() never ran
     await callCommand(h, "/thread-status");
-    assert.match(h.notifications[0].text, /hasn't opted into pi-threading/);
+    assert.match(h.notifications[0].text, /hasn't opted into picode/);
   });
 
   it("/thread-status notification includes the coordination counts", async () => {
@@ -1823,13 +1823,13 @@ describe("restate: buildWakeLaunch", () => {
   it("honors RESTATE_INGRESS_URL, PI_THREAD_EXTENSION, and PI_BIN from the service environment", () => {
     const l = buildWakeLaunch("t1", "wake up", "/w", {
       RESTATE_INGRESS_URL: "http://restate.internal:8080",
-      PI_THREAD_EXTENSION: "/opt/pi-threading/src/index.ts",
+      PI_THREAD_EXTENSION: "/opt/picode/src/index.ts",
       PI_BIN: "/opt/pi/bin/pi",
     });
     assert.strictEqual(l.cmd, "/opt/pi/bin/pi");
     const args = l.args.join(" ");
     assert.match(args, /--thread-storage-url http:\/\/restate\.internal:8080/);
-    assert.match(args, /--extension \/opt\/pi-threading\/src\/index\.ts/);
+    assert.match(args, /--extension \/opt\/picode\/src\/index\.ts/);
   });
 });
 
@@ -2411,6 +2411,6 @@ describe("commands: /thread-journal", () => {
     const h = makeHarness(tmpDir);
     h.store.threadId = "";
     await callCommand(h, "/thread-journal", "status");
-    assert.match(h.notifications[0].text, /hasn't opted into pi-threading/);
+    assert.match(h.notifications[0].text, /hasn't opted into picode/);
   });
 });

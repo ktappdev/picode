@@ -142,9 +142,9 @@ const isMain = process.argv[1] && import.meta.url === `file://${process.argv[1]}
 if (isMain) {
   const port = Number(process.env.PORT) || 9080;
   restate.serve({ services: [ThreadObject, ThreadRegistry], port }).then(
-    boundPort => console.log(`[pi-threading] Restate service listening on port ${boundPort}`),
+    boundPort => console.log(`[picode] Restate service listening on port ${boundPort}`),
     err => {
-      console.error("[pi-threading] Restate service failed to start:", err);
+      console.error("[picode] Restate service failed to start:", err);
       process.exit(1);
     },
   );

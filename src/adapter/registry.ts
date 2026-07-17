@@ -10,7 +10,7 @@ export interface AdapterOptions {
 
 export type AdapterFactory = (opts: AdapterOptions) => ThreadAdapter;
 
-/** Backend registry — the pluggability point for pi-threading's storage
+/** Backend registry — the pluggability point for picode's storage
  *  layer. Adding a new backend (Temporal, etc.) means writing one factory
  *  and registering it here; nothing else in src/ needs to change. */
 export const adapterRegistry: Record<string, AdapterFactory> = {

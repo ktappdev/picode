@@ -157,7 +157,7 @@ export function piSelfCommand(
 
 /** Spawn args for the journal fork.
  *
- *  `--no-extensions` is load-bearing: when pi-threading is installed via
+ *  `--no-extensions` is load-bearing: when picode is installed via
  *  extension discovery, a fork without it loads the extension too — and
  *  having no --thread-id, it mints a fresh identity, writes a ghost
  *  .thread/threads/thread-<uuid>/ into the shared workspace, and at its own

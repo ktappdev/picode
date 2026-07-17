@@ -35,7 +35,7 @@ function hasThreadIdentity(ctx: ExtensionContext): boolean {
 export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: Inbox) {
   let toolUsedThisTurn = false;
   // Opt-in gate (§2.3 — participation is opt-in): this extension only turns
-  // a directory into a pi-threading workspace when explicitly asked —
+  // a directory into a picode workspace when explicitly asked —
   // --thread-id on this launch, or a thread-identity entry already stamped
   // into this session's own history from an earlier one. Every handler below
   // no-ops while this is false, so an unrelated session (including forked

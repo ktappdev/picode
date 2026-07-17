@@ -1,4 +1,4 @@
-# pi-threading
+# picode
 
 Cross-thread communication extension for [pi coding agent](https://github.com/earendil-works/pi-coding-agent). Independent threads that coordinate work, share state, and converse — without losing context or forking their history.
 
@@ -118,10 +118,10 @@ The protocol is specified in [PROTOCOL-FORMALISM.md](PROTOCOL-FORMALISM.md) (Pos
 
 ```bash
 # From your private GitHub repo:
-pi install git:github.com/ktappdev/pi-threading@main
+pi install git:github.com/ktappdev/picode@main
 
 # Or try it without installing:
-pi -e git:github.com/ktappdev/pi-threading@main --thread-id my-thread
+pi -e git:github.com/ktappdev/picode@main --thread-id my-thread
 ```
 
 ## Usage

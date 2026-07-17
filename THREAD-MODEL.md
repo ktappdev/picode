@@ -216,7 +216,7 @@ The journal is the thread's own account of its state, written by a fork of the t
 
 **Non-interrupting** — the fork runs in the background after `turn_end` (`forkJournalEntry`, `src/journal.ts`). The main thread never pauses.
 
-**Not a thread** — the fork runs with `--no-extensions`. Without that, an installed pi-threading would load inside the fork too, mint a ghost thread identity (it has no `--thread-id`), pollute `.thread/threads/` — and fork its own journal at its own turn's end, chaining forever. `piSelfCommand()` picks the right re-invocation for the running process (node-launched installs re-invoke `execPath entryScript`; standalone `pi` binaries re-invoke `execPath` directly) so the fork works the same across npm/volta/standalone installs, including Windows shims.
+**Not a thread** — the fork runs with `--no-extensions`. Without that, an installed picode would load inside the fork too, mint a ghost thread identity (it has no `--thread-id`), pollute `.thread/threads/` — and fork its own journal at its own turn's end, chaining forever. `piSelfCommand()` picks the right re-invocation for the running process (node-launched installs re-invoke `execPath entryScript`; standalone `pi` binaries re-invoke `execPath` directly) so the fork works the same across npm/volta/standalone installs, including Windows shims.
 
 **Format:**
 
@@ -308,7 +308,7 @@ Implemented as a pi coding-agent extension. pi's `ExtensionAPI` provides no nati
 
 **CI** (`.github/workflows/ci.yml`) runs on every push to `main` and every PR: `tsc --noEmit`, lint, `test:unit`, `test:mcp` — all free, no model spend.
 
-**Release** (`.github/workflows/release.yml`) triggers on `v*` tags (or manual dispatch): re-runs the same free checks, verifies the tag matches `package.json`'s `version`, then publishes twice — `pi-threading` (unscoped) to npmjs via OIDC trusted publishing (no stored token; requires npm ≥ 11.5.1 and one-time npmjs.com Trusted Publisher setup pointing at this workflow), and `@ofrbg/pi-threading` (scope patched in at publish time via `npm pkg set name=...`) to the GitHub npm registry using the built-in `GITHUB_TOKEN`. `package.json`'s checked-in `name` is the unscoped `pi-threading` — the `@ofrbg` scope only exists as the GitHub-registry mirror's name, applied in CI, never committed.
+**Release** (`.github/workflows/release.yml`) triggers on `v*` tags (or manual dispatch): re-runs the same free checks, verifies the tag matches `package.json`'s `version`, then publishes `picode` (unscoped) to npmjs via OIDC trusted publishing (no stored token; requires npm ≥ 11.5.1 and one-time npmjs.com Trusted Publisher setup pointing at this workflow).
 
 ---
 
