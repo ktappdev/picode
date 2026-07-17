@@ -2,6 +2,20 @@
 
 All notable changes to picode are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.5.18] — 2026-07-17
+
+### Added
+
+- **Current-task widget** — workers now show the first line of their most recent incoming `thread_send` request above the input box (🎯 prefix), via `ctx.ui.setWidget("current-task", ...)`. Updates on new task arrival, workers only (coordinator excluded). `extractFirstLine` helper strips markdown headers/bold and truncates to 80 chars. 8 unit tests. `src/lifecycle.ts`.
+
+### Fixed
+
+- **Theme declaration in package manifest** — added `pi.themes` to `package.json` so pi discovers and loads picode's bundled themes on install. `e95d842`.
+
+### Docs
+
+- **Quick Start section** — added a top-level install + run walkthrough to `README.md` with fenced code blocks for `pi install`, worker launch, and coordinator launch. Links to Coordinator Mode and Worker Roles sections.
+
 ## [0.5.17] — 2026-07-17
 
 ### Fixed
