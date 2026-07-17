@@ -204,7 +204,7 @@ export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: I
 
     // Read-only roles: coordinator + read-only subtypes (reviewer, scout,
     // designer). Builder and generic worker keep full tools.
-    const READ_ONLY_ROLES = new Set(["coordinator", "reviewer", "scout", "designer"]);
+    const READ_ONLY_ROLES = new Set(["coordinator", "reviewer", "scout", "designer", "explorer", "bug-hunter"]);
     if (READ_ONLY_ROLES.has(store.role)) {
       const active = pi.getActiveTools();
       const ALLOWED = new Set([

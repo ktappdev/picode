@@ -1,6 +1,6 @@
 {
   "name": "picode",
-  "version": "0.5.10",
+  "version": "0.5.11",
   "description": "Cross-thread communication extension for pi coding agent \u2014 independent threads that coordinate work, share state, and converse without losing context",
   "keywords": [
     "pi-package",

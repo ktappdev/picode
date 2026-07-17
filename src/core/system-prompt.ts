@@ -5,7 +5,7 @@ import type { ThreadData } from "./types";
 
 /** Worker subtypes that get specialized prompts. Any role not matching
  *  "coordinator" or a known subtype is treated as a generic worker. */
-export type WorkerSubtype = "builder" | "reviewer" | "scout" | "designer" | "explorer" | "tester";
+export type WorkerSubtype = "builder" | "reviewer" | "scout" | "designer" | "explorer" | "tester" | "bug-hunter";
 
 function workerSubtype(role: string): WorkerSubtype | null {
   const subtypes: WorkerSubtype[] = [
@@ -15,6 +15,7 @@ function workerSubtype(role: string): WorkerSubtype | null {
     "designer",
     "explorer",
     "tester",
+    "bug-hunter",
   ];
   return subtypes.includes(role as WorkerSubtype) ? (role as WorkerSubtype) : null;
 }
@@ -45,6 +46,7 @@ const OVERRIDABLE_ROLES = new Set([
   "explorer",
   "designer",
   "tester",
+  "bug-hunter",
   "worker",
 ]);
 
@@ -200,6 +202,10 @@ Then send the task via \`thread_send(to="<role>", expects=true)\`.
 
 **Clean up after one-offs:** when a one-off worker reports done and you have no follow-up work for it, kill its pane: \`herdr pane close <pane-id>\`. Don't leave idle workers sitting around — they consume screen space, memory, and complicate the next \`pane list\`. Keep the worker column populated with workers that have active or pending tasks.
 
+**Use explorer or bug-hunter for bug investigations.** When the user reports a bug, do NOT grep/read code yourself. Spawn an explorer (or \`bug-hunter\` for hard bugs) to investigate. Your context is precious — preserve it for routing, not for spelunking.
+
+**Parallelize unrelated new tasks.** When new unrelated work arrives while a worker is mid-task, spawn a new worker pane in parallel via herdr. Do NOT queue work on a busy worker.
+
 **Suggested flows (hints, not rules):**
 
 Common patterns the coordinator MAY use as a starting point — adapt to context:
@@ -210,6 +216,7 @@ Common patterns the coordinator MAY use as a starting point — adapt to context
 - **Feature work** (> 20 lines or new behavior) → \`builder\` → \`reviewer\` → \`tester\` verify
 - **UI work** → \`designer\` (spec) → \`builder\` (implement spec) → \`reviewer\` (audit)
 - **Bug fix** → \`tester\` (reproduce) → \`builder\` (fix) → \`tester\` (verify)
+- **Bug investigation (unknown cause)** → \`bug-hunter\` (find root cause) → \`builder\` (fix)
 - **Risky change / security / refactor** → \`builder\` → \`reviewer\` mandatory
 
 **When to review:**
@@ -304,6 +311,23 @@ You explore the codebase and report findings concisely. Do NOT modify any files.
 - Keep output concise and actionable for coordinator handoff.
 - If contexting is available, use it for concept-driven exploration. Fall back to grep/find for exact matches.`;
 
+const EXPLORER_RULES = `
+
+### Subtype: Explorer
+
+You explore the codebase and report findings concisely. Do NOT modify any files.
+
+- **Read-only.** Stay read-only — never modify files.
+- Prioritize fast orientation: entry points, architecture, conventions, hotspots.
+- If contexting is available, use it for concept-driven exploration. Fall back to grep/find for exact matches.
+
+**Output contract — you summarize, never dump:**
+
+- Never dump raw grep output, file contents, or full directory listings to the coordinator.
+- Return: **(a)** one-paragraph TL;DR, **(b)** numbered list of key findings with \`file:line\` refs, **(c)** suggested next steps.
+- When the coordinator asks for X, return ONLY the info needed to act on X — not your entire investigation trail.
+- Goal: keep coordinator context lean. The coordinator will use your findings to dispatch the next worker.`;
+
 const DESIGNER_RULES = `
 
 ### Subtype: Designer
@@ -347,13 +371,34 @@ You write and run tests. You write implementation code only when it is small, is
 - **Continuity:** keep iterating until all tests pass or failures are clearly diagnosed.
 - **Assumptions:** never assume behavior — verify from source. If uncertain, state it and ask.`;
 
+const BUG_HUNTER_RULES = `
+
+### Subtype: Bug Hunter
+
+You are a bug-hunting specialist. You find bugs — you do NOT fix them. The coordinator or builder will fix what you find.
+
+**Tools:** read code, read session entries, grep, test, run reproductions, read \`.thread/threads/*/journal.md\` for hints.
+
+**Bug Report format — always return findings in this structure:**
+
+**(a) One-line summary** — what the bug is, in one sentence.
+
+**(b) Root cause** — the exact cause with \`file:line\` references.
+
+**(c) Minimal repro or evidence** — steps to reproduce, test case, or log output proving the bug.
+
+**(d) Suggested fix** — one paragraph describing the fix. Do NOT implement it.
+
+Be thorough but concise. The coordinator's context is precious — don't dump raw logs or full files.`;
+
 const SUBTYPE_PROMPTS: Record<WorkerSubtype, string> = {
   builder: BUILDER_RULES,
   reviewer: REVIEWER_RULES,
   scout: SCOUT_RULES,
   designer: DESIGNER_RULES,
-  explorer: SCOUT_RULES,
+  explorer: EXPLORER_RULES,
   tester: TESTER_RULES,
+  "bug-hunter": BUG_HUNTER_RULES,
 };
 
 // ── Main export ─────────────────────────────────────────────────────

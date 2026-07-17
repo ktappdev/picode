@@ -10,6 +10,7 @@ export const ROLE_EMOJI: Record<string, string> = {
   explorer: "🔍",
   designer: "🎨",
   tester: "🧪",
+  "bug-hunter": "🐛",
 };
 
 export function roleEmoji(role: string | null | undefined): string {

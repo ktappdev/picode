@@ -148,7 +148,7 @@ export function createThreadStore(
         store.role = "coordinator";
       } else {
         // Auto-detect worker subtype from thread-id if it matches a known role
-        const KNOWN_ROLES = ["builder", "reviewer", "scout", "designer", "explorer", "tester"];
+        const KNOWN_ROLES = ["builder", "reviewer", "scout", "designer", "explorer", "tester", "bug-hunter"];
         const prefix = KNOWN_ROLES.find(
           r =>
             store.threadId === r ||
@@ -168,6 +168,7 @@ export function createThreadStore(
             reviewer: "deepseek/deepseek-v4-pro",
             tester: "deepseek/deepseek-v4-pro",
             designer: "deepseek/deepseek-v4-pro",
+            "bug-hunter": "deepseek/deepseek-v4-pro",
             explorer: "deepseek/deepseek-v4-flash",
             scout: "deepseek/deepseek-v4-flash",
             default: "deepseek/deepseek-v4-flash",

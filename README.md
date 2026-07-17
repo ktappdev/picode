@@ -58,7 +58,8 @@ Cross-thread communication extension for [pi coding agent](https://github.com/ea
 
 - **Builder** — Implements code; write/edit files; runs type checks.
 - **Reviewer** — Reviews diffs for bugs/security/quality; read-only.
-- **Scout / Explorer** — Explores codebase; finds files; answers architecture questions; read-only.
+- **Scout / Explorer** — Explores codebase; finds files; answers architecture questions; read-only. Explorers follow a **summarization contract**: never dump raw grep/file contents — return TL;DR + key findings with file:line refs + next steps.
+- **Bug Hunter** — Laser-focused bug finder: reads code, session entries, and thread journals; runs reproductions. Reports root cause with file:line references and a suggested fix (one paragraph). Does NOT implement the fix — the coordinator or builder does.
 - **Designer** — Produces UI specs for builder; read-only.
 - **Tester** — Writes and runs tests; reproduces bugs; test-first.
 - **Generic Worker** — Catch-all role for unknown thread-ids; base worker rules only.
@@ -158,7 +159,8 @@ Each thread has a role that shapes its system prompt. The role is auto-detected 
 | `coordinator`        | —       | Directs workers, delegates tasks, maintains project context. Cannot write/edit files. |
 | `builder`            | Worker  | Implements code changes, edits files, runs type checks.                               |
 | `reviewer`           | Worker  | Reviews diffs, audits for bugs/security/quality. Read-only.                           |
-| `scout` / `explorer` | Worker  | Explores codebase, finds files, answers architecture questions. Read-only.            |
+| `scout` / `explorer` | Worker  | Explores codebase, finds files, answers architecture questions. Read-only. Summarizes findings — never dumps raw output. |
+| `bug-hunter`         | Worker  | Hunts bugs: reads code, session entries, journals, runs reproductions. Reports root cause + suggested fix — does NOT implement. Read-only. |
 | `tester`             | Worker  | Writes and runs tests, reproduces bugs, checks coverage.                              |
 | `designer`           | Worker  | Designs UI specs for builder implementation. Read-only.                               |
 
