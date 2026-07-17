@@ -2,6 +2,23 @@
 
 Cross-thread communication extension for [pi coding agent](https://github.com/earendil-works/pi-coding-agent). Independent threads that coordinate work, share state, and converse — without losing context or forking their history.
 
+## Quick Start
+
+1. **Install** the extension:
+   ```bash
+   pi install git:github.com/ktappdev/picode@main
+   ```
+2. **Launch a worker** in a new terminal:
+   ```bash
+   pi --thread-id builder
+   ```
+3. **Launch the coordinator** in another terminal:
+   ```bash
+   pi --thread-id coordinator
+   ```
+
+That's it — workers self-label by their thread-id and can `thread_send` each other or the coordinator. See [Coordinator Mode](#coordinator-mode) and [Worker Roles](#worker-roles) for details.
+
 ## Features
 
 ### Threading
