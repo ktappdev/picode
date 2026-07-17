@@ -1,9 +1,9 @@
 {
-  "builder": "mimo/mimo-v2.5-pro",
-  "reviewer": "mimo/mimo-v2.5-pro",
-  "tester": "mimo/mimo-v2.5-pro",
-  "designer": "mimo/mimo-v2.5-pro",
-  "bug-hunter": "mimo/mimo-v2.5-pro",
+  "builder": "mimo/mimo-v2.5",
+  "reviewer": "mimo/mimo-v2.5",
+  "tester": "mimo/mimo-v2.5",
+  "designer": "mimo/mimo-v2.5",
+  "bug-hunter": "mimo/mimo-v2.5",
   "explorer": "mimo/mimo-v2.5",
   "default": "mimo/mimo-v2.5",
   "theme": "tokyo-night"

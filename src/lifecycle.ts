@@ -5,7 +5,8 @@ import { threadModelPrompt } from "./core/system-prompt";
 import { journalMode, shouldJournal } from "./journal";
 import { roleEmoji } from "./core/roles";
 import { execSync } from "node:child_process";
-import { basename } from "node:path";
+import { basename, dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 /** Wiring into pi's event stream: state transitions across the turn cycle,
  *  the silent-debtor nudge, journal cadence triggers, and the thread-model
@@ -217,6 +218,14 @@ export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: I
   let active = false;
 
   pi.on("session_start", async (_event, ctx) => {
+    // Export bundled themes dir so worker spawn commands can resolve
+    // --theme <name> to an absolute file path (pi treats --theme as a
+    // file path, not a name). In ESM, __dirname doesn't exist — derive
+    // it from import.meta.url. At runtime this is dist/lifecycle.js, so
+    // dirname is dist/ and ../themes points to the project-root themes/.
+    const themesDir = join(dirname(fileURLToPath(import.meta.url)), "..", "themes");
+    process.env.PICODE_THEMES_DIR = themesDir;
+
     const flagId = pi.getFlag("thread-id");
     active = (typeof flagId === "string" && flagId.length > 0) || hasThreadIdentity(ctx);
     if (!active) {

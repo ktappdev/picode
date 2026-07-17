@@ -174,9 +174,17 @@ herdr pane split <your-pane-id> --direction "$DIRECTION" --no-focus
 herdr pane rename <pane_id> "<role>"
 
 # Launch pi as the worker thread. Extension auto-loads from installed package.
-# Pass --theme <theme-from-config> when models.json sets a workspace theme (omit otherwise).
-
-herdr pane run <pane_id> "pi --model <model-from-config> --theme <theme-from-config> --thread-id <role>"
+# Resolve theme path: themes are bundled in picode at $PICODE_THEMES_DIR/<name>.json
+THEME_FLAG=""
+if [ -n "<theme-from-config>" ]; then
+  THEME_PATH="$PICODE_THEMES_DIR/<theme-from-config>.json"
+  if [ -f "$THEME_PATH" ]; then
+    THEME_FLAG="--theme $THEME_PATH"
+  else
+    echo "Warning: theme '<theme-from-config>' not found at $THEME_PATH, skipping"
+  fi
+fi
+herdr pane run <pane_id> "pi --model <model-from-config> $THEME_FLAG --thread-id <role>"
 
 # Wait for it to be ready
 herdr wait agent-status <pane_id> --status idle --timeout 30000
