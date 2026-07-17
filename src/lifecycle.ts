@@ -199,6 +199,13 @@ export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: I
   let lastTurnStart = 0;
   let lastMessageEndTime = 0;
   let outputAtTurnStart = 0;
+  // Live cumulative output of the in-flight assistant message, updated
+  // from `message_update` during streaming. getBranch() does NOT include
+  // the partial assistant message until `message_end` fires (appendMessage
+  // runs after the extension handler), so without this the render closure
+  // sees a stale lastAssistantOutput mid-stream and t/s stays blank.
+  // Reset to 0 in turn_start; locked to the final value in message_end.
+  let liveAssistantOutput = 0;
   let footerRequestRender: () => void = () => {};
   // Opt-in gate (§2.3 — participation is opt-in): this extension only turns
   // a directory into a picode workspace when explicitly asked —
@@ -367,11 +374,18 @@ export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: I
           // time is captured by the message_end handler (not message
           // .timestamp, which is set at partial creation, ~50ms after
           // turn_start — using that produced values like 430000 t/s).
+          // During streaming, getBranch() does NOT yet contain the
+          // in-flight assistant message (appendMessage runs at message_end,
+          // after the extension handler), so lastAssistantOutput is stale.
+          // liveAssistantOutput tracks the partial message's usage.output
+          // via message_update; take the max so t/s updates live while the
+          // model is generating, then locks to the final value at message_end.
+          const effectiveOutput = Math.max(lastAssistantOutput, liveAssistantOutput);
           const rateStr = computeTps(
             lastTurnStart,
             lastMessageEndTime,
             outputAtTurnStart,
-            lastAssistantOutput,
+            effectiveOutput,
           );
 
           const rows = buildStatsRows(width, modelPart, ctxColored, ioStr, rateStr);
@@ -435,6 +449,9 @@ export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: I
     // the matching lastMessageEndTime (captured in the message_end handler)
     // to compute tokens-per-second for this turn.
     lastTurnStart = Date.now();
+    // Reset the live-stream output tracker — no partial assistant message
+    // exists yet at turn start. Updated by message_update below.
+    liveAssistantOutput = 0;
     // Snapshot the cumulative output BEFORE this turn starts so render()
     // can subtract to get THIS turn's output alone (not lifetime total).
     // getBranch() keeps the tps branch-safe — stale fork messages don't
@@ -563,16 +580,44 @@ export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: I
     footerRequestRender();
   });
 
+  // Footer reactivity: t/s updates LIVE during assistant streaming.
+  // message_update fires on every token delta with event.message = the
+  // partial AssistantMessage (a fresh copy). Its usage.output grows as
+  // the provider streams (Anthropic updates output_tokens in message_delta;
+  // some providers only settle usage at the end). We capture wall-clock
+  // time + the partial output so computeTps can show a live rate before
+  // message_end locks the final value. getBranch() does NOT include this
+  // partial (appendMessage runs at message_end, after extension handlers),
+  // so liveAssistantOutput is the only source of in-flight output.
+  pi.on("message_update", event => {
+    if (!active) return;
+    if (event.message.role === "assistant") {
+      const m = event.message as { usage?: { output: number } };
+      if (m.usage && m.usage.output > liveAssistantOutput) {
+        liveAssistantOutput = m.usage.output;
+      }
+      lastMessageEndTime = Date.now();
+      footerRequestRender();
+    }
+  });
+
   // Footer reactivity: t/s needs the REAL end time of the most recent
   // assistant message. message.timestamp is the partial-creation time
   // (set at stream start, ~50ms after turn_start), so using it as the
   // end of the message produces wildly inflated tps. message_end fires
   // after the stream settles, so Date.now() here gives a real wall-time
-  // end. We only capture for assistant messages — other roles
-  // (user/toolResult) don't contribute to output tokens.
+  // end. We also lock liveAssistantOutput to the final usage.output so
+  // the render closure sees the settled value even if it runs before
+  // SessionManager.appendMessage lands the entry in getBranch(). We
+  // only capture for assistant messages — other roles (user/toolResult)
+  // don't contribute to output tokens.
   pi.on("message_end", event => {
     if (!active) return;
     if (event.message.role === "assistant") {
+      const m = event.message as { usage?: { output: number } };
+      if (m.usage) {
+        liveAssistantOutput = m.usage.output;
+      }
       lastMessageEndTime = Date.now();
       footerRequestRender();
     }

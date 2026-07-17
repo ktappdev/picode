@@ -2510,6 +2510,29 @@ describe("lifecycle: footer tps (computeTps)", () => {
     // endTime == startTime → no rate (would be Infinity).
     assert.equal(computeTps(t0, t0, 0, 100), "");
   });
+
+  // Live mid-stream t/s: message_update sets lastMessageEndTime to a
+  // non-final wall-clock time during streaming, and the render closure
+  // passes a live (partial) output value. computeTps must produce a
+  // real rate from these non-final anchors — same math as the final
+  // case, just with an earlier endTime. This guards the live-update
+  // feature added in 0.5.19 (message_update handler in lifecycle.ts).
+  it("live mid-stream: partial output + non-final endTime → live rate", () => {
+    const t0 = 1_000_000_000_000;
+    // 40 tokens streamed in 200ms so far → 200 t/s live.
+    const rate = computeTps(t0, t0 + 200, 0, 40);
+    assert.equal(rate, " 200t/s");
+  });
+
+  it("live mid-stream: grows as more tokens stream in", () => {
+    const t0 = 1_000_000_000_000;
+    // First update: 40 tokens / 200ms → 200 t/s.
+    assert.equal(computeTps(t0, t0 + 200, 0, 40), " 200t/s");
+    // Second update: 120 tokens / 600ms → 200 t/s (steady).
+    assert.equal(computeTps(t0, t0 + 600, 0, 120), " 200t/s");
+    // Third update: 300 tokens / 1000ms → 300 t/s (sped up).
+    assert.equal(computeTps(t0, t0 + 1000, 0, 300), " 300t/s");
+  });
 });
 
 describe("lifecycle: buildStatsRows (footer layout)", () => {

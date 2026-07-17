@@ -2,6 +2,12 @@
 
 All notable changes to picode are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.5.19] — 2026-07-17
+
+### Added
+
+- **Live t/s during assistant streaming** — the footer's tokens-per-second now updates in real time while the model is generating, not only when the stream settles. New `message_update` handler in `src/lifecycle.ts` captures wall-clock time and the partial assistant message's `usage.output` on every token delta; `computeTps()` is unchanged and consumes these live anchors. `getBranch()` does NOT include the in-flight partial message (`SessionManager.appendMessage` runs at `message_end`, after extension handlers), so a new `liveAssistantOutput` module-level variable tracks the partial output and the render closure passes `Math.max(lastAssistantOutput, liveAssistantOutput)` as the 4th arg. `message_end` remains the final lock. Reset in `turn_start`. 2 new unit tests (live mid-stream rate + growth). Fixes the blank t/s during streaming.
+
 ## [0.5.18] — 2026-07-17
 
 ### Added
