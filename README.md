@@ -63,7 +63,7 @@ That's it — workers self-label by their thread-id and can `thread_send` each o
 - **`/thread-resume`** — Return to Open.
 - **`/thread-models`** — Show, set, or reset per-role worker model config.
 
-### Coordinator Mode
+### Coordinator features
 
 - **Read-Only Coordinator** — Write/edit tools disabled; coordinator reads, searches, delegates only.
 - **Auto-Spawn Workers** — Via herdr terminal multiplexer; discovers idle/done panes for reuse.
@@ -72,7 +72,7 @@ That's it — workers self-label by their thread-id and can `thread_send` each o
 - **Self-Improving Prompts** — Coordinator writes discovered gaps to `.thread/prompts/<role>.md` on the fly.
 - **Silent-Worker Recovery** — If a worker owes a reply that hasn't arrived in ~10 min, the worker may have answered in plain text (which the coordinator can't see). Coordinator reads the worker's pane output, finds the plain-text reply, and either accepts it or resends the request reminding the worker to use `thread_send`.
 
-### Worker Roles
+### Worker role types
 
 - **Builder** — Implements code; write/edit files; runs type checks.
 - **Reviewer** — Reviews diffs for bugs/security/quality; read-only.
@@ -88,7 +88,7 @@ Workers reply to the coordinator **only** via `thread_send` — plain text in a 
 
 If a worker has gone silent (no `thread_send` reply within ~10 minutes), the coordinator's recovery rule is: read the worker's pane output, find the plain-text reply, and either accept it or resend the request explicitly reminding the worker to use `thread_send`.
 
-### Journal
+### Journal features
 
 - **Auto-Journaling** — Forked model call after each turn summarizes state; non-interrupting, background.
 - **Cadence Control** — `--thread-journal turn|done|off`; rate-limited (max 1 per ~2 min) for same-task turns.
