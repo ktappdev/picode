@@ -122,7 +122,7 @@ Each `pi` process becomes a **thread** with a stable identity. Threads communica
 
 The extension is opt-in: it only activates for a session launched with `--thread-id <id>` (or resuming one that was). Without that flag, loading this extension has no effect at all — no `.thread/` directory, no `thread_*` tools, no system-prompt changes.
 
-The protocol is specified in [PROTOCOL-FORMALISM.md](PROTOCOL-FORMALISM.md) (Postbox — the Thread Messaging Protocol); implementation notes live in [THREAD-MODEL.md](THREAD-MODEL.md).
+The protocol is specified in [THREAD-MODEL.md](THREAD-MODEL.md) (Postbox — the Thread Messaging Protocol).
 
 ## Install
 
@@ -387,7 +387,7 @@ OPEN ──(suspend)──→ ON HOLD ──(resume)──→ OPEN
 any ──(unclean exit)──→ STOPPED
 ```
 
-There is no waiting state: debts and barriers are durable records, not states, so nothing needs repair on restart beyond `done/stopped → idle`. Full detail in [PROTOCOL-FORMALISM.md](PROTOCOL-FORMALISM.md) §11–§13.
+There is no waiting state: debts and barriers are durable records, not states, so nothing needs repair on restart beyond `done/stopped → idle`. Full detail in [THREAD-MODEL.md](THREAD-MODEL.md) §11–§13.
 
 ## Running with the Restate adapter
 
