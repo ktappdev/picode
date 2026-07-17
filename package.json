@@ -17,6 +17,7 @@
     "bin",
     "integrations",
     "examples",
+    "themes",
     "THREAD-MODEL.md"
   ],
   "type": "module",
