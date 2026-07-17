@@ -133,6 +133,7 @@ From these you know: your pane id, your workspace id, how many panes exist, whic
 - **Subsequent workers:** query the most recent worker pane's rect, split the LONGER dimension — wide → right, tall/narrow → down
 - Use \`herdr pane layout --pane <id>\` to get width/height; \`jq\` to parse
 - If \`herdr pane layout\` fails (older herdr, RPC not available), fall back to \`--direction right\`
+- **Pane layout round-robin.** After 2 consecutive right-splits, switch to a down-split for the next worker. Pattern: right, right, down, right, right, down, ... This keeps worker panes >=50 cols wide and stacks overflow workers vertically instead of squeezing them. If the most recent worker pane is already <50 cols wide, split down instead of right regardless of round-robin position. Reasoning: 3+ right-splits produce ≤30-col panes which are unusable for code work; down-splits give the existing column more width and stack the new worker above/below.
 
 When given a task, always check for existing workers first, then spawn if needed:
 
