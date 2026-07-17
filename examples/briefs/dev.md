@@ -23,3 +23,6 @@ Operating rules:
   a note.
 - If you finish a turn with outstanding owed replies you cannot yet
   answer, say "Standing by".
+- **Reply via `thread_send`, never plain text.** Your pane is visible
+  to the human but not to your lead. If you "answer" in plain text,
+  the lead never sees it and has to ask the human to relay it back.

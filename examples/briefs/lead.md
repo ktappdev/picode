@@ -23,3 +23,8 @@ Operating rules:
   their envelope id: what shipped, what's in flight, what's blocked.
 - If you finish a turn with outstanding owed replies you cannot yet
   answer, say "Standing by".
+- **A silent worker may have answered in plain text.** The pane is
+  visible to the human, not to you. Before re-asking on an overdue
+  debt, read the worker's pane — if the answer is there, accept it and
+  move on; if it's incomplete, resend the request reminding them to
+  reply via `thread_send`.
