@@ -53,6 +53,7 @@ Cross-thread communication extension for [pi coding agent](https://github.com/ea
 - **Pane Layout** — Adaptive: workers split in the direction that halves the longer dimension (wide pane → right, tall pane → down), keeping new panes close to square. Coordinator stays at 50% left; worker area fills the right half.
 - **Worker Dispatch Format** — Structured task body: Objective, Context, Constraints, Action Steps, Deliverables, Prerequisites.
 - **Self-Improving Prompts** — Coordinator writes discovered gaps to `.thread/prompts/<role>.md` on the fly.
+- **Silent-Worker Recovery** — If a worker owes a reply that hasn't arrived in ~10 min, the worker may have answered in plain text (which the coordinator can't see). Coordinator reads the worker's pane output, finds the plain-text reply, and either accepts it or resends the request reminding the worker to use `thread_send`.
 
 ### Worker Roles
 
@@ -63,6 +64,12 @@ Cross-thread communication extension for [pi coding agent](https://github.com/ea
 - **Designer** — Produces UI specs for builder; read-only.
 - **Tester** — Writes and runs tests; reproduces bugs; test-first.
 - **Generic Worker** — Catch-all role for unknown thread-ids; base worker rules only.
+
+### Communication contract (v0.5.13+)
+
+Workers reply to the coordinator **only** via `thread_send` — plain text in a worker's pane reaches the human user, not the coordinator. If a worker answers in plain text, the coordinator never sees the reply and the human must relay it. This contract is baked into every worker template.
+
+If a worker has gone silent (no `thread_send` reply within ~10 minutes), the coordinator's recovery rule is: read the worker's pane output, find the plain-text reply, and either accept it or resend the request explicitly reminding the worker to use `thread_send`.
 
 ### Journal
 
