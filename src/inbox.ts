@@ -81,6 +81,10 @@ export interface Inbox {
   noteCompactionEnd(): void;
   /** A turn started: pi is streaming, so injections queue safely again. */
   noteRunStarted(): void;
+  /** Called after every inject() with the parts that were injected. */
+  onInjected?: (parts: Injection[]) => void;
+  /** Called after inject() with parts and ctx — used by current-task widget. */
+  onInject?: (parts: Injection[], ctx: ExtensionContext) => void;
 }
 
 export function createInbox(store: ThreadStore, pi: ExtensionAPI): Inbox {
@@ -96,6 +100,8 @@ export function createInbox(store: ThreadStore, pi: ExtensionAPI): Inbox {
   // turn boundaries, and the heartbeat.
   let inFlightSince: number | null = null;
   let compactingSince: number | null = null;
+  let _onInjected: ((parts: Injection[]) => void) | undefined;
+  let _onInject: ((parts: Injection[], ctx: ExtensionContext) => void) | undefined;
 
   function canInject(): boolean {
     const now = Date.now();
@@ -114,6 +120,8 @@ export function createInbox(store: ThreadStore, pi: ExtensionAPI): Inbox {
     pi.sendUserMessage(parts.map(p => p.text).join("\n\n"), {
       deliverAs: steer ? "steer" : "followUp",
     });
+    _onInjected?.(parts);
+    _onInject?.(parts, ctx);
   }
 
   function noteCompactionStart(): void {
@@ -382,5 +390,9 @@ export function createInbox(store: ThreadStore, pi: ExtensionAPI): Inbox {
     noteCompactionStart,
     noteCompactionEnd,
     noteRunStarted,
+    get onInjected() { return _onInjected; },
+    set onInjected(fn: ((parts: Injection[]) => void) | undefined) { _onInjected = fn; },
+    get onInject() { return _onInject; },
+    set onInject(fn: ((parts: Injection[], ctx: ExtensionContext) => void) | undefined) { _onInject = fn; },
   };
 }

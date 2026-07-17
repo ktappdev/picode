@@ -250,11 +250,10 @@ export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: I
     }
 
     // Current-task widget: workers only (§ — coordinator routes, doesn't
-    // have a single task). Wrap `inject` so every drained envelope updates
-    // the widget with the first line of the most recent request body.
+    // have a single task). Use onInject hook so every drained envelope
+    // updates the widget with the first line of the most recent request body.
     if (store.role !== "coordinator") {
-      const originalInject = inbox.inject.bind(inbox);
-      inbox.inject = (parts: Injection[], injectCtx: ExtensionContext) => {
+      inbox.onInject = (parts: Injection[], injectCtx: ExtensionContext) => {
         const taskParts = parts.filter(p => /^\[(request|reply\+request) from /.test(p.text));
         if (taskParts.length > 0) {
           const lastTask = taskParts[taskParts.length - 1];
@@ -265,7 +264,6 @@ export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: I
             ui.setWidget("current-task", ["🎯 " + firstLine], { placement: "aboveEditor" });
           }
         }
-        originalInject(parts, injectCtx);
       };
     }
 
