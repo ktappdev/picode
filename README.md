@@ -159,6 +159,22 @@ pi --thread-id my-worker
 
 Threads share state via `.thread/threads/<id>/` in the project directory. Each thread gets a journal, a state file, and an inbox for cross-thread envelopes.
 
+## Developing Picode
+
+If you're hacking on the picode extension itself, you have both a local checkout (`/Users/kentaylor/developer/picode/`) and a globally installed version (`~/.pi/agent/git/github.com/ktappdev/picode/`). Running `pi` inside the local checkout will **auto-load both extensions** and fail with a `Tool "X" conflicts` error.
+
+**Workaround:** spawn test workers in a non-picode directory:
+
+```bash
+mkdir -p /tmp/picode-cwd
+cd /tmp/picode-cwd
+pi --thread-id builder-test
+```
+
+The worker has full access to thread tools (from the installed version) and can `cd /Users/kentaylor/developer/picode && <command>` to operate on the source tree. The local auto-load never fires because there's no `package.json` in `/tmp/picode-cwd`.
+
+For the coordinator, the same applies — keep it in `/tmp/picode-cwd` or another non-picode dir while developing.
+
 ## Worker Roles
 
 Each thread has a role that shapes its system prompt. The role is auto-detected from `--thread-id`:
