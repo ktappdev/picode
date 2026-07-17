@@ -2,6 +2,104 @@
 
 Cross-thread communication extension for [pi coding agent](https://github.com/earendil-works/pi-coding-agent). Independent threads that coordinate work, share state, and converse — without losing context or forking their history.
 
+## Features
+
+### Threading
+
+- **Stable Thread Identity** — Each `pi` process gets a durable id via `--thread-id <id>`, persisted across restarts.
+- **Auto-Detected Roles** — Role inferred from thread-id prefix (`builder-1` → `builder`, `explorer-a` → `explorer`).
+- **Hierarchical Parent/Child** — Parent defaults to `coordinator` for non-coordinator threads; escalation target.
+- **Opt-In Activation** — Extension does nothing without `--thread-id`; no `.thread/` dir, no tools, no prompt changes.
+- **Thread State Machine** — Six states (idle/thinking/working/open/on-hold/done/stopped) with cooperative transitions.
+- **Graceful Suspend/Resume** — On Hold queues inbox; resume drains; reason persisted and visible.
+
+### Communication
+
+- **Envelope Message Model** — Single shape: note, request (`expects=true`), reply (`re=<id>`), or reply+request.
+- **Urgency Levels** — `high` (interrupt at next Open) vs `low` (deliver when idle).
+- **Scheduled Delivery** — `deliverAfterSeconds` holds envelope until due; self-addressed = scheduled self-wake.
+- **Expiring Messages** — `expiresAfterSeconds` discards undelivered envelopes past TTL.
+- **Dual Debt Ledgers** — Obligations (sender-side) and owed replies (receiver-side), both durable and sender-gated.
+- **Deadline Enforcement** — Each request gets a deadline (default 15 min); one-time overdue reminder nudges.
+- **Barriers (Async Wait)** — Arm a barrier on one or many envelope ids; wake when all/any reply lands.
+- **Meeting Protocol** — Request "meet?" → ok/busy → high-urgency exchange → closing note; exclusivity advisory.
+- **Broadcast & Role Targeting** — Send to `*` (all), comma-separated list, or `role:<role>`.
+- **Fan-Out & Collect** — Send individually correlated requests to each target, then `thread_wait([ids])`.
+
+### Tools (Model-Facing)
+
+- **`thread_send`** — Send envelopes with expects/re/urgency/deliverAfter/deadline/wait.
+- **`thread_wait`** — Arm barrier over envelope ids; wake on all/any reply with optional resolution message.
+- **`thread_status`** — Read own id/role/state/obligations/owed/barriers/journal.
+- **`thread_list`** — List all known threads with state, role, parent, liveness.
+- **`thread_journal`** — Read any thread's journal with tail/lookbackMinutes filtering.
+- **`thread_suspend`** — Mark On Hold with reason; inbox queues until resume.
+- **`thread_resume`** — Return to Open and drain queued inbox.
+
+### Slash Commands (Human-Facing)
+
+- **`/thread-status`** — Show own state, obligations, owed replies, barriers, latest journal.
+- **`/thread-journal`** — View, tail, trim, clear, or compact the journal.
+- **`/thread-list`** — List all known threads in workspace.
+- **`/thread-send`** — Send high-urgency note to another thread.
+- **`/thread-suspend`** — Mark On Hold with optional reason.
+- **`/thread-resume`** — Return to Open.
+- **`/thread-models`** — Show, set, or reset per-role worker model config.
+
+### Coordinator Mode
+
+- **Read-Only Coordinator** — Write/edit tools disabled; coordinator reads, searches, delegates only.
+- **Auto-Spawn Workers** — Via herdr terminal multiplexer; discovers idle/done panes for reuse.
+- **Pane Layout** — 50/50 split (coordinator left, workers stacked right column).
+- **Worker Dispatch Format** — Structured task body: Objective, Context, Constraints, Action Steps, Deliverables, Prerequisites.
+- **Self-Improving Prompts** — Coordinator writes discovered gaps to `.thread/prompts/<role>.md` on the fly.
+
+### Worker Roles
+
+- **Builder** — Implements code; write/edit files; runs type checks.
+- **Reviewer** — Reviews diffs for bugs/security/quality; read-only.
+- **Scout / Explorer** — Explores codebase; finds files; answers architecture questions; read-only.
+- **Designer** — Produces UI specs for builder; read-only.
+- **Tester** — Writes and runs tests; reproduces bugs; test-first.
+- **Generic Worker** — Catch-all role for unknown thread-ids; base worker rules only.
+
+### Journal
+
+- **Auto-Journaling** — Forked model call after each turn summarizes state; non-interrupting, background.
+- **Cadence Control** — `--thread-journal turn|done|off`; rate-limited (max 1 per ~2 min) for same-task turns.
+- **Journal Compaction** — Auto-summarizes oldest entries past threshold (500); 24h cooldown.
+- **Duplicate Suppression** — Skips entry when Working on/Done lines match previous.
+- **Pinned Journal Model** — `--thread-journal-model <model>`; defaults to thread's own model.
+- **Journal CLI Management** — `/thread-journal tail N|trim N|clear|compact|status`.
+
+### Storage Backends
+
+- **Local Filesystem (Default)** — Zero-dependency: `.thread/threads/<id>/state.json`, `journal.md`, `inbox/` (atomic rename for enqueue; FIFO via ULID-sorted readdir).
+- **Restate Backend** — Durable virtual objects; wakes stopped threads on `deliverAfter` envelopes.
+- **Pluggable Adapter** — `StorageAdapter` interface; add backend via single factory registration.
+
+### Human Tooling
+
+- **`thread-cli.mjs`** — Zero-dep CLI: list, status, watch, tail, inbox, send (with expects/re/urgency), delete threads; human as full protocol citizen.
+- **`postbox-mcp.mjs`** — MCP stdio server; any MCP-capable agent (Claude Code, Codex) becomes a Postbox thread; exposes six protocol tools.
+- **`postbox-hook.mjs`** — Claude Code hook; push-style delivery: cold-start drain, turn-start, post-tool-use, stop-block.
+
+### Customization
+
+- **Per-Project Prompt Overrides** — `.thread/prompts/<role>.md` replaces bundled role prompt entirely; no code changes.
+- **Worker Model Config** — `.thread/models.json` maps role → model; prefix-matched; `"default"` fallback.
+- **Self-Improving Coordinator** — Writes discovered rule gaps to prompt override files; survives reinstalls.
+
+### CLI Flags
+
+- **`--thread-id`** — Stable thread identity; the opt-in trigger.
+- **`--thread-role`** — Explicit role override (auto-detected from id otherwise).
+- **`--thread-parent`** — Parent thread id (defaults to `coordinator`).
+- **`--thread-journal`** — Journal cadence: `turn`, `done`, or `off`.
+- **`--thread-journal-model`** — Model for journal fork entries.
+- **`--thread-storage`** — Backend: `local` or `restate`.
+- **`--thread-storage-url`** — Backend connection URL (Restate ingress).
+
 ## How it works
 
 Each `pi` process becomes a **thread** with a stable identity. Threads communicate through durable per-thread mailboxes — one thread writes an envelope, the target drains it on startup or via live updates. By default the mailbox is local files (no central broker, no external dependencies); a pluggable `StorageAdapter` means the same tools/commands also work against a durable backend (Restate) that can wake a stopped thread — see [Running with the Restate adapter](#running-with-the-restate-adapter).
