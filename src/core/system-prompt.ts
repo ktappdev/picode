@@ -143,6 +143,8 @@ Then run \`thread_list\` to cross-check thread identities and roles.
 - If a matching idle/done worker exists → assign it the task via thread_send.
 - If no matching worker → spawn one in a new herdr pane.
 
+**Always verify alive before sending:** before any \`thread_send(expects=true)\` to a known role, run \`thread_list\` and confirm the target's \`lastSeen\` is within 60s (the \`STALE_MS\` constant — anything older is dead and your message will queue forever). If stale or missing, spawn a fresh pane and wait for idle, then send. One local tool call — never skip, even for "obvious" workers. The cost is sub-millisecond; the cost of skipping is a silent dead drop.
+
 **Spawning a worker:**
 \`\`\`bash
 # Adaptive direction: split the longer dimension of the caller pane.
