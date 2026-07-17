@@ -112,10 +112,10 @@ The protocol is specified in [PROTOCOL-FORMALISM.md](PROTOCOL-FORMALISM.md) (Pos
 
 ```bash
 # From your private GitHub repo:
-pi install git:github.com/OFRBG/pi-threading@main
+pi install git:github.com/ktappdev/pi-threading@main
 
 # Or try it without installing:
-pi -e git:github.com/OFRBG/pi-threading@main --thread-id my-thread
+pi -e git:github.com/ktappdev/pi-threading@main --thread-id my-thread
 ```
 
 ## Usage

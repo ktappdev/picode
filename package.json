@@ -1,6 +1,6 @@
 {
   "name": "pi-threading",
-  "version": "0.5.4",
+  "version": "0.5.5",
   "description": "Cross-thread communication extension for pi coding agent \u2014 independent threads that coordinate work, share state, and converse without losing context",
   "keywords": [
     "pi-package",
@@ -10,7 +10,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/OFRBG/pi-threading.git"
+    "url": "git+https://github.com/ktappdev/pi-threading.git"
   },
   "files": [
     "src",
