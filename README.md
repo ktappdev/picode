@@ -93,7 +93,9 @@ Cross-thread communication extension for [pi coding agent](https://github.com/ea
 
 ### Visual Identification
 
-- **Role Emoji in Footer** — Each pane's TUI footer shows the role with an emoji: `🧭 coordinator: open`, `🔨 builder: working`, `🔍 explorer: thinking`, `🛡️ reviewer: idle`, `🎨 designer: open`, `🧪 tester: working`, `👷 worker: open`.
+- **Role Emoji in Footer** — Each pane's TUI footer shows the role with an emoji: `🧭 coordinator: open`, `🔨 builder: working`, `🔍 explorer: thinking`, `🛡️ reviewer: idle`, `🎨 designer: open`, `🧪 tester: working`, `🐛 bug-hunter: idle`, `👷 worker: open`.
+- **Dynamic Footer Layout** — Wide terminals (>=100 cols) get a 2-row footer: `dir (branch)` / `model • thinking:L  ctx: X/Y (Z%)  ↑I ↓O  Rt/s`. Narrow terminals (<100 cols) get 3 rows: `dir (branch)` / `model • thinking:L  ctx: X/Y (Z%)` / `↑I ↓O  Rt/s`. Prevents truncation in small panes.
+- **Context Color Coding** — Footer context usage is color-coded: >70% warning (yellow), >90% error (red).
 - **Role in Terminal Title** — Terminal title (visible in tmux status, OS window list) shows `pi · <emoji> <role> · <cwd>`. Useful when not running inside herdr.
 - **Coordination with herdr** — Herdr's pane label and the TUI footer/title carry the same role info, so identification is consistent across surfaces.
 
