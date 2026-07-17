@@ -27,13 +27,17 @@ export function registerCommands(pi: ExtensionAPI, store: ThreadStore, inbox: In
     description: "Show this thread's own state and latest journal entry",
     async handler(_args, ctx) {
       if (!checkActive(store, ctx)) return;
-      await ctx.waitForIdle();
-      const journal = await store.readJournal(store.threadId);
-      const lines = journal ? journal.split("\n").slice(-12).join("\n") : "(no journal yet)";
-      ctx.ui.notify(
-        `Id: ${store.threadId} | State: ${store.state} | Status: ${store.status} | Obligations: ${store.obligations.length} | Owed: ${store.owed.length} | Barriers: ${store.barriers.length}\n\n${lines}`,
-        "info",
-      );
+      try {
+        await ctx.waitForIdle();
+        const journal = await store.readJournal(store.threadId);
+        const lines = journal ? journal.split("\n").slice(-12).join("\n") : "(no journal yet)";
+        ctx.ui.notify(
+          `Id: ${store.threadId} | State: ${store.state} | Status: ${store.status} | Obligations: ${store.obligations.length} | Owed: ${store.owed.length} | Barriers: ${store.barriers.length}\n\n${lines}`,
+          "info",
+        );
+      } catch (e) {
+        ctx.ui.notify(e instanceof Error ? e.message : String(e), "error");
+      }
     },
   });
 
@@ -42,8 +46,9 @@ export function registerCommands(pi: ExtensionAPI, store: ThreadStore, inbox: In
       "View, trim, clear, or compact the journal: /thread-journal [status|tail N|trim N|clear|compact]",
     async handler(args, ctx) {
       if (!checkActive(store, ctx)) return;
-      await ctx.waitForIdle();
-      const trimmed = args.trim();
+      try {
+        await ctx.waitForIdle();
+        const trimmed = args.trim();
       const subcommand = trimmed.split(/\s+/)[0] ?? "";
 
       const journal = await store.readJournal(store.threadId);
@@ -116,6 +121,9 @@ export function registerCommands(pi: ExtensionAPI, store: ThreadStore, inbox: In
       }
 
       ctx.ui.notify("Usage: /thread-journal [status|tail N|trim N|clear|compact]", "warning");
+      } catch (e) {
+        ctx.ui.notify(e instanceof Error ? e.message : String(e), "error");
+      }
     },
   });
 
@@ -123,12 +131,16 @@ export function registerCommands(pi: ExtensionAPI, store: ThreadStore, inbox: In
     description: "List all known threads sharing this workspace",
     async handler(_args, ctx) {
       if (!checkActive(store, ctx)) return;
-      const threads = await store.listThreads();
-      if (!threads.length) {
-        ctx.ui.notify("(no other threads found)", "info");
-        return;
+      try {
+        const threads = await store.listThreads();
+        if (!threads.length) {
+          ctx.ui.notify("(no other threads found)", "info");
+          return;
+        }
+        ctx.ui.notify(threads.map(formatThreadLine).join("\n"), "info");
+      } catch (e) {
+        ctx.ui.notify(e instanceof Error ? e.message : String(e), "error");
       }
-      ctx.ui.notify(threads.map(formatThreadLine).join("\n"), "info");
     },
   });
 
@@ -182,11 +194,15 @@ export function registerCommands(pi: ExtensionAPI, store: ThreadStore, inbox: In
     description: "Mark this thread On Hold: /thread-suspend [reason]",
     async handler(args, ctx) {
       if (!checkActive(store, ctx)) return;
-      await suspendThread(store, args.trim() || null, ctx);
-      ctx.ui.notify(
-        `Thread suspended (On Hold)${store.holdReason ? `: ${store.holdReason}` : ""}. Inbox queues until resume.`,
-        "info",
-      );
+      try {
+        await suspendThread(store, args.trim() || null, ctx);
+        ctx.ui.notify(
+          `Thread suspended (On Hold)${store.holdReason ? `: ${store.holdReason}` : ""}. Inbox queues until resume.`,
+          "info",
+        );
+      } catch (e) {
+        ctx.ui.notify(e instanceof Error ? e.message : String(e), "error");
+      }
     },
   });
 
@@ -194,11 +210,15 @@ export function registerCommands(pi: ExtensionAPI, store: ThreadStore, inbox: In
     description: "Resume this thread from On Hold back to Open",
     async handler(_args, ctx) {
       if (!checkActive(store, ctx)) return;
-      if (!(await resumeThread(store, () => inbox.drainInbox(ctx), ctx))) {
-        ctx.ui.notify(`Not on hold (state is ${store.state}).`, "warning");
-        return;
+      try {
+        if (!(await resumeThread(store, () => inbox.drainInbox(ctx), ctx))) {
+          ctx.ui.notify(`Not on hold (state is ${store.state}).`, "warning");
+          return;
+        }
+        ctx.ui.notify("Thread resumed (Open). Queued inbox drained.", "info");
+      } catch (e) {
+        ctx.ui.notify(e instanceof Error ? e.message : String(e), "error");
       }
-      ctx.ui.notify("Thread resumed (Open). Queued inbox drained.", "info");
     },
   });
 
