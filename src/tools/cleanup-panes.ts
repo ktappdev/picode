@@ -1,10 +1,11 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { execSync } from "child_process";
-import { err } from "./shared";
+import { err, extractRole } from "./shared";
 
 /** Worker role labels to clean up (case-insensitive, emoji prefix stripped). */
-const WORKER_ROLE_PATTERN = /^(builder|explorer|reviewer|tester|worker|scout|bug-hunter|designer)$/i;
+const WORKER_ROLE_PATTERN =
+  /^(builder|explorer|reviewer|tester|worker|scout|bug-hunter|designer)$/i;
 
 /** Statuses that mean the pane is still useful — don't close these. */
 const ACTIVE_STATUSES = new Set(["working", "idle"]);
@@ -17,17 +18,13 @@ function herdrJson(args: string): Record<string, unknown> {
   const raw = herdr(args);
   try {
     return JSON.parse(raw) as Record<string, unknown>;
-  } catch {
+  } catch (e) {
+    console.error(`[cleanup_panes] herdr JSON parse failed for: ${args} — ${String(e)}`);
     return {};
   }
 }
 
-/** Strip emoji prefix from label to get the role name. */
-function extractRole(label: string): string {
-  // Labels may have emoji prefix like "🔨 builder" — take the last word
-  const parts = label.trim().split(/\s+/);
-  return parts[parts.length - 1] || "";
-}
+// extractRole imported from shared.ts
 
 export function registerCleanupPanesTool(pi: ExtensionAPI) {
   pi.registerTool({
@@ -38,8 +35,7 @@ export function registerCleanupPanesTool(pi: ExtensionAPI) {
     parameters: Type.Object({
       dry_run: Type.Optional(
         Type.Boolean({
-          description:
-            "If true, list what would be closed without actually closing them.",
+          description: "If true, list what would be closed without actually closing them.",
         }),
       ),
     }),
@@ -47,15 +43,15 @@ export function registerCleanupPanesTool(pi: ExtensionAPI) {
       const workspaceId = process.env.HERDR_WORKSPACE_ID;
 
       if (!workspaceId) {
-        return err(
-          "HERDR_WORKSPACE_ID not set — cleanup_panes only works inside Herdr panes.",
-        );
+        return err("HERDR_WORKSPACE_ID not set — cleanup_panes only works inside Herdr panes.");
       }
 
       try {
         // 1. List all panes in the workspace
         const result = herdrJson(`pane list --workspace ${workspaceId}`);
-        const panes = ((result.result as Record<string, unknown> | undefined)?.panes as Record<string, unknown>[] | undefined) || [];
+        const panes =
+          ((result.result as Record<string, unknown> | undefined)?.panes as
+            Record<string, unknown>[] | undefined) || [];
 
         // 2. Filter to stale worker panes
         const toClose: string[] = [];

@@ -5,3 +5,10 @@ export function err(text: string) {
     details: { ok: false },
   };
 }
+
+/** Strip emoji prefix from label to get the role name.
+ *  Labels may have emoji prefix like "🔨 builder" — take the last word. */
+export function extractRole(label: string): string {
+  const parts = label.trim().split(/\s+/);
+  return parts[parts.length - 1] || "";
+}

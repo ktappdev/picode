@@ -3,7 +3,7 @@ import { Type } from "typebox";
 import { execSync } from "child_process";
 import { readFileSync, existsSync, statSync } from "fs";
 import { join } from "path";
-import { err } from "./shared";
+import { err, extractRole } from "./shared";
 
 /** Module-level cache for .thread/models.json */
 let modelsJson: Record<string, string> | null = null;
@@ -17,7 +17,8 @@ function herdrJson(args: string): Record<string, unknown> {
   const raw = herdr(args);
   try {
     return JSON.parse(raw);
-  } catch {
+  } catch (e) {
+    console.error(`[spawn_worker] herdr JSON parse failed for: ${args} — ${String(e)}`);
     return {};
   }
 }
@@ -109,29 +110,39 @@ function getSplitDirection(paneId: string): "right" | "down" {
   }
 }
 
-/** Strip emoji prefix from label to get the role name. */
-function extractRole(label: string): string {
-  const parts = label.trim().split(/\s+/);
-  return parts[parts.length - 1] || "";
-}
-
-/** Look for an existing pane with the given role label. Returns pane_id or null. */
+/** Look for an existing pane with the given role label.
+ *  Prefers idle/done panes (safe to reuse) over unknown/stopped.
+ *  Returns pane_id of best match or null if none found. */
 function findExistingPane(workspaceId: string, role: string): string | null {
+  let bestMatch: string | null = null;
+  let bestPriority = -1; // -1=none, 0=unknown/stopped, 1=idle/done
+
   try {
     const result = herdrJson(`pane list --workspace ${workspaceId}`);
-    const panes = ((result.result as Record<string, unknown> | undefined)?.panes as Record<string, unknown>[] | undefined) || [];
+    const panes =
+      ((result.result as Record<string, unknown> | undefined)?.panes as
+        Record<string, unknown>[] | undefined) || [];
 
     for (const pane of panes) {
       const label = (pane.label as string) || "";
       const paneRole = extractRole(label);
-      if (paneRole.toLowerCase() === role.toLowerCase()) {
-        return (pane.pane_id as string) || null;
+      if (paneRole.toLowerCase() !== role.toLowerCase()) continue;
+
+      const agentStatus = (pane.agent_status as string) || "unknown";
+      const paneId = (pane.pane_id as string) || null;
+      if (!paneId) continue;
+
+      // Prefer idle/done (safe to reuse) over unknown/stopped
+      const priority = agentStatus === "idle" || agentStatus === "done" ? 1 : 0;
+      if (priority > bestPriority) {
+        bestPriority = priority;
+        bestMatch = paneId;
       }
     }
   } catch {
     // Ignore list errors — proceed to create new pane
   }
-  return null;
+  return bestMatch;
 }
 
 export function registerSpawnTool(pi: ExtensionAPI) {
@@ -190,15 +201,27 @@ export function registerSpawnTool(pi: ExtensionAPI) {
             const agentStatus = (paneInfo.agent_status as string) || "unknown";
 
             if (agentStatus === "working" || agentStatus === "blocked") {
-              return err(`worker already active in pane ${existingPaneId} (status: ${agentStatus})`);
+              return err(
+                `worker already active in pane ${existingPaneId} (status: ${agentStatus})`,
+              );
             }
-            // idle, done, unknown, stopped — safe to reuse
-            paneIdToUse = existingPaneId;
-            reused = true;
+            // idle/done — safe to reuse
+            // unknown/stopped — only reuse if pane has no running process
+            if (agentStatus === "idle" || agentStatus === "done") {
+              paneIdToUse = existingPaneId;
+              reused = true;
+            } else {
+              // unknown/stopped — check if pane is actually usable
+              const terminalId = (paneInfo.terminal_id as string) || "";
+              if (terminalId) {
+                // Has a terminal — might be usable, try to reuse
+                paneIdToUse = existingPaneId;
+                reused = true;
+              }
+              // No terminal — fall through to create new pane
+            }
           } catch {
-            // Can't determine status — reuse anyway (likely dead pane)
-            paneIdToUse = existingPaneId;
-            reused = true;
+            // Can't determine status — fall through to create new pane
           }
         }
 
@@ -214,7 +237,9 @@ export function registerSpawnTool(pi: ExtensionAPI) {
 
           // 4. Split pane
           try {
-            const splitResult = herdrJson(`pane split ${paneId} --direction ${direction} --no-focus`);
+            const splitResult = herdrJson(
+              `pane split ${paneId} --direction ${direction} --no-focus`,
+            );
             const splitPane = (splitResult.result as Record<string, unknown>)?.pane as
               Record<string, unknown> | undefined;
             newPaneId = splitPane?.pane_id as string;
