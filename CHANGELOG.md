@@ -15,6 +15,7 @@ All notable changes to picode are documented here. Format follows [Keep a Change
 ### Docs
 
 - **Quick Start section** — added a top-level install + run walkthrough to `README.md` with fenced code blocks for `pi install`, worker launch, and coordinator launch. Links to Coordinator Mode and Worker Roles sections.
+- **Duplicate README section headings** — renamed `###` under Features to `Coordinator features`, `Worker role types`, and `Journal features` to avoid confusion with the `##` top-level sections (`Coordinator Mode`, `Worker Roles`, `Journal Compaction`).
 
 ## [0.5.17] — 2026-07-17
 
