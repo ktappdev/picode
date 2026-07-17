@@ -8,6 +8,12 @@ All notable changes to picode are documented here. Format follows [Keep a Change
 
 - **`/thread-send` body-size guard gap** — the slash command previously called `inbox.sendToMany` directly, bypassing the 256KB body-size guard added to `thread_send` in v0.5.14. An operator could `/thread-send alice <5MB blob>` and overflow the inbox dir. Now the command applies the same `checkBodySize` guard before queuing, with the same error message format. `src/commands.ts:150-156`.
 
+## [0.5.14] — 2026-07-17
+
+### Added
+
+- **`thread_send` body-size guard** — `src/tools/messaging.ts:8` exports `MAX_BODY_BYTES = 256 * 1024` (256 KB) and a `checkBodySize(body)` helper that returns an error string when the UTF-8 byte length of the body exceeds the limit. The `thread_send` executor (`src/tools/messaging.ts:117-120`) calls the guard before any inbox work, so oversize payloads never touch the disk. `sendToMany` is transitively covered since it calls `send`. Error message includes the actual size, the limit, and a recovery hint ("split into multiple sends, or use file refs for large content"). 5 new unit tests covering boundary, UTF-8 multibyte, empty body, and sendToMany.
+
 ## [0.5.13] — 2026-07-17
 
 ### Added
