@@ -44,6 +44,11 @@ import {
   piSelfCommand,
   shouldJournal,
   JOURNAL_MIN_INTERVAL_MS,
+  isCompactionEntry,
+  decideCompaction,
+  JOURNAL_COMPACT_THRESHOLD,
+  JOURNAL_COMPACT_KEEP_RECENT,
+  JOURNAL_COMPACT_COOLDOWN_MS,
 } from "../src/journal";
 import { buildWakeLaunch } from "../src/restate/wake-launch";
 import { createLocalFsAdapter } from "../src/adapter/local-fs";
@@ -2041,10 +2046,7 @@ describe("state: init() enforcement", () => {
       baseState("dup", { status: "running", lastSeen: new Date().toISOString() }),
     );
     const store = createThreadStore(mkPi("dup"), adapter);
-    await assert.rejects(
-      () => store.init(tmpDir, mkCtx(tmpDir)),
-      /already exists and is running/,
-    );
+    await assert.rejects(() => store.init(tmpDir, mkCtx(tmpDir)), /already exists and is running/);
   });
 
   it("duplicate thread ID: init() succeeds when existing same-ID thread is stale/stopped", async () => {
@@ -2226,5 +2228,184 @@ describe("state: watcher idempotency", () => {
     assert.strictEqual(active, 0);
     store.stopWatcher();
     assert.strictEqual(active, 0);
+  });
+});
+
+describe("journal: compaction (auto at 500 entries)", () => {
+  it("JOURNAL_COMPACT_THRESHOLD is 500", () => {
+    assert.strictEqual(JOURNAL_COMPACT_THRESHOLD, 500);
+  });
+  it("JOURNAL_COMPACT_KEEP_RECENT is 100", () => {
+    assert.strictEqual(JOURNAL_COMPACT_KEEP_RECENT, 100);
+  });
+  it("JOURNAL_COMPACT_COOLDOWN_MS is 24h", () => {
+    assert.strictEqual(JOURNAL_COMPACT_COOLDOWN_MS, 24 * 60 * 60 * 1000);
+  });
+
+  it("isCompactionEntry detects the marker at the start of an entry", () => {
+    assert.strictEqual(isCompactionEntry("<!-- COMPACTION 2026-01-15 10:30 -->\nsummary"), true);
+    assert.strictEqual(isCompactionEntry("\n<!-- COMPACTION 2026-01-15 10:30 -->"), true);
+  });
+  it("isCompactionEntry returns false for regular journal entries", () => {
+    assert.strictEqual(isCompactionEntry("<!-- 2026-01-15 10:30 -->\nWorking on: x"), false);
+    assert.strictEqual(isCompactionEntry("Working on: x\nDone: y"), false);
+  });
+
+  it("decideCompaction returns null when entries are under the threshold", () => {
+    const entries = Array.from({ length: 100 }, (_, i) => `<!-- ${i} -->\nentry ${i}`);
+    const content = entries.join("\n");
+    assert.strictEqual(decideCompaction(content), null);
+  });
+
+  it("decideCompaction splits oldest from newest when over the threshold", () => {
+    const entries = Array.from({ length: 510 }, (_, i) => `<!-- ${i} -->\nentry ${i}`);
+    const content = entries.join("\n");
+    const plan = decideCompaction(content, Date.now());
+    assert.ok(plan);
+    assert.strictEqual(plan.toSummarize.length, 510 - JOURNAL_COMPACT_KEEP_RECENT);
+    assert.strictEqual(plan.toKeep.length, JOURNAL_COMPACT_KEEP_RECENT);
+    // First summarized entry is index 0; first kept is the boundary.
+    assert.ok(plan.toSummarize[0].startsWith("<!-- 0 -->"));
+    assert.ok(plan.toKeep[0].startsWith(`<!-- ${510 - JOURNAL_COMPACT_KEEP_RECENT} -->`));
+    assert.ok(plan.toKeep[plan.toKeep.length - 1].startsWith("<!-- 509 -->"));
+  });
+
+  it("decideCompaction returns null when a recent COMPACTION marker is within cooldown", () => {
+    const recent = new Date(Date.now() - 60_000); // 1 minute ago
+    const ts = recent.toISOString().slice(0, 16).replace("T", " ");
+    const entries = [
+      ...Array.from({ length: 509 }, (_, i) => `<!-- ${i} -->\nentry ${i}`),
+      `<!-- COMPACTION ${ts} -->\nold summary`,
+    ];
+    const plan = decideCompaction(entries.join("\n"), Date.now());
+    assert.strictEqual(plan, null, "cooldown must suppress back-to-back compactions");
+  });
+
+  it("decideCompaction returns a plan when the last COMPACTION marker is older than cooldown", () => {
+    const longAgo = new Date(Date.now() - JOURNAL_COMPACT_COOLDOWN_MS - 60_000);
+    const ts = longAgo.toISOString().slice(0, 16).replace("T", " ");
+    const entries = [
+      ...Array.from({ length: 509 }, (_, i) => `<!-- ${i} -->\nentry ${i}`),
+      `<!-- COMPACTION ${ts} -->\nancient summary`,
+    ];
+    const plan = decideCompaction(entries.join("\n"), Date.now());
+    assert.ok(plan, "cooldown expired — must compact again");
+  });
+});
+
+describe("local-fs: journal lock and setJournal", () => {
+  it("acquireJournalLock succeeds on a free thread dir", async () => {
+    const adapter = createLocalFsAdapter();
+    await adapter.configure(tmpDir);
+    mkdirSync(join(tmpDir, ".thread", "threads", "lock1"), { recursive: true });
+    await adapter.acquireJournalLock!("lock1");
+    assert.ok(existsSync(join(tmpDir, ".thread", "threads", "lock1", "journal.lock")));
+    await adapter.releaseJournalLock!("lock1");
+    assert.ok(!existsSync(join(tmpDir, ".thread", "threads", "lock1", "journal.lock")));
+  });
+
+  it("acquireJournalLock throws after exhausting retries on a stuck (fresh) lock", async () => {
+    const adapter = createLocalFsAdapter();
+    await adapter.configure(tmpDir);
+    mkdirSync(join(tmpDir, ".thread", "threads", "lock2"), { recursive: true });
+    // Place a fresh lock — well under the 10s stale cutoff — that this
+    // process can't see (simulated by writing the file with a future mtime).
+    const lockPath = join(tmpDir, ".thread", "threads", "lock2", "journal.lock");
+    writeFileSync(lockPath, "");
+    const future = new Date(Date.now() + 60_000);
+    utimesSync(lockPath, future, future);
+    await assert.rejects(() => adapter.acquireJournalLock!("lock2"), /after 40 retries/);
+  });
+
+  it("acquireJournalLock unlinks a stale (old) lock and acquires", async () => {
+    const adapter = createLocalFsAdapter();
+    await adapter.configure(tmpDir);
+    mkdirSync(join(tmpDir, ".thread", "threads", "lock3"), { recursive: true });
+    const lockPath = join(tmpDir, ".thread", "threads", "lock3", "journal.lock");
+    writeFileSync(lockPath, "");
+    const past = new Date(Date.now() - 30_000);
+    utimesSync(lockPath, past, past);
+    await adapter.acquireJournalLock!("lock3");
+    assert.ok(existsSync(lockPath));
+    await adapter.releaseJournalLock!("lock3");
+  });
+
+  it("setJournal writes atomically and overwrites existing content", async () => {
+    const adapter = createLocalFsAdapter();
+    await adapter.configure(tmpDir);
+    await adapter.appendJournal!("sj", "\n<!-- 2026-01-15 10:00 -->\nfirst\n");
+    await adapter.setJournal!("sj", "\n<!-- 2026-01-15 11:00 -->\nsecond\n");
+    const content = await adapter.readJournal!("sj");
+    assert.ok(content?.includes("second"));
+    assert.ok(!content?.includes("first"), "old content must be replaced");
+  });
+
+  it("appendJournal acquires and releases the lock", async () => {
+    const adapter = createLocalFsAdapter();
+    await adapter.configure(tmpDir);
+    await adapter.appendJournal!("lock4", "\n<!-- ts -->\nx\n");
+    assert.ok(!existsSync(join(tmpDir, ".thread", "threads", "lock4", "journal.lock")));
+  });
+});
+
+describe("commands: /thread-journal", () => {
+  it("no args shows the last 12 entries", async () => {
+    const h = makeHarness(tmpDir);
+    const entries = Array.from({ length: 20 }, (_, i) => journalEntry(nowStamp(), `task ${i}`));
+    writeJournal(h, "t1", entries.join(""));
+    await callCommand(h, "/thread-journal");
+    const text = h.notifications.at(-1)!.text;
+    // Last entry must be visible, first must not.
+    assert.match(text, /Working on: task 19/);
+    assert.doesNotMatch(text, /Working on: task 0/);
+  });
+
+  it("status reports entry count, size, oldest and newest timestamps", async () => {
+    const h = makeHarness(tmpDir);
+    writeJournal(h, "t1", journalEntry(nowStamp(), "first") + journalEntry(nowStamp(), "last"));
+    await callCommand(h, "/thread-journal", "status");
+    const text = h.notifications.at(-1)!.text;
+    assert.match(text, /2 entries/);
+    assert.match(text, /bytes/);
+    assert.match(text, /oldest/);
+    assert.match(text, /newest/);
+  });
+
+  it("tail N shows exactly N most-recent entries", async () => {
+    const h = makeHarness(tmpDir);
+    const entries = Array.from({ length: 5 }, (_, i) => journalEntry(nowStamp(), `t${i}`));
+    writeJournal(h, "t1", entries.join(""));
+    await callCommand(h, "/thread-journal", "tail 2");
+    const text = h.notifications.at(-1)!.text;
+    assert.match(text, /Working on: t4/);
+    assert.doesNotMatch(text, /Working on: t0/);
+  });
+
+  it("trim N keeps only the last N entries (no fork)", async () => {
+    const h = makeHarness(tmpDir);
+    const entries = Array.from({ length: 10 }, (_, i) => journalEntry(nowStamp(), `task ${i}`));
+    writeJournal(h, "t1", entries.join(""));
+    await callCommand(h, "/thread-journal", "trim 3");
+    const content = await h.store.adapter.readJournal!("t1");
+    assert.match(h.notifications.at(-1)!.text, /Trimmed: 10 → 3/);
+    // Most recent 3 must survive.
+    assert.match(content!, /Working on: task 9/);
+    assert.match(content!, /Working on: task 7/);
+    assert.doesNotMatch(content!, /Working on: task 0/);
+  });
+
+  it("clear deletes the journal", async () => {
+    const h = makeHarness(tmpDir);
+    writeJournal(h, "t1", journalEntry(nowStamp(), "stuff"));
+    assert.ok(existsSync(join(h.store.threadDir, "journal.md")));
+    await callCommand(h, "/thread-journal", "clear");
+    assert.ok(!existsSync(join(h.store.threadDir, "journal.md")));
+  });
+
+  it("refuses to run when the thread never activated (opt-in gate)", async () => {
+    const h = makeHarness(tmpDir);
+    h.store.threadId = "";
+    await callCommand(h, "/thread-journal", "status");
+    assert.match(h.notifications[0].text, /hasn't opted into pi-threading/);
   });
 });

@@ -63,6 +63,9 @@ export function createLocalFsAdapter(): StorageAdapter & JournalAdapter {
   function journalPath(id: string): string {
     return path.join(threadDir(id), "journal.md");
   }
+  function journalLockPath(id: string): string {
+    return path.join(threadDir(id), "journal.lock");
+  }
   function inboxDir(id: string): string {
     return path.join(threadDir(id), "inbox");
   }
@@ -115,7 +118,89 @@ export function createLocalFsAdapter(): StorageAdapter & JournalAdapter {
 
     async appendJournal(threadId: string, entry: string) {
       fs.mkdirSync(threadDir(threadId), { recursive: true });
-      fs.appendFileSync(journalPath(threadId), entry);
+      await this.acquireJournalLock(threadId);
+      try {
+        fs.appendFileSync(journalPath(threadId), entry);
+      } finally {
+        await this.releaseJournalLock(threadId);
+      }
+    },
+
+    async setJournal(threadId: string, content: string) {
+      fs.mkdirSync(threadDir(threadId), { recursive: true });
+      await this.acquireJournalLock(threadId);
+      try {
+        const target = journalPath(threadId);
+        const tmp = target + ".tmp";
+        fs.writeFileSync(tmp, content);
+        fs.renameSync(tmp, target);
+      } finally {
+        await this.releaseJournalLock(threadId);
+      }
+    },
+
+    async deleteJournal(threadId: string) {
+      fs.mkdirSync(threadDir(threadId), { recursive: true });
+      await this.acquireJournalLock(threadId);
+      try {
+        try {
+          fs.unlinkSync(journalPath(threadId));
+        } catch {
+          // Already gone — fine.
+        }
+      } finally {
+        await this.releaseJournalLock(threadId);
+      }
+    },
+
+    async acquireJournalLock(threadId: string) {
+      const lockPath = journalLockPath(threadId);
+      fs.mkdirSync(threadDir(threadId), { recursive: true });
+      const STALE_MS = 10_000;
+      const MAX_RETRIES = 40; // ~2s at 50ms each
+      for (let i = 0; i < MAX_RETRIES; i++) {
+        try {
+          const fd = fs.openSync(lockPath, "wx");
+          // Hold the fd until release — keeps the file from disappearing
+          // and signals to other processes we're alive.
+          fs.closeSync(fd);
+          return;
+        } catch (e: unknown) {
+          if (e instanceof Error && (e as NodeJS.ErrnoException).code === "EEXIST") {
+            // Check mtime — stale if older than STALE_MS.
+            try {
+              const stat = fs.statSync(lockPath);
+              if (Date.now() - stat.mtimeMs > STALE_MS) {
+                // Stale — unlink and retry.
+                try {
+                  fs.unlinkSync(lockPath);
+                } catch {
+                  // Race — another process also detected stale and unlinked.
+                }
+                continue;
+              }
+            } catch {
+              // Lock vanished between EEXIST and stat — retry the open.
+              continue;
+            }
+            await new Promise(resolve => setTimeout(resolve, 50));
+            continue;
+          }
+          throw e;
+        }
+      }
+      throw new Error(
+        `Failed to acquire journal lock for thread "${threadId}" after ${MAX_RETRIES} retries.`,
+      );
+    },
+
+    async releaseJournalLock(threadId: string) {
+      const lockPath = journalLockPath(threadId);
+      try {
+        fs.unlinkSync(lockPath);
+      } catch {
+        // Best-effort — lock may already be gone.
+      }
     },
 
     async readJournal(threadId: string): Promise<string | undefined> {

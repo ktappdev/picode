@@ -126,7 +126,7 @@ export function registerMessagingTools(pi: ExtensionAPI, store: ThreadStore, inb
         if (coordTargets.length > 0 && store.role !== "coordinator") {
           return err(
             `Workers cannot direct the coordinator. Only the coordinator delegates work. ` +
-            `Reply to the coordinator with re=<id>, or send a plain note instead of setting expects=true.`
+              `Reply to the coordinator with re=<id>, or send a plain note instead of setting expects=true.`,
           );
         }
       }

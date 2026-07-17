@@ -5,7 +5,7 @@ import * as path from "node:path";
 import type { ThreadStore, ThreadState, ThreadSummary, StateFile } from "./core/types";
 import { HEARTBEAT_MS, CLIENT_CAPABILITIES } from "./core/types";
 import { nowIso } from "./core/time";
-import { forkJournalEntry } from "./journal";
+import { forkJournalEntry, compactJournal as compactJournalFn } from "./journal";
 import type { ThreadAdapter } from "./adapter/types";
 import { createLocalFsAdapter } from "./adapter/local-fs";
 
@@ -131,7 +131,12 @@ export function createThreadStore(
       }
 
       const flagParent = pi.getFlag("thread-parent");
-      store.parent = typeof flagParent === "string" && flagParent ? flagParent : (store.threadId !== "coordinator" ? "coordinator" : null);
+      store.parent =
+        typeof flagParent === "string" && flagParent
+          ? flagParent
+          : store.threadId !== "coordinator"
+            ? "coordinator"
+            : null;
       const flagRole = pi.getFlag("thread-role");
       if (typeof flagRole === "string" && flagRole) {
         store.role = flagRole;
@@ -140,7 +145,13 @@ export function createThreadStore(
       } else {
         // Auto-detect worker subtype from thread-id if it matches a known role
         const KNOWN_ROLES = ["builder", "reviewer", "scout", "designer", "explorer", "tester"];
-        const prefix = KNOWN_ROLES.find(r => store.threadId === r || store.threadId.startsWith(r + "-") || store.threadId.startsWith(r + "_") || store.threadId.startsWith(r + "."));
+        const prefix = KNOWN_ROLES.find(
+          r =>
+            store.threadId === r ||
+            store.threadId.startsWith(r + "-") ||
+            store.threadId.startsWith(r + "_") ||
+            store.threadId.startsWith(r + "."),
+        );
         store.role = prefix ?? "worker";
       }
 
@@ -212,19 +223,23 @@ export function createThreadStore(
             stale = true;
           }
           if (stale) {
-            try { fs.unlinkSync(lockPath); } catch { /* best-effort */ }
+            try {
+              fs.unlinkSync(lockPath);
+            } catch {
+              /* best-effort */
+            }
             // Retry: the lock was stale, now try to acquire it fresh.
             lockFd = fs.openSync(lockPath, "wx");
             fs.writeSync(lockFd, String(process.pid));
           } else {
             throw new Error(
               `Thread "${store.threadId}" is already starting (init.lock held). ` +
-              `Wait a moment and retry, or use a different --thread-id.`
+                `Wait a moment and retry, or use a different --thread-id.`,
             );
           }
         } else {
           throw new Error(
-            `Failed to acquire init lock for thread "${store.threadId}": ${String(e)}`
+            `Failed to acquire init lock for thread "${store.threadId}": ${String(e)}`,
           );
         }
       }
@@ -246,7 +261,7 @@ export function createThreadStore(
             } else {
               throw new Error(
                 `Thread "${store.threadId}" already exists and is running. ` +
-                `Use a unique --thread-id (e.g. --thread-id ${store.threadId}-2).`
+                  `Use a unique --thread-id (e.g. --thread-id ${store.threadId}-2).`,
               );
             }
           }
@@ -256,7 +271,7 @@ export function createThreadStore(
         if (store.role === "coordinator") {
           const threads = await store.listThreads();
           const activeCoord = threads.find(
-            t => t.id !== store.threadId && t.role === "coordinator" && t.status === "running"
+            t => t.id !== store.threadId && t.role === "coordinator" && t.status === "running",
           );
           if (activeCoord) {
             // Stale check: if the coordinator PID is dead, it's not really running.
@@ -265,7 +280,7 @@ export function createThreadStore(
             } else {
               throw new Error(
                 `Coordinator "${activeCoord.id}" already exists. Cannot start another coordinator. ` +
-                `Use a different role (e.g. --thread-role worker).`
+                  `Use a different role (e.g. --thread-role worker).`,
               );
             }
           }
@@ -284,7 +299,11 @@ export function createThreadStore(
         // Always release the init lock, even if persist or checks threw.
         if (lockFd !== null) {
           fs.closeSync(lockFd);
-          try { fs.unlinkSync(lockPath); } catch { /* best-effort */ }
+          try {
+            fs.unlinkSync(lockPath);
+          } catch {
+            /* best-effort */
+          }
         }
       }
     },
@@ -324,6 +343,12 @@ export function createThreadStore(
     forkJournal(sessionFile: string) {
       const m = pi.getFlag("thread-journal-model");
       forkJournalEntry(store, sessionFile, typeof m === "string" && m ? m : undefined);
+    },
+
+    compactJournal(sessionFile: string) {
+      if (!store.sessionFile) return;
+      const m = pi.getFlag("thread-journal-model");
+      compactJournalFn(store, sessionFile, typeof m === "string" && m ? m : undefined);
     },
 
     startHeartbeat(onTick?: () => void | Promise<void>) {

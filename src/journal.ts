@@ -18,12 +18,32 @@ Blockers: <blockers or "none">
 
 No preamble. No extra text. Just the five lines.`;
 
+const COMPACTION_PROMPT = `You are summarizing old journal entries from a long-running thread. Produce a compact block (5-10 lines max) preserving: key tasks completed, key decisions made, current state at the time, ongoing obligations. Drop: routine tool turns, restated waits, anything that doesn't carry news. Format: a single paragraph OR short bulleted list. No headers. No preamble. Just the summary text.
+
+Entries to summarize:
+---
+ENTRIES_HERE
+---`;
+
 /** Minimum spacing between per-turn journal forks. Structural changes (new
  *  obligation, lock, barrier — the things teammates key off) still journal
  *  immediately; this only rate-limits the "another tool turn on the same
  *  task" entries that used to land once per turn, ~17 near-duplicates per
  *  work session. */
 export const JOURNAL_MIN_INTERVAL_MS = 120_000;
+
+/** When journal entries exceed this, summarize the oldest (count - keepRecent)
+ *  into a single block. Cooldown: 24h between compactions, enforced by the
+ *  most-recent COMPACTION marker in the file. */
+export const JOURNAL_COMPACT_THRESHOLD = 500;
+export const JOURNAL_COMPACT_KEEP_RECENT = 100;
+export const JOURNAL_COMPACT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+
+/** Detect a compaction marker: `<!-- COMPACTION <ts> -->`. Used to enforce
+ *  the 24h cooldown without extra state. */
+export function isCompactionEntry(entry: string): boolean {
+  return /^<!--\s*COMPACTION\s/.test(entry.trimStart());
+}
 
 /** Entries are separated by their `<!-- timestamp -->` headers. */
 export function splitJournalEntries(content: string): string[] {
@@ -209,4 +229,90 @@ export function forkJournalEntry(store: ThreadStore, sessionFile: string, model?
       await store.adapter.appendJournal?.(store.threadId, `\n<!-- ${ts} -->\n${entry}\n`);
     })();
   });
+}
+
+/** Pure decision: given a journal's current content, return the entries to
+ *  drop (replace with summary) and the entries to keep verbatim.
+ *  Returns null when no compaction is warranted. */
+export function decideCompaction(
+  content: string,
+  now: number = Date.now(),
+): { toSummarize: string[]; toKeep: string[] } | null {
+  const entries = splitJournalEntries(content);
+  if (entries.length <= JOURNAL_COMPACT_THRESHOLD) return null;
+  // Cooldown: if the newest entry is a COMPACTION marker less than COOLDOWN_MS old, skip.
+  const last = entries[entries.length - 1];
+  if (isCompactionEntry(last)) {
+    const m = /^<!--\s*COMPACTION\s+(.+?)\s*-->/.exec(last);
+    if (m) {
+      const ts = new Date(m[1].replace(" ", "T") + ":00Z").getTime();
+      if (Number.isFinite(ts) && now - ts < JOURNAL_COMPACT_COOLDOWN_MS) return null;
+    }
+  }
+  return {
+    toSummarize: entries.slice(0, entries.length - JOURNAL_COMPACT_KEEP_RECENT),
+    toKeep: entries.slice(entries.length - JOURNAL_COMPACT_KEEP_RECENT),
+  };
+}
+
+/** If journal exceeds threshold, summarize oldest entries into one block.
+ *  Fire-and-forget. Re-reads journal under lock before write so any
+ *  appends that landed during the summarizer fork are preserved. */
+export function compactJournal(store: ThreadStore, sessionFile: string, model?: string): void {
+  if (!store.adapter.appendJournal || !store.adapter.readJournal) return;
+  void (async () => {
+    const existing = await store.adapter.readJournal!(store.threadId);
+    if (!existing) return;
+    const plan = decideCompaction(existing);
+    if (!plan) return;
+
+    const tmpSes = fs.mkdtempSync(path.join(os.tmpdir(), "pi-journal-compact-"));
+    const prompt = COMPACTION_PROMPT.replace("ENTRIES_HERE", plan.toSummarize.join("\n---\n"));
+    const launch = piSelfCommand(
+      journalForkArgs(sessionFile, tmpSes, model).map(a => (a === JOURNAL_PROMPT ? prompt : a)),
+    );
+    let out = "";
+    let errOut = "";
+    const proc = spawn(launch.cmd, launch.args, { stdio: ["ignore", "pipe", "pipe"] });
+    proc.on("error", err => {
+      console.error("[thread] journal compaction fork failed to spawn:", err);
+      fs.rmSync(tmpSes, { recursive: true, force: true });
+    });
+    proc.stdout!.on("data", (d: Buffer) => {
+      out += d.toString();
+    });
+    proc.stderr!.on("data", (d: Buffer) => {
+      errOut += d.toString();
+    });
+    proc.on("close", code => {
+      fs.rmSync(tmpSes, { recursive: true, force: true });
+      const summary = out.trim();
+      if (!summary) {
+        console.error(
+          `[thread] journal compaction produced no summary (exit ${code})${errOut.trim() ? `: ${errOut.trim().slice(0, 300)}` : ""}`,
+        );
+        return;
+      }
+      void (async () => {
+        // Re-read under lock to catch any appends that landed during fork.
+        await store.adapter.acquireJournalLock?.(store.threadId);
+        try {
+          const fresh = (await store.adapter.readJournal!(store.threadId)) ?? "";
+          const freshEntries = splitJournalEntries(fresh);
+          // Keep the last JOURNAL_COMPACT_KEEP_RECENT of the fresh data so
+          // any appends during the fork are preserved.
+          const keepFromFresh = freshEntries.slice(-JOURNAL_COMPACT_KEEP_RECENT);
+          const ts = new Date().toISOString().slice(0, 16).replace("T", " ");
+          const compactionEntry = `<!-- COMPACTION ${ts} -->\n${summary}\n`;
+          const newContent = compactionEntry + "\n" + keepFromFresh.join("\n") + "\n";
+          await store.adapter.setJournal!(store.threadId, newContent);
+          console.log(
+            `[thread] journal compacted: ${freshEntries.length} → ${keepFromFresh.length + 1} entries`,
+          );
+        } finally {
+          await store.adapter.releaseJournalLock?.(store.threadId);
+        }
+      })();
+    });
+  })();
 }

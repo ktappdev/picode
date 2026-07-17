@@ -37,11 +37,45 @@ export function createRestateAdapter(opts: { url?: string }): StorageAdapter & J
     },
 
     async appendJournal(threadId: string, entry: string) {
-      await thread(threadId).appendJournal(entry);
+      await this.acquireJournalLock(threadId);
+      try {
+        await thread(threadId).appendJournal(entry);
+      } finally {
+        await this.releaseJournalLock(threadId);
+      }
     },
 
     async readJournal(threadId: string): Promise<string | undefined> {
       return (await thread(threadId).readJournal()) ?? undefined;
+    },
+
+    async setJournal(threadId: string, content: string) {
+      await this.acquireJournalLock(threadId);
+      try {
+        await thread(threadId).setJournal(content);
+      } finally {
+        await this.releaseJournalLock(threadId);
+      }
+    },
+
+    async deleteJournal(threadId: string) {
+      await this.acquireJournalLock(threadId);
+      try {
+        await thread(threadId).setJournal("");
+      } finally {
+        await this.releaseJournalLock(threadId);
+      }
+    },
+
+    // Restate virtual object already serializes per-key — the journal
+    // mutations are atomic in the service's own journal key, so no client-
+    // side lock is needed (and none could be observed by the service anyway).
+    async acquireJournalLock(_threadId: string) {
+      // no-op: restate virtual object serializes per-key
+    },
+
+    async releaseJournalLock(_threadId: string) {
+      // no-op
     },
 
     async listThreads(): Promise<ThreadSummary[]> {

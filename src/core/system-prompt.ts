@@ -8,7 +8,14 @@ import type { ThreadData } from "./types";
 export type WorkerSubtype = "builder" | "reviewer" | "scout" | "designer" | "explorer" | "tester";
 
 function workerSubtype(role: string): WorkerSubtype | null {
-  const subtypes: WorkerSubtype[] = ["builder", "reviewer", "scout", "designer", "explorer", "tester"];
+  const subtypes: WorkerSubtype[] = [
+    "builder",
+    "reviewer",
+    "scout",
+    "designer",
+    "explorer",
+    "tester",
+  ];
   return subtypes.includes(role as WorkerSubtype) ? (role as WorkerSubtype) : null;
 }
 

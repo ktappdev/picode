@@ -75,7 +75,9 @@ export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: I
     }
 
     if (store.role === "coordinator") {
-      console.log(`[thread] Coordinator started. Models config: ${path.join(ctx.cwd, ".thread", "models.json")}`);
+      console.log(
+        `[thread] Coordinator started. Models config: ${path.join(ctx.cwd, ".thread", "models.json")}`,
+      );
     }
 
     // Read-only roles: coordinator + read-only subtypes (reviewer, scout,
@@ -96,7 +98,9 @@ export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: I
       ]);
       const filtered = active.filter(name => ALLOWED.has(name));
       pi.setActiveTools(filtered);
-      console.log(`[thread] ${store.role} mode: restricted to ${filtered.length} tools (${filtered.join(", ")})`);
+      console.log(
+        `[thread] ${store.role} mode: restricted to ${filtered.length} tools (${filtered.join(", ")})`,
+      );
     }
 
     // Defer initial drain to next tick — calling pi.sendUserMessage
@@ -224,6 +228,13 @@ export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: I
     if (write) {
       const sf = ctx.sessionManager.getSessionFile();
       if (sf) store.forkJournal(sf);
+    }
+
+    // Auto-compact if journal grew past threshold. Fire-and-forget. Only
+    // at run end — not per turn — to avoid racing the normal journal writes.
+    if (journalMode(pi) !== "off") {
+      const sf = ctx.sessionManager.getSessionFile();
+      if (sf) store.compactJournal(sf);
     }
 
     // Messages steered from agent_end handlers are still consumed: pi checks

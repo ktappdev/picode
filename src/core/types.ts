@@ -174,6 +174,8 @@ export interface ThreadStore extends ThreadData {
   readJournal: (threadId: string) => Promise<string | undefined>;
   threadExists: (threadId: string) => Promise<boolean>;
   forkJournal: (sessionFile: string) => void;
+  /** Fire-and-forget: if journal exceeds threshold, summarize oldest into one block. */
+  compactJournal: (sessionFile: string) => void;
   startHeartbeat: (onTick?: () => void | Promise<void>) => void;
   stopHeartbeat: () => void;
   startWatcher: (drainInbox: (ctx: ExtensionContext) => void, ctx: ExtensionContext) => void;

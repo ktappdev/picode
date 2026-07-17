@@ -133,7 +133,7 @@ All actual I/O is delegated to a `StorageAdapter` (`src/adapter/types.ts`) — a
   inbox.tmp/               enqueue staging (same filesystem as inbox/)
 ```
 
-Each thread only ever writes its own `state.json`; other threads only ever *create* files in its `inbox/` — so no cross-process file locking is needed anywhere. Envelope filenames are the id's ULID tail (`mintEnvelopeId` → `<from>/<ulid>`, `src/core/ids.ts`), so a sorted `readdir` **is** FIFO order, and a retried send with the same id overwrites its own file — enqueue idempotence for free.
+Each thread only ever writes its own `state.json`; other threads only ever _create_ files in its `inbox/` — so no cross-process file locking is needed anywhere. Envelope filenames are the id's ULID tail (`mintEnvelopeId` → `<from>/<ulid>`, `src/core/ids.ts`), so a sorted `readdir` **is** FIFO order, and a retried send with the same id overwrites its own file — enqueue idempotence for free.
 
 `enqueueMessage` writes into `inbox.tmp/`, then `fs.renameSync`s into `inbox/` — atomic on the same filesystem, so a reader never observes a partial envelope. `drainInbox` does a sorted `readdir`, skips anything whose `deliverAfter` is still in the future, and — **before** returning each envelope as claimed — renames it into `inbox/processed/`; if the caller throws after that, the message is already moved and won't be redelivered (favors "never deliver twice" over "never lose one", per the spec's §7.7 drain gate).
 
@@ -146,11 +146,11 @@ Each thread only ever writes its own `state.json`; other threads only ever *crea
 Two pieces on the server side (`service.ts`), served separately via `npm run restate:serve` against a self-hosted `restate-server`:
 
 - **`ThreadRegistry`** — a single durable object holding the list of known thread ids. Restate's per-key state has no "list all keys of this object type" API, so a thread has to register itself here for `listThreads()`/`resolveTargets("*"|"role:x")` to work at all — the local-fs backend gets this for free from a directory listing.
-- **`ThreadObject`** — one durable instance per thread id, holding `state`, `journal`, and `inbox` as per-key Restate state. `saveState` registers the thread (once, gated by a `registered` flag) the first time it's called, and does so with an `await` — a fire-and-forget registration would race `listThreads()` right after a fresh thread's first save. `enqueueMessage` on a `deliverAfter` envelope arms a **durable delayed self-invocation** (`ctx.objectSendClient(...).deliverDue(...)` with `restate.rpc.sendOpts({ delay })`) — this is the one thing the local-fs backend structurally cannot do: revive a *stopped* process. `deliverDue` fires when that delay elapses; if the thread is still live (fresh `lastSeen`), its own heartbeat drain already covers the envelope and `deliverDue` no-ops; if the thread looks stopped, it `spawn()`s `pi` back up via `buildWakeLaunch()` (`wake-launch.ts`), `detached`+`unref`'d, with `stdio: "ignore"` (load-bearing: `pi --print` reads stdin to EOF and hangs on an open pipe otherwise).
+- **`ThreadObject`** — one durable instance per thread id, holding `state`, `journal`, and `inbox` as per-key Restate state. `saveState` registers the thread (once, gated by a `registered` flag) the first time it's called, and does so with an `await` — a fire-and-forget registration would race `listThreads()` right after a fresh thread's first save. `enqueueMessage` on a `deliverAfter` envelope arms a **durable delayed self-invocation** (`ctx.objectSendClient(...).deliverDue(...)` with `restate.rpc.sendOpts({ delay })`) — this is the one thing the local-fs backend structurally cannot do: revive a _stopped_ process. `deliverDue` fires when that delay elapses; if the thread is still live (fresh `lastSeen`), its own heartbeat drain already covers the envelope and `deliverDue` no-ops; if the thread looks stopped, it `spawn()`s `pi` back up via `buildWakeLaunch()` (`wake-launch.ts`), `detached`+`unref`'d, with `stdio: "ignore"` (load-bearing: `pi --print` reads stdin to EOF and hangs on an open pipe otherwise).
 
 `src/restate/adapter.ts` (`createRestateAdapter`) is the client side that actually runs inside the `pi` process — a Restate **ingress client**, not a hosted handler. Every `StorageAdapter` method becomes an RPC into `Thread`/`ThreadRegistry` via `@restatedev/restate-sdk-clients`. `watchInbox` has no push-based cross-network watch, so it polls every `POLL_MS = 2000` instead of getting an instant `fs.watch` notification — worse live-delivery latency, but the guarantee that actually matters (cold-start drain at `session_start`) is unaffected either way.
 
-`buildWakeLaunch()` (`wake-launch.ts`) is kept SDK-free and pure (no Restate imports) specifically so it's unit-testable without a running `restate-server`. The revived `pi` process needs `--thread-storage restate` and the same ingress URL the service's own clients used — sourced from the *service's* environment (`RESTATE_INGRESS_URL`, `PI_THREAD_EXTENSION`, `PI_BIN`) since the service has no other way to know it.
+`buildWakeLaunch()` (`wake-launch.ts`) is kept SDK-free and pure (no Restate imports) specifically so it's unit-testable without a running `restate-server`. The revived `pi` process needs `--thread-storage restate` and the same ingress URL the service's own clients used — sourced from the _service's_ environment (`RESTATE_INGRESS_URL`, `PI_THREAD_EXTENSION`, `PI_BIN`) since the service has no other way to know it.
 
 ---
 
@@ -167,20 +167,20 @@ Two pieces on the server side (`service.ts`), served separately via `npm run res
 
 Two separate ledgers, both durable in `StateFile`:
 
-- **`obligations`** (sender side): "I sent an `expects` envelope to X and am waiting on a reply." Recorded in `sendEnvelope` when `opts.expects` is set; cleared when a reply with matching `re` is *delivered* to this thread.
-- **`owed`** (receiver side): "Someone sent me an `expects` envelope and I owe them a reply." Recorded in `deliver()` when an inbound envelope has `expects` set; cleared when this thread *sends* a reply whose `re` matches.
+- **`obligations`** (sender side): "I sent an `expects` envelope to X and am waiting on a reply." Recorded in `sendEnvelope` when `opts.expects` is set; cleared when a reply with matching `re` is _delivered_ to this thread.
+- **`owed`** (receiver side): "Someone sent me an `expects` envelope and I owe them a reply." Recorded in `deliver()` when an inbound envelope has `expects` set; cleared when this thread _sends_ a reply whose `re` matches.
 
 Both discharge paths are gated on sender identity — **only a reply from the thread the debt was actually recorded against may clear it.** A `re` that merely numerically collides with someone else's obligation/owed entry (typo, stale copy-paste, malicious neighbor) leaves the ledger untouched and renders as a plain, undischarging message instead. This gate now exists in **three independent implementations**, one per receive-path (a v0.3.1/v0.3.2 fix — Erratum 6):
 
-| Implementation | Ledger | Gate |
-| --- | --- | --- |
-| `src/inbox.ts` `deliver()` | `obligations` (sender side, on receiving a reply) | `!obMatch \|\| obMatch.to === msg.from` before filtering `obligations` and resolving barriers |
-| `src/inbox.ts` `sendEnvelope()` | `owed` (receiver side, on sending a reply) | `owedMatch && owedMatch.from === to` before filtering `owed` |
-| `bin/postbox-mcp.mjs` `drainAndRender()` | `obligations` | `obMatch && obMatch.to === msg.from` before splicing `obligations` |
-| `bin/postbox-mcp.mjs` `toolThreadSend()` | `owed` | `state.owed.findIndex(o => o.id === re && o.from === targetId)` |
-| `bin/postbox-hook.mjs` `updateLedger()` | `obligations` | `obMatch && obMatch.to === msg.from` before filtering `obligations` |
+| Implementation                           | Ledger                                            | Gate                                                                                          |
+| ---------------------------------------- | ------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `src/inbox.ts` `deliver()`               | `obligations` (sender side, on receiving a reply) | `!obMatch \|\| obMatch.to === msg.from` before filtering `obligations` and resolving barriers |
+| `src/inbox.ts` `sendEnvelope()`          | `owed` (receiver side, on sending a reply)        | `owedMatch && owedMatch.from === to` before filtering `owed`                                  |
+| `bin/postbox-mcp.mjs` `drainAndRender()` | `obligations`                                     | `obMatch && obMatch.to === msg.from` before splicing `obligations`                            |
+| `bin/postbox-mcp.mjs` `toolThreadSend()` | `owed`                                            | `state.owed.findIndex(o => o.id === re && o.from === targetId)`                               |
+| `bin/postbox-hook.mjs` `updateLedger()`  | `obligations`                                     | `obMatch && obMatch.to === msg.from` before filtering `obligations`                           |
 
-(`postbox-hook.mjs` only ever *receives* mail — it has no send-side tool — so it only needs the `obligations`/reply-received half of the gate, not the `owed`/reply-sent half.)
+(`postbox-hook.mjs` only ever _receives_ mail — it has no send-side tool — so it only needs the `obligations`/reply-received half of the gate, not the `owed`/reply-sent half.)
 
 `thread_send`'s own soft warning (`src/tools/messaging.ts`) — surfaced to the model when a `re` doesn't match any owed entry, or matches one owed to a different thread than the stated target — is a **UX nicety layered on top**, not the actual protection: it never blocks the send. The real invariant lives in the three gates above.
 
@@ -201,10 +201,10 @@ Every `expects` send carries a deadline: explicit `deadlineSeconds`, or `DEFAULT
 The last hop — from a drained mailbox into this session's own conversation via `pi.sendUserMessage` — is gated (`canInject()` in `src/inbox.ts`), because pi's extension API gives no native cross-process delivery primitive and the naive approach races two different pi behaviors:
 
 - While pi is mid-run, an injected message just joins pi's own steering/follow-up queue (safe — consumed at turn boundaries and once more after `agent_end` handlers settle).
-- While pi is *idle*, each injection starts a **new agent run** after an async preflight; two of those racing means the loser is dropped by pi with `"Agent is already processing"`.
-- During auto-compaction the agent *looks* idle, so an unguarded injection starts a run that races the compaction's own context rewrite (pi's TUI holds user input during compaction for exactly this reason; extensions get no such guard for free).
+- While pi is _idle_, each injection starts a **new agent run** after an async preflight; two of those racing means the loser is dropped by pi with `"Agent is already processing"`.
+- During auto-compaction the agent _looks_ idle, so an unguarded injection starts a run that races the compaction's own context rewrite (pi's TUI holds user input during compaction for exactly this reason; extensions get no such guard for free).
 
-So `canInject()` returns `false` (and every drain call is a no-op — envelopes stay durably claimed-but-undelivered on disk, or simply undrained) while: (a) `compactingSince` is set and less than `COMPACTION_HOLD_MAX_MS` (180s) old — set by `session_before_compact`, cleared by `session_compact` (compaction failures emit no end event, hence the timeout fallback rather than waiting forever); or (b) `inFlightSince` is set and less than `INJECTION_GRACE_MS` (3s) old — set the instant an idle-time injection fires, cleared by `turn_start` (or the 3s fallback if `turn_start` never lands). Each drain that *does* proceed coalesces every pending envelope's `Injection` into exactly **one** `pi.sendUserMessage` call (`inject()`), steering (`deliverAs: "steer"`) if any part is `urgency: "high"`, else `deliverAs: "followUp"`. Retries for gated messages come from the watcher, `turn_end`, and the heartbeat — a hold delays delivery, never loses it.
+So `canInject()` returns `false` (and every drain call is a no-op — envelopes stay durably claimed-but-undelivered on disk, or simply undrained) while: (a) `compactingSince` is set and less than `COMPACTION_HOLD_MAX_MS` (180s) old — set by `session_before_compact`, cleared by `session_compact` (compaction failures emit no end event, hence the timeout fallback rather than waiting forever); or (b) `inFlightSince` is set and less than `INJECTION_GRACE_MS` (3s) old — set the instant an idle-time injection fires, cleared by `turn_start` (or the 3s fallback if `turn_start` never lands). Each drain that _does_ proceed coalesces every pending envelope's `Injection` into exactly **one** `pi.sendUserMessage` call (`inject()`), steering (`deliverAs: "steer"`) if any part is `urgency: "high"`, else `deliverAs: "followUp"`. Retries for gated messages come from the watcher, `turn_end`, and the heartbeat — a hold delays delivery, never loses it.
 
 ---
 
@@ -244,15 +244,15 @@ Journal generation throttling is client-private policy: the protocol only sees a
 
 Registered in three groups by `src/tools/index.ts` — five protocol tools (spec §14) plus two client-local on-hold controls:
 
-| Tool | File | What it does |
-| --- | --- | --- |
-| `thread_send` | `messaging.ts` | Send to one id / comma list / `*` / `role:<role>`; `expects`, `re`, `urgency`, `deliverAfterSeconds`, `deadlineSeconds`, and an optional `wait` that arms a barrier inline |
-| `thread_wait` | `messaging.ts` | Arm a standalone barrier over a set of envelope ids, with an optional `mode`, `deadlineSeconds`, and resolution `message` payload |
-| `thread_status` | `introspection.ts` | This thread's own id/role/state/status/barriers/obligations/owed + latest journal — the recovery path after a compaction |
-| `thread_list` | `introspection.ts` | Every known thread's summary (state/status/role/parent/load counts/lastSeen) |
-| `thread_journal` | `introspection.ts` | Read any thread's journal (including your own), with optional `tail`/`lookbackMinutes` filtering |
-| `thread_suspend` | `control.ts` | Enter On Hold (client-local, not protocol surface — §14/A.5); inbox queues until resume |
-| `thread_resume` | `control.ts` | Leave On Hold back to Open, draining the queued inbox |
+| Tool             | File               | What it does                                                                                                                                                               |
+| ---------------- | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `thread_send`    | `messaging.ts`     | Send to one id / comma list / `*` / `role:<role>`; `expects`, `re`, `urgency`, `deliverAfterSeconds`, `deadlineSeconds`, and an optional `wait` that arms a barrier inline |
+| `thread_wait`    | `messaging.ts`     | Arm a standalone barrier over a set of envelope ids, with an optional `mode`, `deadlineSeconds`, and resolution `message` payload                                          |
+| `thread_status`  | `introspection.ts` | This thread's own id/role/state/status/barriers/obligations/owed + latest journal — the recovery path after a compaction                                                   |
+| `thread_list`    | `introspection.ts` | Every known thread's summary (state/status/role/parent/load counts/lastSeen)                                                                                               |
+| `thread_journal` | `introspection.ts` | Read any thread's journal (including your own), with optional `tail`/`lookbackMinutes` filtering                                                                           |
+| `thread_suspend` | `control.ts`       | Enter On Hold (client-local, not protocol surface — §14/A.5); inbox queues until resume                                                                                    |
+| `thread_resume`  | `control.ts`       | Leave On Hold back to Open, draining the queued inbox                                                                                                                      |
 
 `before_agent_start` (`lifecycle.ts`) injects `threadModelPrompt(store)` (`core/system-prompt.ts`) — the "Thread Communication Model" block explaining these tools, the pattern→call map, and the "Standing by" canary — appended to pi's own system prompt, only while the opt-in gate is active.
 
@@ -260,18 +260,18 @@ Registered in three groups by `src/tools/index.ts` — five protocol tools (spec
 
 ## The three external actors
 
-All three speak the *same* `.thread/` local-fs store (Appendix B) and interoperate purely through it — atomic renames make claims mutually exclusive regardless of which actor wins the race.
+All three speak the _same_ `.thread/` local-fs store (Appendix B) and interoperate purely through it — atomic renames make claims mutually exclusive regardless of which actor wins the race.
 
 - **`bin/thread-cli.mjs`** — zero-dependency CLI. `list`/`status`/`send`/`inbox`/`tail`/`watch`/`delete` read and write the same files the extension does. A human operator using it is a full **C1** protocol citizen (spec §2.2) without running pi at all. Operator sends default to `urgency: "high"` (a human steering a thread wants it seen at the next opening).
 - **`bin/postbox-mcp.mjs`** — zero-dependency MCP stdio server, making any MCP-capable coding agent (Claude Code, Codex CLI, ...) a **C2** correlating client (§2.2): it tracks the obligation/owed ledger and exposes six `thread_*`-equivalent tools (`thread_send`, `thread_inbox`, `thread_wait`, `thread_status`, `thread_list`, `thread_journal`) over JSON-RPC 2.0 on stdin/stdout. Identity comes from the `POSTBOX_THREAD_ID` env var (required; `POSTBOX_DIR`/`POSTBOX_ROLE`/`POSTBOX_PARENT` optional). It runs no waits or state machine beyond `running`/`stopped` — that's the pi extension's (**C3**) job.
 - **`bin/postbox-hook.mjs`** — zero-dependency Claude Code hook, one script registered on four hook events, giving a Claude Code session push-style delivery instead of having to poll `thread_inbox`:
 
-  | Event | Gate |
-  | --- | --- |
-  | `SessionStart` | cold-start drain of all due mail → `additionalContext` |
-  | `UserPromptSubmit` | turn-start drain of all due mail → `additionalContext` |
-  | `PostToolUse` | urgency=high mail only, injected at the next tool boundary → `additionalContext` |
-  | `Stop` | pending mail blocks the stop (`decision: "block"`) until debts are settled or a `POSTBOX_STOP_WAIT_SECONDS` grace window elapses |
+  | Event              | Gate                                                                                                                             |
+  | ------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+  | `SessionStart`     | cold-start drain of all due mail → `additionalContext`                                                                           |
+  | `UserPromptSubmit` | turn-start drain of all due mail → `additionalContext`                                                                           |
+  | `PostToolUse`      | urgency=high mail only, injected at the next tool boundary → `additionalContext`                                                 |
+  | `Stop`             | pending mail blocks the stop (`decision: "block"`) until debts are settled or a `POSTBOX_STOP_WAIT_SECONDS` grace window elapses |
 
   The one blind window: a turn that streams prose without a single tool call has no `PostToolUse` gate to land in, so that mail waits for `Stop`. True mid-generation steer needs an Agent SDK host, not hooks.
 

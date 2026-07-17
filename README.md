@@ -49,14 +49,14 @@ Threads share state via `.thread/threads/<id>/` in the project directory. Each t
 
 Each thread has a role that shapes its system prompt. The role is auto-detected from `--thread-id`:
 
-| Role | Subtype | Description |
-|------|---------|-------------|
-| `coordinator` | — | Directs workers, delegates tasks, maintains project context. Cannot write/edit files. |
-| `builder` | Worker | Implements code changes, edits files, runs type checks. |
-| `reviewer` | Worker | Reviews diffs, audits for bugs/security/quality. Read-only. |
-| `scout` / `explorer` | Worker | Explores codebase, finds files, answers architecture questions. Read-only. |
-| `tester` | Worker | Writes and runs tests, reproduces bugs, checks coverage. |
-| `designer` | Worker | Designs UI specs for builder implementation. Read-only. |
+| Role                 | Subtype | Description                                                                           |
+| -------------------- | ------- | ------------------------------------------------------------------------------------- |
+| `coordinator`        | —       | Directs workers, delegates tasks, maintains project context. Cannot write/edit files. |
+| `builder`            | Worker  | Implements code changes, edits files, runs type checks.                               |
+| `reviewer`           | Worker  | Reviews diffs, audits for bugs/security/quality. Read-only.                           |
+| `scout` / `explorer` | Worker  | Explores codebase, finds files, answers architecture questions. Read-only.            |
+| `tester`             | Worker  | Writes and runs tests, reproduces bugs, checks coverage.                              |
+| `designer`           | Worker  | Designs UI specs for builder implementation. Read-only.                               |
 
 Prefix matching: `builder-1`, `builder-a`, `builder_foo`, `builder.task` all resolve to role `builder`. Any id that doesn't match a known role (or prefix) defaults to a generic `worker` role with base worker rules only.
 
@@ -78,11 +78,11 @@ Override which LLM model each worker role uses via `.thread/models.json`:
 - Coordinator reads this file on startup and passes the model to each worker spawn command
 - Human operator can manage via slash command:
 
-| Command | Effect |
-|---------|--------|
-| `/thread-models` | Show current config |
-| `/thread-models builder anthropic/claude-sonnet-4` | Set model for a role |
-| `/thread-models --reset` | Delete file, restore defaults |
+| Command                                            | Effect                        |
+| -------------------------------------------------- | ----------------------------- |
+| `/thread-models`                                   | Show current config           |
+| `/thread-models builder anthropic/claude-sonnet-4` | Set model for a role          |
+| `/thread-models --reset`                           | Delete file, restore defaults |
 
 ## Coordinator Mode
 
@@ -121,6 +121,29 @@ Create `.thread/prompts/<role>.md` at your project root (the git repo root, or c
 **Self-improvement:** When a coordinator discovers a gap in its rules during operation, it writes to these override files — not to the extension source. This survives reinstalls and is safe to commit to your project repo.
 
 Sample overrides to copy: [`examples/prompts/`](examples/prompts/).
+
+## Journal Compaction
+
+Journal entries are append-only, so a long-running thread can grow `journal.md` without bound. Compaction keeps the file bounded by summarizing the oldest entries into a single block and keeping the most recent ones verbatim.
+
+**Automatic:**
+
+- Triggers at `agent_end` when the journal has more than 500 entries.
+- Summarizes all but the most recent 100 entries into a single `<!-- COMPACTION <ts> -->` block.
+- 24-hour cooldown between compactions (enforced by a marker in the file, no extra state).
+- The summarization runs as a forked `pi` process — no in-process LLM call, fire-and-forget, never blocks the thread.
+- The new content is re-read under the journal lock just before writing, so any entries appended during the fork are preserved.
+
+**Manual control via `/thread-journal`:**
+
+| Subcommand                | Effect                                                 |
+| ------------------------- | ------------------------------------------------------ |
+| `/thread-journal`         | Show last 12 entries                                   |
+| `/thread-journal tail N`  | Show last N entries                                    |
+| `/thread-journal status`  | Entry count, file size, oldest and newest timestamps   |
+| `/thread-journal trim N`  | Keep only the last N entries (no fork)                 |
+| `/thread-journal clear`   | Delete the journal file                                |
+| `/thread-journal compact` | Force compact now (even under the 500-entry threshold) |
 
 ## The message model
 
@@ -170,6 +193,7 @@ Messages arrive as `[<kind> from <sender> #<id>]` — kind (request/reply/reply+
 | `/thread-suspend`          | Mark On Hold                               |
 | `/thread-resume`           | Resume from On Hold                        |
 | `/thread-models`           | Show/set/reset worker model config         |
+| `/thread-journal`          | View, trim, clear, or compact the journal  |
 
 ## Flags
 

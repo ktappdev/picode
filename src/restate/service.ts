@@ -63,6 +63,10 @@ export const ThreadObject = restate.object({
       return (await ctx.get<string>("journal")) ?? null;
     }),
 
+    setJournal: async (ctx: ObjectContext, content: string) => {
+      ctx.set("journal", content);
+    },
+
     enqueueMessage: async (ctx: ObjectContext, message: Envelope) => {
       const inbox = (await ctx.get<Envelope[]>("inbox")) ?? [];
       // Enqueue idempotence (§7.6): a retry with the same id replaces its

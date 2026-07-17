@@ -48,6 +48,15 @@ export interface StorageAdapter {
 export interface JournalAdapter {
   appendJournal(threadId: string, entry: string): Promise<void>;
   readJournal(threadId: string): Promise<string | undefined>;
+  /** Replace journal content atomically (write-tmp + rename). Used by
+   *  compaction. Must acquire the same lock as appendJournal. */
+  setJournal(threadId: string, content: string): Promise<void>;
+  /** Remove the journal entirely. After this, readJournal returns undefined. */
+  deleteJournal(threadId: string): Promise<void>;
+  /** Acquire journal.lock for the thread. Returns when held. Throws on
+   *  giveup after retries. Stale detection by mtime (no PID tracking). */
+  acquireJournalLock(threadId: string): Promise<void>;
+  releaseJournalLock(threadId: string): Promise<void>;
 }
 
 /** What the client stack actually holds: core storage plus whatever
