@@ -4,6 +4,7 @@ import type { Inbox, Injection } from "./inbox";
 import { threadModelPrompt } from "./core/system-prompt";
 import { journalMode, shouldJournal } from "./journal";
 import { roleEmoji } from "./core/roles";
+import { execSync } from "node:child_process";
 import * as path from "node:path";
 import { basename } from "node:path";
 
@@ -16,6 +17,22 @@ import { basename } from "node:path";
 function restingState(store: ThreadStore, whenFree: ThreadState): ThreadState {
   if (store.state === "on-hold") return "on-hold";
   return whenFree;
+}
+
+/** Rename this pane in herdr so the label shows role emoji + name
+ *  (e.g. 🧭 coordinator). Uses $HERDR_PANE_ID — never rely on focused pane.
+ *  Startup-only, so execSync is fine. Errors logged, not fatal. */
+function setHerdrPaneLabel(store: ThreadStore): void {
+  if (process.env.HERDR_ENV !== "1" || !process.env.HERDR_PANE_ID) return;
+  const label = `${roleEmoji(store.role)} ${store.role ?? "worker"}`;
+  try {
+    execSync(`herdr pane rename "${process.env.HERDR_PANE_ID}" "${label}"`, {
+      stdio: "pipe",
+    });
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.log(`[thread] Failed to set herdr pane label: ${msg}`);
+  }
 }
 
 /** True once this session has stamped its own thread-identity entry — the
@@ -83,11 +100,11 @@ export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: I
     }
 
     // Set the terminal title so the role is visible in window lists and tmux
-    // status bars, even when the user is not in herdr (herdr's pane label
-    // already covers that case).
+    // status bars, even when the user is not in herdr.
     ctx.ui.setTitle(
       `pi · ${roleEmoji(store.role)} ${store.role ?? "worker"} · ${basename(ctx.cwd)}`,
     );
+    setHerdrPaneLabel(store);
 
     // Read-only roles: coordinator + read-only subtypes (reviewer, scout,
     // designer). Builder and generic worker keep full tools.
