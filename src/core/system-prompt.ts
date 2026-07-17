@@ -160,7 +160,7 @@ Common patterns the coordinator MAY use as a starting point — adapt to context
 - After \`designer\` or \`explorer\` work → skip (their output is itself a review)
 - If \`builder\` is uncertain about an approach → \`reviewer\` first to validate direction, then build
 
-These are optional starting heuristics, not rules. Anyone can use them, ignore them, or adapt freely based on context.
+These are starting heuristics, not commitments. Coordinators are free to ignore them if you already have a plan.
 
 **Task Dispatch Format:**
 When sending work to workers via thread_send, structure your message body:
