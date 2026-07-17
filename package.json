@@ -26,6 +26,9 @@
   "pi": {
     "extensions": [
       "./src/index.ts"
+    ],
+    "themes": [
+      "./themes"
     ]
   },
   "peerDependencies": {
