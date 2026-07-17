@@ -121,6 +121,7 @@ function makeHarness(dir: string, id = "t1") {
   const ctx = {
     ui: {
       setStatus: () => {},
+      setTitle: () => {},
       notify: (text: string, level?: string) => notifications.push({ text, level }),
     },
     isIdle: () => agent.idle,
@@ -285,7 +286,7 @@ function makeLifecycleHarness(dir: string) {
   function makeCtx(entries: CustomEntry[] = []) {
     return {
       cwd: dir,
-      ui: { setStatus: () => {}, notify: () => {} },
+      ui: { setStatus: () => {}, setTitle: () => {}, notify: () => {} },
       sessionManager: {
         getEntries: () => entries,
         getSessionFile: () => undefined,
@@ -1732,7 +1733,9 @@ describe("adapter seam: core logic against a fake in-memory adapter", () => {
     const fake = createFakeAdapter();
     const calls: Call[] = [];
     const stubPi = stubPiWith(calls);
-    const ctx = { ui: { setStatus: () => {} } } as unknown as ExtensionCommandContext;
+    const ctx = {
+      ui: { setStatus: () => {}, setTitle: () => {} },
+    } as unknown as ExtensionCommandContext;
 
     const sender = createThreadStore(stubPi, fake);
     sender.threadId = "sender";
@@ -1790,7 +1793,9 @@ describe("adapter seam: core logic against a fake in-memory adapter", () => {
     await store.persist();
     const inbox = createInbox(store, stubPi);
     registerTools(stubPi, store, inbox);
-    const ctx = { ui: { setStatus: () => {} } } as unknown as ExtensionCommandContext;
+    const ctx = {
+      ui: { setStatus: () => {}, setTitle: () => {} },
+    } as unknown as ExtensionCommandContext;
     const r = await tools["thread_journal"].execute("t", { id: "solo" }, undefined, undefined, ctx);
     assert.strictEqual(r.details.ok, false);
     assert.match(r.content[0].text, /no journal channel/);
@@ -1956,7 +1961,7 @@ describe("state: restore rules (§11.2)", () => {
     const mkCtx = () =>
       ({
         cwd: tmpDir,
-        ui: { setStatus: () => {} },
+        ui: { setStatus: () => {}, setTitle: () => {} },
         sessionManager: { getEntries: () => [], getSessionFile: () => undefined },
       }) as unknown as ExtensionContext;
 
@@ -1998,7 +2003,7 @@ describe("state: restore rules (§11.2)", () => {
     const store = createThreadStore(stubPi);
     await store.init(tmpDir, {
       cwd: tmpDir,
-      ui: { setStatus: () => {} },
+      ui: { setStatus: () => {}, setTitle: () => {} },
       sessionManager: { getEntries: () => [], getSessionFile: () => undefined },
     } as unknown as ExtensionContext);
     assert.strictEqual(store.obligations.length, 1);
@@ -2025,7 +2030,7 @@ describe("state: init() enforcement", () => {
   function mkCtx(dir: string): ExtensionContext {
     return {
       cwd: dir,
-      ui: { setStatus: () => {} },
+      ui: { setStatus: () => {}, setTitle: () => {} },
       sessionManager: { getEntries: () => [], getSessionFile: () => undefined },
     } as unknown as ExtensionContext;
   }
@@ -2220,7 +2225,7 @@ describe("state: watcher idempotency", () => {
     } as unknown as ExtensionAPI;
     const store = createThreadStore(stubPi, counting);
     store.threadId = "w1";
-    const ctx = { ui: { setStatus: () => {} } } as unknown as ExtensionContext;
+    const ctx = { ui: { setStatus: () => {}, setTitle: () => {} } } as unknown as ExtensionContext;
     store.startWatcher(() => {}, ctx);
     store.startWatcher(() => {}, ctx); // e.g. a second session_start
     assert.strictEqual(active, 1);

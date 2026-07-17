@@ -3,7 +3,9 @@ import type { ThreadStore, ThreadState } from "./core/types";
 import type { Inbox, Injection } from "./inbox";
 import { threadModelPrompt } from "./core/system-prompt";
 import { journalMode, shouldJournal } from "./journal";
+import { roleEmoji } from "./core/roles";
 import * as path from "node:path";
+import { basename } from "node:path";
 
 /** Wiring into pi's event stream: state transitions across the turn cycle,
  *  the silent-debtor nudge, journal cadence triggers, and the thread-model
@@ -79,6 +81,13 @@ export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: I
         `[thread] Coordinator started. Models config: ${path.join(ctx.cwd, ".thread", "models.json")}`,
       );
     }
+
+    // Set the terminal title so the role is visible in window lists and tmux
+    // status bars, even when the user is not in herdr (herdr's pane label
+    // already covers that case).
+    ctx.ui.setTitle(
+      `pi · ${roleEmoji(store.role)} ${store.role ?? "worker"} · ${basename(ctx.cwd)}`,
+    );
 
     // Read-only roles: coordinator + read-only subtypes (reviewer, scout,
     // designer). Builder and generic worker keep full tools.

@@ -90,6 +90,12 @@ Cross-thread communication extension for [pi coding agent](https://github.com/ea
 - **Worker Model Config** — `.thread/models.json` maps role → model; prefix-matched; `"default"` fallback.
 - **Self-Improving Coordinator** — Writes discovered rule gaps to prompt override files; survives reinstalls.
 
+### Visual Identification
+
+- **Role Emoji in Footer** — Each pane's TUI footer shows the role with an emoji: `🧭 coordinator: open`, `🔨 builder: working`, `🔍 explorer: thinking`, `🛡️ reviewer: idle`, `🎨 designer: open`, `🧪 tester: working`, `👷 worker: open`.
+- **Role in Terminal Title** — Terminal title (visible in tmux status, OS window list) shows `pi · <emoji> <role> · <cwd>`. Useful when not running inside herdr.
+- **Coordination with herdr** — Herdr's pane label and the TUI footer/title carry the same role info, so identification is consistent across surfaces.
+
 ### CLI Flags
 
 - **`--thread-id`** — Stable thread identity; the opt-in trigger.

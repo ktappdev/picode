@@ -6,6 +6,7 @@ import type { ThreadStore, ThreadState, ThreadSummary, StateFile } from "./core/
 import { HEARTBEAT_MS, CLIENT_CAPABILITIES } from "./core/types";
 import { nowIso } from "./core/time";
 import { forkJournalEntry, compactJournal as compactJournalFn } from "./journal";
+import { roleEmoji } from "./core/roles";
 import type { ThreadAdapter } from "./adapter/types";
 import { createLocalFsAdapter } from "./adapter/local-fs";
 
@@ -75,7 +76,10 @@ export function createThreadStore(
     async transition(next: ThreadState, ctx?: ExtensionContext) {
       store.state = next;
       await store.persist();
-      ctx?.ui.setStatus("thread", `[${store.threadId}:${store.state}]`);
+      ctx?.ui.setStatus(
+        "thread",
+        `${roleEmoji(store.role)} ${store.role ?? "worker"}: ${store.state}`,
+      );
     },
 
     async persist() {
@@ -294,7 +298,10 @@ export function createThreadStore(
         store.startedAt = nowIso();
         store.status = "running";
         await store.persist();
-        ctx.ui.setStatus("thread", `[${store.threadId}:${store.state}]`);
+        ctx.ui.setStatus(
+          "thread",
+          `${roleEmoji(store.role)} ${store.role ?? "worker"}: ${store.state}`,
+        );
       } finally {
         // Always release the init lock, even if persist or checks threw.
         if (lockFd !== null) {
