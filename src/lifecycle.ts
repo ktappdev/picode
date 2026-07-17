@@ -160,8 +160,8 @@ export function buildStatsRows(
 }
 
 /** Strip the rendered-envelope header/hint/barrier wrapper to recover the
- *  raw message body. `renderEnvelope` produces `${header}\\n${body}${hint}`
- *  and `deliver` may append `\\n\\n[barrier …]` notes after it.
+ *  raw message body. `renderEnvelope` produces `${header}\n${body}${hint}`
+ *  and `deliver` may append `\n\n[barrier …]` notes after it.
  *  Falls back to the full string if no header newline is found. */
 function extractBodyFromRendered(rendered: string): string {
   const nl = rendered.indexOf('\n');
@@ -248,7 +248,7 @@ export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: I
     if (store.role !== "coordinator") {
       const originalInject = inbox.inject.bind(inbox);
       inbox.inject = (parts: Injection[], injectCtx: ExtensionContext) => {
-        const taskParts = parts.filter(p => /^\[(request|reply\\+request) from /.test(p.text));
+        const taskParts = parts.filter(p => /^\[(request|reply\+request) from /.test(p.text));
         if (taskParts.length > 0) {
           const lastTask = taskParts[taskParts.length - 1];
           const body = extractBodyFromRendered(lastTask.text);
