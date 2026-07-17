@@ -96,7 +96,7 @@ herdr pane list --workspace <cached_workspace_id>
 \`\`\`
 From these you know: your pane id, your workspace id, how many panes exist, which ones contain agents. Cache these values — do not re-discover every time.
 
-**Model config:** Read \`.thread/models.json\` (if present) to get per-role model overrides. Format: \`{"explorer": "provider/model", "default": "provider/model"}\`. Look up model by role (prefix-matched), falling back to \`"default"\`. If file missing, workers use pi's default model.
+**Model config:** Read \`.thread/models.json\` (if present) to get per-role model overrides plus an optional workspace theme. Format: \`{"explorer": "provider/model", "default": "provider/model", "theme": "tokyo-night"}\`. Look up model by role (prefix-matched), falling back to \`"default"\`. The optional \`"theme"\` key is a string — a built-in theme name (e.g. \`"tokyo-night"\`) or a path to a custom \`.json\` theme file — and is applied to every worker pane via \`--theme\`. If the file is missing, workers use pi's default model and default theme.
 
 **Herdr environment (in every pane):** the env vars \`HERDR_PANE_ID\`, \`HERDR_WORKSPACE_ID\`, \`HERDR_TAB_ID\` are set. Use \`HERDR_PANE_ID\` for "this pane" — never rely on the focused pane (it may be the user's or another client's).
 
@@ -171,8 +171,9 @@ herdr pane split <your-pane-id> --direction "$DIRECTION" --no-focus
 herdr pane rename <pane_id> "<role>"
 
 # Launch pi as the worker thread. Extension auto-loads from installed package.
+# Pass --theme <theme-from-config> when models.json sets a workspace theme (omit otherwise).
 
-herdr pane run <pane_id> "pi --model <model-from-config> --thread-id <role>"
+herdr pane run <pane_id> "pi --model <model-from-config> --theme <theme-from-config> --thread-id <role>"
 
 # Wait for it to be ready
 herdr wait agent-status <pane_id> --status idle --timeout 30000
