@@ -94,7 +94,33 @@ When a thread has role `coordinator` (auto-detected from `--thread-id coordinato
 - **Pane reuse** — checks existing panes first, reuses idle/done workers instead of spawning duplicates
 - **Layout** — spawns workers in the same tab, 50/50 split (coordinator left, workers stacked in right column)
 - **Model config** — reads `.thread/models.json` for per-role model overrides when spawning
-- **Self-improving** — updates its own system prompt (`src/core/system-prompt.ts`) when it discovers gaps in rules, workflow, or defaults during operation
+- **Self-improving** — updates its per-project prompt override (`.thread/prompts/coordinator.md`) when it discovers gaps in rules, workflow, or defaults during operation
+
+## Customizing Prompts
+
+Each role's system prompt comes from a bundled default in `src/core/system-prompt.ts`. You can override a role's entire prompt block with a markdown file in your project — no code changes, no reinstall needed.
+
+Create `.thread/prompts/<role>.md` at your project root (the git repo root, or cwd if not in a repo):
+
+```
+.thread/
+  prompts/
+    coordinator.md   # overrides the coordinator rules
+    builder.md       # overrides the builder rules
+    reviewer.md      # overrides the reviewer rules
+    worker.md        # catch-all for any generic worker role
+```
+
+**Supported role names:** `coordinator`, `builder`, `reviewer`, `scout`, `explorer`, `designer`, `tester`, `worker`.
+
+- The override file **replaces** the bundled role block entirely (no merging).
+- Leave the file empty to use the bundled default (empty files are ignored).
+- Unknown roles (generic workers) fall back to `worker.md`.
+- Loaded once at thread startup — no hot reload. Restart the thread after editing.
+
+**Self-improvement:** When a coordinator discovers a gap in its rules during operation, it writes to these override files — not to the extension source. This survives reinstalls and is safe to commit to your project repo.
+
+Sample overrides to copy: [`examples/prompts/`](examples/prompts/).
 
 ## The message model
 
