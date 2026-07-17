@@ -159,6 +159,36 @@ export function buildStatsRows(
   ];
 }
 
+/** Strip the rendered-envelope header/hint/barrier wrapper to recover the
+ *  raw message body. `renderEnvelope` produces `${header}\\n${body}${hint}`
+ *  and `deliver` may append `\\n\\n[barrier …]` notes after it.
+ *  Falls back to the full string if no header newline is found. */
+function extractBodyFromRendered(rendered: string): string {
+  const nl = rendered.indexOf('\n');
+  if (nl === -1) return rendered;
+  let body = rendered.slice(nl + 1);
+  const hint = body.indexOf('\n(this expects');
+  if (hint !== -1) body = body.slice(0, hint);
+  const barrier = body.indexOf('\n\n[barrier');
+  if (barrier !== -1) body = body.slice(0, barrier);
+  return body;
+}
+
+/** First non-empty line of a task body, with leading markdown noise
+ *  (`#` headers, `**` bold wrappers) stripped. Falls back to the first
+ *  80 chars of the raw body when every line strips to empty. */
+export function extractFirstLine(body: string): string {
+  if (!body) return '';
+  const lines = body.split('\n');
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const cleaned = trimmed.replace(/^#+\s*/, '').replace(/\*\*/g, '').trim();
+    if (cleaned) return cleaned.slice(0, 80);
+  }
+  return body.slice(0, 80);
+}
+
 export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: Inbox) {
   let toolUsedThisTurn = false;
   // Footer reactivity state: the factory passed to `setFooter` is invoked
@@ -212,7 +242,25 @@ export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: I
       return;
     }
 
-
+    // Current-task widget: workers only (§ — coordinator routes, doesn't
+    // have a single task). Wrap `inject` so every drained envelope updates
+    // the widget with the first line of the most recent request body.
+    if (store.role !== "coordinator") {
+      const originalInject = inbox.inject.bind(inbox);
+      inbox.inject = (parts: Injection[], injectCtx: ExtensionContext) => {
+        const taskParts = parts.filter(p => /^\[(request|reply\\+request) from /.test(p.text));
+        if (taskParts.length > 0) {
+          const lastTask = taskParts[taskParts.length - 1];
+          const body = extractBodyFromRendered(lastTask.text);
+          const firstLine = extractFirstLine(body);
+          const ui = injectCtx.ui as any;
+          if (typeof ui.setWidget === 'function') {
+            ui.setWidget("current-task", ["🎯 " + firstLine], { placement: "aboveEditor" });
+          }
+        }
+        originalInject(parts, injectCtx);
+      };
+    }
 
     // Set the terminal title so the role is visible in window lists and tmux
     // status bars, even when the user is not in herdr.

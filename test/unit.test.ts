@@ -33,7 +33,7 @@ import type {
 import { createThreadStore } from "../src/state";
 import { createInbox } from "../src/inbox";
 import type { Injection } from "../src/inbox";
-import { registerLifecycle, computeTps, buildStatsRows } from "../src/lifecycle";
+import { registerLifecycle, computeTps, buildStatsRows, extractFirstLine } from "../src/lifecycle";
 import { deadlineFromSeconds } from "../src/core/time";
 import { checkBodySize, MAX_BODY_BYTES } from "../src/tools/messaging";
 import { registerTools } from "../src/tools/index";
@@ -2559,6 +2559,46 @@ describe("lifecycle: buildStatsRows (footer layout)", () => {
   it("very narrow width still returns 2 rows (not 4)", () => {
     const rows = buildStatsRows(40, modelPart, ctxColored, ioStr, rateStr);
     assert.equal(rows.length, 2);
+  });
+});
+
+describe("lifecycle: extractFirstLine (current-task widget)", () => {
+  it("strips markdown bold from the first non-empty line", () => {
+    assert.equal(
+      extractFirstLine("**Objective:** Do the thing.\n\n## Context\nmore"),
+      "Objective: Do the thing.",
+    );
+  });
+
+  it("strips markdown headers", () => {
+    assert.equal(extractFirstLine("## Context\n\nbody"), "Context");
+    assert.equal(extractFirstLine("# Header"), "Header");
+  });
+
+  it("returns the first non-empty line when there is no markdown", () => {
+    assert.equal(extractFirstLine("hello\nworld"), "hello");
+  });
+
+  it("skips leading blank lines", () => {
+    assert.equal(extractFirstLine("\n\nactual line"), "actual line");
+  });
+
+  it("falls back to first 80 chars when every line strips to empty", () => {
+    const long = "x".repeat(100);
+    assert.equal(extractFirstLine("#\n**\n" + long), long.slice(0, 80));
+  });
+
+  it("truncates to 80 chars when the first line is longer", () => {
+    assert.equal(extractFirstLine("x".repeat(100)), "x".repeat(80));
+  });
+
+  it("returns empty string for empty body", () => {
+    assert.equal(extractFirstLine(""), "");
+  });
+
+  it("handles a realistic thread_send task body", () => {
+    const body = "**Objective:** Add a current-task widget.\n\n## Context\nUser wants workers to see their task.\n\n## Steps\n1. Implement\n2. Test";
+    assert.equal(extractFirstLine(body), "Objective: Add a current-task widget.");
   });
 });
 
