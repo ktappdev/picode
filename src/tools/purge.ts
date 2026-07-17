@@ -9,7 +9,10 @@ const STALE_MS = 60_000;
 
 function findProjectRoot(): string {
   try {
-    return execSync("git rev-parse --show-toplevel", { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    return execSync("git rev-parse --show-toplevel", {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
   } catch {
     return process.cwd();
   }
@@ -35,7 +38,7 @@ function readStateJson(dirPath: string): StateFile | null {
 }
 
 function isStale(s: StateFile): boolean {
-  return s.status === "stopped" || (Date.now() - new Date(s.lastSeen).getTime()) > STALE_MS;
+  return s.status === "stopped" || Date.now() - new Date(s.lastSeen).getTime() > STALE_MS;
 }
 
 function effectiveStatus(s: StateFile): string {
@@ -55,7 +58,7 @@ export function registerPurgeTool(pi: ExtensionAPI) {
         Type.Boolean({
           description:
             "If true, also delete threads with pending obligations or owed replies (default: false)",
-        })
+        }),
       ),
     }),
     async execute(_id, params, _signal, _onUpdate, ctx) {
@@ -66,14 +69,27 @@ export function registerPurgeTool(pi: ExtensionAPI) {
 
       if (!existsSync(threadsDir)) {
         return {
-          content: [{ type: "text" as const, text: JSON.stringify({ ok: true, purged: [], skipped: [], count: 0, message: "No .thread/threads directory found" }) }],
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify({
+                ok: true,
+                purged: [],
+                skipped: [],
+                count: 0,
+                message: "No .thread/threads directory found",
+              }),
+            },
+          ],
           details: { ok: true, purged: [], skipped: [], count: 0 },
         };
       }
 
       let entries: string[];
       try {
-        entries = readdirSync(threadsDir).filter((e) => existsSync(join(threadsDir, e, "state.json")));
+        entries = readdirSync(threadsDir).filter(e =>
+          existsSync(join(threadsDir, e, "state.json")),
+        );
       } catch {
         entries = [];
       }
@@ -106,7 +122,10 @@ export function registerPurgeTool(pi: ExtensionAPI) {
         // Skip if has pending debts (unless force)
         const hasDebts = (state.obligations?.length ?? 0) > 0 || (state.owed?.length ?? 0) > 0;
         if (hasDebts && !params.force) {
-          skipped.push({ id, reason: `has pending debts (obligations: ${state.obligations?.length ?? 0}, owed: ${state.owed?.length ?? 0})` });
+          skipped.push({
+            id,
+            reason: `has pending debts (obligations: ${state.obligations?.length ?? 0}, owed: ${state.owed?.length ?? 0})`,
+          });
           continue;
         }
 

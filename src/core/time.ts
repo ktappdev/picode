@@ -14,9 +14,7 @@ export function deadlineFromSeconds(seconds?: number): string {
   // Reject ≤0 explicitly — a zero or negative deadline would be in the
   // past the instant we mint it, and the inbox would treat the envelope
   // as undeliverable on the first sweep, silently dropping the request.
-  const totalMs = seconds === undefined
-    ? DEFAULT_OBLIGATION_DEADLINE_MS
-    : seconds * 1000;
+  const totalMs = seconds === undefined ? DEFAULT_OBLIGATION_DEADLINE_MS : seconds * 1000;
   if (totalMs <= 0) {
     throw new RangeError(`deadlineSeconds must be > 0, got ${seconds}`);
   }

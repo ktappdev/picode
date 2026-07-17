@@ -49,78 +49,78 @@ export function registerCommands(pi: ExtensionAPI, store: ThreadStore, inbox: In
       try {
         await ctx.waitForIdle();
         const trimmed = args.trim();
-      const subcommand = trimmed.split(/\s+/)[0] ?? "";
+        const subcommand = trimmed.split(/\s+/)[0] ?? "";
 
-      const journal = await store.readJournal(store.threadId);
-      const entries = journal ? journal.split(/\n(?=<!--)/).filter(Boolean) : [];
+        const journal = await store.readJournal(store.threadId);
+        const entries = journal ? journal.split(/\n(?=<!--)/).filter(Boolean) : [];
 
-      // No args → last 12 entries
-      if (!subcommand) {
-        const lines = entries.slice(-12).join("\n") || "(no journal yet)";
-        ctx.ui.notify(lines, "info");
-        return;
-      }
-
-      if (subcommand === "status") {
-        const size = journal ? journal.length : 0;
-        const tsRe = /^<!--\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}|COMPACTION)/;
-        const oldest = entries[0]?.match(tsRe)?.[1] ?? "(none)";
-        const newest = entries[entries.length - 1]?.match(tsRe)?.[1] ?? "(none)";
-        ctx.ui.notify(
-          `Journal: ${entries.length} entries, ${size} bytes\noldest: ${oldest}\nnewest: ${newest}`,
-          "info",
-        );
-        return;
-      }
-
-      if (subcommand === "tail") {
-        const n = parseInt(trimmed.split(/\s+/)[1] ?? "12", 10);
-        if (!Number.isFinite(n) || n < 1) {
-          ctx.ui.notify("Usage: /thread-journal tail N", "warning");
+        // No args → last 12 entries
+        if (!subcommand) {
+          const lines = entries.slice(-12).join("\n") || "(no journal yet)";
+          ctx.ui.notify(lines, "info");
           return;
         }
-        const lines = entries.slice(-n).join("\n") || "(no journal yet)";
-        ctx.ui.notify(lines, "info");
-        return;
-      }
 
-      if (subcommand === "trim") {
-        const n = parseInt(trimmed.split(/\s+/)[1] ?? "100", 10);
-        if (!Number.isFinite(n) || n < 1) {
-          ctx.ui.notify("Usage: /thread-journal trim N", "warning");
+        if (subcommand === "status") {
+          const size = journal ? journal.length : 0;
+          const tsRe = /^<!--\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}|COMPACTION)/;
+          const oldest = entries[0]?.match(tsRe)?.[1] ?? "(none)";
+          const newest = entries[entries.length - 1]?.match(tsRe)?.[1] ?? "(none)";
+          ctx.ui.notify(
+            `Journal: ${entries.length} entries, ${size} bytes\noldest: ${oldest}\nnewest: ${newest}`,
+            "info",
+          );
           return;
         }
-        if (entries.length <= n) {
-          ctx.ui.notify(`Journal already at ${entries.length} entries (≤ ${n}).`, "info");
+
+        if (subcommand === "tail") {
+          const n = parseInt(trimmed.split(/\s+/)[1] ?? "12", 10);
+          if (!Number.isFinite(n) || n < 1) {
+            ctx.ui.notify("Usage: /thread-journal tail N", "warning");
+            return;
+          }
+          const lines = entries.slice(-n).join("\n") || "(no journal yet)";
+          ctx.ui.notify(lines, "info");
           return;
         }
-        const kept = entries.slice(-n);
-        const newContent = kept.join("\n") + "\n";
-        // setJournal acquires its own lock internally — no double-acquire.
-        await store.adapter.setJournal?.(store.threadId, newContent);
-        ctx.ui.notify(`Trimmed: ${entries.length} → ${kept.length} entries.`, "info");
-        return;
-      }
 
-      if (subcommand === "clear") {
-        // deleteJournal acquires its own lock internally.
-        await store.adapter.deleteJournal?.(store.threadId);
-        ctx.ui.notify("Journal deleted.", "info");
-        return;
-      }
-
-      if (subcommand === "compact") {
-        const sf = ctx.sessionManager.getSessionFile();
-        if (!sf) {
-          ctx.ui.notify("No session file — cannot fork compaction.", "error");
+        if (subcommand === "trim") {
+          const n = parseInt(trimmed.split(/\s+/)[1] ?? "100", 10);
+          if (!Number.isFinite(n) || n < 1) {
+            ctx.ui.notify("Usage: /thread-journal trim N", "warning");
+            return;
+          }
+          if (entries.length <= n) {
+            ctx.ui.notify(`Journal already at ${entries.length} entries (≤ ${n}).`, "info");
+            return;
+          }
+          const kept = entries.slice(-n);
+          const newContent = kept.join("\n") + "\n";
+          // setJournal acquires its own lock internally — no double-acquire.
+          await store.adapter.setJournal?.(store.threadId, newContent);
+          ctx.ui.notify(`Trimmed: ${entries.length} → ${kept.length} entries.`, "info");
           return;
         }
-        store.compactJournal(sf);
-        ctx.ui.notify("Compact triggered (fire-and-forget).", "info");
-        return;
-      }
 
-      ctx.ui.notify("Usage: /thread-journal [status|tail N|trim N|clear|compact]", "warning");
+        if (subcommand === "clear") {
+          // deleteJournal acquires its own lock internally.
+          await store.adapter.deleteJournal?.(store.threadId);
+          ctx.ui.notify("Journal deleted.", "info");
+          return;
+        }
+
+        if (subcommand === "compact") {
+          const sf = ctx.sessionManager.getSessionFile();
+          if (!sf) {
+            ctx.ui.notify("No session file — cannot fork compaction.", "error");
+            return;
+          }
+          store.compactJournal(sf);
+          ctx.ui.notify("Compact triggered (fire-and-forget).", "info");
+          return;
+        }
+
+        ctx.ui.notify("Usage: /thread-journal [status|tail N|trim N|clear|compact]", "warning");
       } catch (e) {
         ctx.ui.notify(e instanceof Error ? e.message : String(e), "error");
       }

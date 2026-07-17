@@ -42,7 +42,8 @@ export default function (pi: ExtensionAPI) {
   });
   pi.registerFlag("theme", {
     type: "string",
-    description: "Theme to apply (built-in name like 'tokyo-night' or path to custom .json theme file)",
+    description:
+      "Theme to apply (built-in name like 'tokyo-night' or path to custom .json theme file)",
   });
 
   const adapter = createConfiguredAdapter(pi);

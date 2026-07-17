@@ -148,7 +148,15 @@ export function createThreadStore(
         store.role = "coordinator";
       } else {
         // Auto-detect worker subtype from thread-id if it matches a known role
-        const KNOWN_ROLES = ["builder", "reviewer", "scout", "designer", "explorer", "tester", "bug-hunter"];
+        const KNOWN_ROLES = [
+          "builder",
+          "reviewer",
+          "scout",
+          "designer",
+          "explorer",
+          "tester",
+          "bug-hunter",
+        ];
         const prefix = KNOWN_ROLES.find(
           r =>
             store.threadId === r ||

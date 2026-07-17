@@ -390,9 +390,17 @@ export function createInbox(store: ThreadStore, pi: ExtensionAPI): Inbox {
     noteCompactionStart,
     noteCompactionEnd,
     noteRunStarted,
-    get onInjected() { return _onInjected; },
-    set onInjected(fn: ((parts: Injection[]) => void) | undefined) { _onInjected = fn; },
-    get onInject() { return _onInject; },
-    set onInject(fn: ((parts: Injection[], ctx: ExtensionContext) => void) | undefined) { _onInject = fn; },
+    get onInjected() {
+      return _onInjected;
+    },
+    set onInjected(fn: ((parts: Injection[]) => void) | undefined) {
+      _onInjected = fn;
+    },
+    get onInject() {
+      return _onInject;
+    },
+    set onInject(fn: ((parts: Injection[], ctx: ExtensionContext) => void) | undefined) {
+      _onInject = fn;
+    },
   };
 }

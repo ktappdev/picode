@@ -2620,7 +2620,8 @@ describe("lifecycle: extractFirstLine (current-task widget)", () => {
   });
 
   it("handles a realistic thread_send task body", () => {
-    const body = "**Objective:** Add a current-task widget.\n\n## Context\nUser wants workers to see their task.\n\n## Steps\n1. Implement\n2. Test";
+    const body =
+      "**Objective:** Add a current-task widget.\n\n## Context\nUser wants workers to see their task.\n\n## Steps\n1. Implement\n2. Test";
     assert.equal(extractFirstLine(body), "Objective: Add a current-task widget.");
   });
 });
@@ -2632,7 +2633,10 @@ describe("core/time: deadlineFromSeconds", () => {
     const parsed = new Date(iso).getTime();
     const DEFAULT_MS = 15 * 60_000;
     // Within a small tolerance (the function captured `now` once at call).
-    assert.ok(parsed >= before + DEFAULT_MS - 50, `parsed ${parsed} before ${before} + ${DEFAULT_MS}`);
+    assert.ok(
+      parsed >= before + DEFAULT_MS - 50,
+      `parsed ${parsed} before ${before} + ${DEFAULT_MS}`,
+    );
     assert.ok(parsed <= before + DEFAULT_MS + 50);
   });
 
@@ -2670,26 +2674,34 @@ describe("system-prompt: thread_send contract is in every worker template", () =
   // bug-hunter, scout via the single WORKER_BASE_RULES + SUBTYPE_PROMPTS
   // composition. If someone refactors and drops the block, the next
   // worker will answer in plain text and the coordinator will go silent.
-  const src = readFileSync(new URL("../src/core/system-prompt.ts", import.meta.url), "utf-8");
+  //
+  // Prompts now live in src/prompts/*.md files.
+  const workerBase = readFileSync(
+    new URL("../src/prompts/worker-base.md", import.meta.url),
+    "utf-8",
+  );
+  const coordinator = readFileSync(
+    new URL("../src/prompts/coordinator.md", import.meta.url),
+    "utf-8",
+  );
   it("WORKER_BASE_RULES mentions the communication contract and 'thread_send' reply path", () => {
-    // The source uses template-literal backtick escaping (\`...\`), so
-    // plain `includes` is the most robust check — no regex escaping
-    // minefield around backticks and backslashes.
-    assert.ok(src.includes("Communication contract"), "missing 'Communication contract' header");
-    assert.ok(src.includes("reaches ONLY the human user"), "missing plain-text-only warning");
     assert.ok(
-      src.includes("Use `thread_send` for everything") ||
-        src.includes("Use \\`thread_send\\` for everything"),
+      workerBase.includes("Communication contract"),
+      "missing 'Communication contract' header",
+    );
+    assert.ok(
+      workerBase.includes("reaches ONLY the human user"),
+      "missing plain-text-only warning",
+    );
+    assert.ok(
+      workerBase.includes("Use `thread_send` for everything"),
       "missing 'Use thread_send for everything' bullet",
     );
   });
   it("COORDINATOR_RULES has the silent-recovery rule", () => {
-    assert.match(src, /Worker silent\? Check their pane/);
-    // The backticks in the source are template-literal-escaped (\`...\`).
-    // Use a substring check on the prose between them so we don't fight
-    // regex escaping.
+    assert.match(coordinator, /Worker silent\? Check their pane/);
     assert.ok(
-      src.includes("answered in plain text instead of via"),
+      coordinator.includes("answered in plain text instead of via"),
       "silent-recovery rule must mention the plain-text mistake",
     );
   });
@@ -2727,7 +2739,7 @@ describe("tools/messaging: checkBodySize (thread_send body-size guard)", () => {
     const body = emoji.repeat(count);
     const bytes = Buffer.byteLength(body, "utf8");
     assert.ok(bytes > MAX_BODY_BYTES, `preflight: bytes=${bytes} should exceed ${MAX_BODY_BYTES}`);
-    assert.ok(bytes > 4 * count / 2, "preflight: emoji must be multi-byte in UTF-8");
+    assert.ok(bytes > (4 * count) / 2, "preflight: emoji must be multi-byte in UTF-8");
     const msg = checkBodySize(body);
     assert.ok(msg, "emoji body over the byte limit must be rejected");
   });

@@ -82,7 +82,7 @@ function truncateToWidth(text: string, maxWidth: number, ellipsis = "…"): stri
   let out = "";
   let pending = "";
   let width = 0;
-  for (let i = 0; i < text.length; ) {
+  for (let i = 0; i < text.length;) {
     if (text[i] === "\x1b" && text[i + 1] === "[") {
       const m = text.slice(i).match(/^\x1b\[[0-9;]*m/);
       if (m) {
@@ -154,10 +154,7 @@ export function buildStatsRows(
   if (width >= 100) {
     return [`${modelPart}  ${ctxColored}  ${ioStr}${rateStr}`];
   }
-  return [
-    `${modelPart}  ${ctxColored}`,
-    `${ioStr}${rateStr}`,
-  ];
+  return [`${modelPart}  ${ctxColored}`, `${ioStr}${rateStr}`];
 }
 
 /** Strip the rendered-envelope header/hint/barrier wrapper to recover the
@@ -165,12 +162,12 @@ export function buildStatsRows(
  *  and `deliver` may append `\n\n[barrier …]` notes after it.
  *  Falls back to the full string if no header newline is found. */
 function extractBodyFromRendered(rendered: string): string {
-  const nl = rendered.indexOf('\n');
+  const nl = rendered.indexOf("\n");
   if (nl === -1) return rendered;
   let body = rendered.slice(nl + 1);
-  const hint = body.indexOf('\n(this expects');
+  const hint = body.indexOf("\n(this expects");
   if (hint !== -1) body = body.slice(0, hint);
-  const barrier = body.indexOf('\n\n[barrier');
+  const barrier = body.indexOf("\n\n[barrier");
   if (barrier !== -1) body = body.slice(0, barrier);
   return body;
 }
@@ -179,12 +176,15 @@ function extractBodyFromRendered(rendered: string): string {
  *  (`#` headers, `**` bold wrappers) stripped. Falls back to the first
  *  80 chars of the raw body when every line strips to empty. */
 export function extractFirstLine(body: string): string {
-  if (!body) return '';
-  const lines = body.split('\n');
+  if (!body) return "";
+  const lines = body.split("\n");
   for (const line of lines) {
     const trimmed = line.trim();
     if (!trimmed) continue;
-    const cleaned = trimmed.replace(/^#+\s*/, '').replace(/\*\*/g, '').trim();
+    const cleaned = trimmed
+      .replace(/^#+\s*/, "")
+      .replace(/\*\*/g, "")
+      .trim();
     if (cleaned) return cleaned.slice(0, 80);
   }
   return body.slice(0, 80);
@@ -269,7 +269,7 @@ export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: I
           const body = extractBodyFromRendered(lastTask.text);
           const firstLine = extractFirstLine(body);
           const ui = injectCtx.ui as any;
-          if (typeof ui.setWidget === 'function') {
+          if (typeof ui.setWidget === "function") {
             ui.setWidget("current-task", ["🎯 " + firstLine], { placement: "aboveEditor" });
           }
         }
@@ -285,7 +285,14 @@ export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: I
 
     // Read-only roles: coordinator + read-only subtypes (reviewer, scout,
     // designer). Builder and generic worker keep full tools.
-    const READ_ONLY_ROLES = new Set(["coordinator", "reviewer", "scout", "designer", "explorer", "bug-hunter"]);
+    const READ_ONLY_ROLES = new Set([
+      "coordinator",
+      "reviewer",
+      "scout",
+      "designer",
+      "explorer",
+      "bug-hunter",
+    ]);
     if (READ_ONLY_ROLES.has(store.role)) {
       const active = pi.getActiveTools();
       const ALLOWED = new Set([

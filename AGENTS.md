@@ -5,6 +5,7 @@
 **Picode** is a cross-thread communication extension for the [pi coding agent](https://github.com/earendil-works/pi-coding-agent). It enables independent threads that coordinate work, share state, and converse — without losing context or forking their history.
 
 **Key Features:**
+
 - Thread-based multi-agent coordination (coordinator + worker roles)
 - Durable per-thread mailboxes with envelope message model
 - Auto-journaling with compaction
@@ -22,7 +23,8 @@
 picode/
 ├── src/
 │   ├── adapter/          # Storage backends (local-fs.ts, restate)
-│   ├── core/             # System prompt, types, roles, time utilities
+│   ├── core/             # System prompt loader, types, roles, time utilities
+│   ├── prompts/          # Role prompts as markdown files (coordinator, builder, reviewer, etc.)
 │   ├── tools/            # Thread tools (send, wait, status, list, journal, suspend, resume, purge, spawn)
 │   ├── restate/          # Restate backend adapter + service
 │   ├── commands.ts       # Slash commands (/thread-status, /thread-journal, etc.)
@@ -55,15 +57,16 @@ picode/
 
 ### Key Components
 
-| Component | Purpose |
-|-----------|---------|
-| `src/core/system-prompt.ts` | All role prompts (COORDINATOR_RULES, BUILDER_RULES, etc.) — **never edit without understanding the prompt contract** |
-| `src/inbox.ts` | Envelope delivery, barrier resolution, obligation tracking |
-| `src/lifecycle.ts` | Thread startup, state machine, footer rendering, widget injection |
-| `src/state.ts` | Thread state persistence, heartbeats, journal storage |
-| `src/commands.ts` | Slash command handlers |
-| `src/journal.ts` | Auto-journaling, compaction logic |
-| `src/adapter/local-fs.ts` | Local filesystem storage backend |
+| Component                   | Purpose                                                                          |
+| --------------------------- | -------------------------------------------------------------------------------- |
+| `src/prompts/*.md`          | Role prompts as markdown files — **edit these to change agent behavior**         |
+| `src/core/system-prompt.ts` | Prompt loader — reads from `src/prompts/`, adds dynamic context (threadId, role) |
+| `src/inbox.ts`              | Envelope delivery, barrier resolution, obligation tracking                       |
+| `src/lifecycle.ts`          | Thread startup, state machine, footer rendering, widget injection                |
+| `src/state.ts`              | Thread state persistence, heartbeats, journal storage                            |
+| `src/commands.ts`           | Slash command handlers                                                           |
+| `src/journal.ts`            | Auto-journaling, compaction logic                                                |
+| `src/adapter/local-fs.ts`   | Local filesystem storage backend                                                 |
 
 ## Development Commands
 
@@ -102,11 +105,11 @@ npm run mcp                   # Start MCP server
 
 ### Test Layers
 
-| Layer | What it proves | How | Cost |
-|-------|----------------|-----|------|
-| **Unit** | Deterministic logic: state transitions, correlation, dedup, file writes | `makeHarness()` — stub pi, call functions directly | ~1ms |
-| **E2E** | Model discovers correct tool from ambiguous language | Real pi subprocess + model call | 5-25s + API |
-| **Eval** | Aggregate model judgment quality (not implemented) | N-sample runs, pass-rate threshold | Expensive |
+| Layer    | What it proves                                                          | How                                                | Cost        |
+| -------- | ----------------------------------------------------------------------- | -------------------------------------------------- | ----------- |
+| **Unit** | Deterministic logic: state transitions, correlation, dedup, file writes | `makeHarness()` — stub pi, call functions directly | ~1ms        |
+| **E2E**  | Model discovers correct tool from ambiguous language                    | Real pi subprocess + model call                    | 5-25s + API |
+| **Eval** | Aggregate model judgment quality (not implemented)                      | N-sample runs, pass-rate threshold                 | Expensive   |
 
 ### Testing Rules (from TESTING.md)
 
@@ -148,41 +151,46 @@ npm run mcp                   # Start MCP server
 - **Early returns** over deep nesting
 - **Document non-obvious decisions** with comments
 
-### Template Literals
+### Prompt Files
 
-- System prompts use template literals with escaped backticks: `\`code\``
-- ASCII diagrams in prompts must use `\`\`\`plaintext` fences (escaped)
+- Prompts live in `src/prompts/*.md` as plain markdown — no escaping needed
+- Edit markdown files directly; `system-prompt.ts` loads them at module init
+- Dynamic context (threadId, parent, role) is added by the wrapper in `system-prompt.ts`
+- Per-project overrides (`.thread/prompts/<role>.md`) still replace the entire bundled prompt
 
 ## Key Files
 
 ### Core Logic
 
-| File | Responsibility |
-|------|----------------|
-| `src/core/system-prompt.ts` | All role prompts — coordinator rules, worker templates, spawn commands |
-| `src/inbox.ts` | Envelope delivery, barrier resolution, obligation tracking, dead-letter handling |
-| `src/lifecycle.ts` | Thread lifecycle, state machine transitions, footer/widget rendering |
-| `src/state.ts` | Thread state persistence, heartbeats, journal storage, store operations |
-| `src/commands.ts` | Slash command handlers (status, journal, send, models, suspend, resume) |
-| `src/journal.ts` | Auto-journaling, compaction logic, duplicate suppression |
-| `src/tools/` | Thread tools registration (send, wait, status, list, journal, suspend, resume, purge, spawn) |
+| File                         | Responsibility                                                                               |
+| ---------------------------- | -------------------------------------------------------------------------------------------- |
+| `src/prompts/coordinator.md` | Coordinator rules + full herdr reference — **the prompt agents see at startup**              |
+| `src/prompts/worker-base.md` | Shared worker communication contract — all workers inherit this                              |
+| `src/prompts/<role>.md`      | Role-specific prompts (builder, reviewer, explorer, tester, designer, bug-hunter, scout)     |
+| `src/core/system-prompt.ts`  | Prompt loader — reads markdown files, adds dynamic context, handles overrides                |
+| `src/inbox.ts`               | Envelope delivery, barrier resolution, obligation tracking, dead-letter handling             |
+| `src/lifecycle.ts`           | Thread lifecycle, state machine transitions, footer/widget rendering                         |
+| `src/state.ts`               | Thread state persistence, heartbeats, journal storage, store operations                      |
+| `src/commands.ts`            | Slash command handlers (status, journal, send, models, suspend, resume)                      |
+| `src/journal.ts`             | Auto-journaling, compaction logic, duplicate suppression                                     |
+| `src/tools/`                 | Thread tools registration (send, wait, status, list, journal, suspend, resume, purge, spawn) |
 
 ### Storage & Backend
 
-| File | Responsibility |
-|------|----------------|
-| `src/adapter/local-fs.ts` | Local filesystem storage (default backend) |
-| `src/adapter/types.ts` | StorageAdapter interface |
-| `src/restate/adapter.ts` | Restate virtual object adapter |
-| `src/restate/service.ts` | Restate companion service (Thread/ThreadRegistry) |
+| File                      | Responsibility                                    |
+| ------------------------- | ------------------------------------------------- |
+| `src/adapter/local-fs.ts` | Local filesystem storage (default backend)        |
+| `src/adapter/types.ts`    | StorageAdapter interface                          |
+| `src/restate/adapter.ts`  | Restate virtual object adapter                    |
+| `src/restate/service.ts`  | Restate companion service (Thread/ThreadRegistry) |
 
 ### CLI & Integration
 
-| File | Responsibility |
-|------|----------------|
-| `bin/thread-cli.mjs` | Human monitoring CLI (zero dependencies) |
-| `bin/postbox-mcp.mjs` | MCP server for external agents |
-| `bin/postbox-hook.mjs` | Claude Code hook integration |
+| File                   | Responsibility                           |
+| ---------------------- | ---------------------------------------- |
+| `bin/thread-cli.mjs`   | Human monitoring CLI (zero dependencies) |
+| `bin/postbox-mcp.mjs`  | MCP server for external agents           |
+| `bin/postbox-hook.mjs` | Claude Code hook integration             |
 
 ## Safety Rules
 
@@ -197,7 +205,8 @@ npm run mcp                   # Start MCP server
 
 ### Sensitive Areas
 
-- **`src/core/system-prompt.ts`** — Prompt changes affect all agents; test thoroughly with real model calls
+- **`src/prompts/*.md`** — Prompt changes affect all agents; test thoroughly with real model calls
+- **`src/core/system-prompt.ts`** — Prompt loader; changes affect how prompts are assembled
 - **`src/inbox.ts`** — Obligation/barrier logic; bugs cause silent message drops
 - **`src/lifecycle.ts`** — State machine transitions; bugs cause thread death or stuck states
 - **`src/adapter/local-fs.ts`** — File operations must be atomic (rename for enqueue)
@@ -232,8 +241,9 @@ npm run mcp                   # Start MCP server
 
 1. Create `.thread/prompts/<role>.md` in your project root
 2. The file replaces the bundled role prompt entirely (no merging)
-3. Supported roles: `coordinator`, `builder`, `reviewer`, `scout`, `explorer`, `designer`, `tester`, `worker`
+3. Supported roles: `coordinator`, `builder`, `reviewer`, `scout`, `explorer`, `designer`, `tester`, `bug-hunter`, `worker`
 4. Empty files are ignored; unknown roles fall back to `worker.md`
+5. Bundled prompts are in `src/prompts/*.md` — edit those to change defaults
 
 ### Adding Slash Commands
 
@@ -300,17 +310,18 @@ chore: update dependencies
 
 ### Modifying Coordinator Behavior
 
-1. Edit `COORDINATOR_RULES` in `src/core/system-prompt.ts`
+1. Edit `src/prompts/coordinator.md` (plain markdown, no escaping needed)
 2. Test with real coordinator + workers (E2E)
 3. Update `AGENTS.md` if conventions change
 
 ### Adding a Role
 
-1. Add role constant and prompt in `src/core/system-prompt.ts`
-2. Add role detection in `src/core/roles.ts`
-3. Add role emoji in `ROLE_EMOJI` map
-4. Update `.thread/prompts/` documentation
-5. Add to `src/core/system-prompt.ts` spawn command if needed
+1. Create `src/prompts/<role>.md` with the role prompt
+2. Add role to `WorkerSubtype` type and `SUBTYPE_PROMPTS` map in `src/core/system-prompt.ts`
+3. Add role detection in `src/core/roles.ts`
+4. Add role emoji in `ROLE_EMOJI` map
+5. Update `.thread/prompts/` documentation
+6. Add to coordinator prompt spawn command if needed
 
 ### Fixing a Bug
 
@@ -354,4 +365,5 @@ node bin/thread-cli.mjs status <id>  # Check specific thread
 - [TESTING.md](TESTING.md) — Testing guidelines (read before adding tests)
 - [CHANGELOG.md](CHANGELOG.md) — Version history
 - [README.md](README.md) — Full documentation
-- `src/core/system-prompt.ts` — Source of truth for all agent prompts
+- `src/prompts/` — Source of truth for all agent prompts (markdown files)
+- `src/core/system-prompt.ts` — Prompt loader and dynamic context wrapper

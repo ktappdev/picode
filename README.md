@@ -196,15 +196,15 @@ For the coordinator, the same applies — keep it in `/tmp/picode-cwd` or anothe
 
 Each thread has a role that shapes its system prompt. The role is auto-detected from `--thread-id`:
 
-| Role                 | Subtype | Description                                                                           |
-| -------------------- | ------- | ------------------------------------------------------------------------------------- |
-| `coordinator`        | —       | Directs workers, delegates tasks, maintains project context. Cannot write/edit files. |
-| `builder`            | Worker  | Implements code changes, edits files, runs type checks.                               |
-| `reviewer`           | Worker  | Reviews diffs, audits for bugs/security/quality. Read-only.                           |
-| `scout` / `explorer` | Worker  | Explores codebase, finds files, answers architecture questions. Read-only. Summarizes findings — never dumps raw output. |
+| Role                 | Subtype | Description                                                                                                                                |
+| -------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `coordinator`        | —       | Directs workers, delegates tasks, maintains project context. Cannot write/edit files.                                                      |
+| `builder`            | Worker  | Implements code changes, edits files, runs type checks.                                                                                    |
+| `reviewer`           | Worker  | Reviews diffs, audits for bugs/security/quality. Read-only.                                                                                |
+| `scout` / `explorer` | Worker  | Explores codebase, finds files, answers architecture questions. Read-only. Summarizes findings — never dumps raw output.                   |
 | `bug-hunter`         | Worker  | Hunts bugs: reads code, session entries, journals, runs reproductions. Reports root cause + suggested fix — does NOT implement. Read-only. |
-| `tester`             | Worker  | Writes and runs tests, reproduces bugs, checks coverage.                              |
-| `designer`           | Worker  | Designs UI specs for builder implementation. Read-only.                               |
+| `tester`             | Worker  | Writes and runs tests, reproduces bugs, checks coverage.                                                                                   |
+| `designer`           | Worker  | Designs UI specs for builder implementation. Read-only.                                                                                    |
 
 Prefix matching: `builder-1`, `builder-a`, `builder_foo`, `builder.task` all resolve to role `builder`. Any id that doesn't match a known role (or prefix) defaults to a generic `worker` role with base worker rules only.
 
