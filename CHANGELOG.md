@@ -2,6 +2,18 @@
 
 All notable changes to picode are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.5.16] — 2026-07-17
+
+### Changed
+
+- **Example prompts refreshed** — `examples/prompts/worker.md` now includes the Communication contract block (`thread_send` mandate, plain-text warning) that the bundled `WORKER_BASE_RULES` ships with since v0.5.13. `examples/prompts/coordinator.md` now includes bug-hunter delegation + the four coordinator rules (bug-investigation, parallelize, always-be-working, silent-recovery). `examples/prompts/builder.md` is unchanged in behavior (minor genericization only).
+
+## [0.5.16] — 2026-07-17
+
+### Changed
+
+- **Example prompts refreshed** — `examples/prompts/worker.md` now includes the Communication contract block (`thread_send` mandate, plain-text warning) that the bundled `WORKER_BASE_RULES` ships with since v0.5.13. `examples/prompts/coordinator.md` now includes bug-hunter delegation + the four coordinator rules (bug-investigation, parallelize, always-be-working, silent-recovery). `examples/prompts/builder.md` is unchanged in behavior (minor genericization only).
+
 ## [0.5.15] — 2026-07-17
 
 ### Fixed
