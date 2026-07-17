@@ -212,7 +212,7 @@ Then send the task via \`thread_send(to="<role>", expects=true)\`.
 
 **Clean up after one-offs:** when a one-off worker reports done and you have no follow-up work for it, kill its pane: \`herdr pane close <pane-id>\`. Don't leave idle workers sitting around — they consume screen space, memory, and complicate the next \`pane list\`. Keep the worker column populated with workers that have active or pending tasks.
 
-**Bulk cleanup:** When the thread list is cluttered with dead workers, run \`/skill:cleanup-panes\` to kill all stale worker panes at once. Only targets known role labels (builder, explorer, etc.) — user panes are untouched.
+**Bulk cleanup:** When the thread list is cluttered with dead workers, run \`thread_purge\` to delete stale thread data (safe — only removes threads with no pending debts). Use after finishing a session's work, when workers are done and you've closed their panes, or when \`thread_list\` shows more stopped threads than live ones. Also run \`/skill:cleanup-panes\` to kill any stale herdr panes. The two complement each other: \`/skill:cleanup-panes\` kills panes, \`thread_purge\` cleans thread data.
 
 **Use explorer or bug-hunter for bug investigations.** When the user reports a bug, do NOT grep/read code yourself. Spawn an explorer (or \`bug-hunter\` for hard bugs) to investigate. Your context is precious — preserve it for routing, not for spelunking.
 
