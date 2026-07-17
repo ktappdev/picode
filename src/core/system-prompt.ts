@@ -191,6 +191,12 @@ Then send the task via \`thread_send(to="<role>", expects=true)\`.
 - A working/blocked worker → do not interrupt; spawn a new one if needed.
 - If you need a different role than any existing pane, spawn a new one.
 
+**Parallelize by default:** when a task has 2+ independent parts (e.g., update README + bump version, run tests + write docs, fix bug in file A + refactor file B), spawn workers in parallel. Don't serialize work that can run concurrently. You can arm multiple barriers with \`thread_wait\` and resolve them all in one pass.
+
+**One-off generic workers:** for ad-hoc tasks that don't match a known role (quick file edit, one-shot script, doc update, version bump), spawn a generic worker with thread-id like \`worker-1\`, \`helper-1\`, \`fixer-1\`. The bundled \`.thread/prompts/worker.md\` (or default worker rules if no override) covers the role. The \`.thread/models.json\` \`"default"\` entry supplies the model. No need to create a role-specific prompt.
+
+**Clean up after one-offs:** when a one-off worker reports done and you have no follow-up work for it, kill its pane: \`herdr pane close <pane-id>\`. Don't leave idle workers sitting around — they consume screen space, memory, and complicate the next \`pane list\`. Keep the worker column populated with workers that have active or pending tasks.
+
 **Suggested flows (hints, not rules):**
 
 Common patterns the coordinator MAY use as a starting point — adapt to context:
