@@ -25,14 +25,14 @@ picode/
 │   ├── adapter/          # Storage backends (local-fs.ts, restate)
 │   ├── core/             # System prompt loader, types, roles, time utilities
 │   ├── prompts/          # Role prompts as markdown files (coordinator, builder, reviewer, etc.)
-│   ├── tools/            # Thread tools (send, wait, status, list, journal, suspend, resume, purge, spawn)
+│   ├── tools/            # Thread tools (send, wait, status, list, journal, suspend, resume, purge, spawn, cleanup-panes)
 │   ├── restate/          # Restate backend adapter + service
 │   ├── commands.ts       # Slash commands (/thread-status, /thread-journal, etc.)
-│   ├── inbox.ts          # Envelope delivery, barriers, obligations
+│   ├── inbox.ts          # Envelope delivery, barriers, obligations, injection gate
 │   ├── index.ts          # Extension entry point (registers all tools/commands)
-│   ├── journal.ts        # Auto-journaling with compaction
-│   ├── lifecycle.ts      # Thread lifecycle (startup, footer, widget, state machine)
-│   └── state.ts          # Thread state management, heartbeats
+│   ├── journal.ts        # Auto-journaling with compaction (turn/agent modes)
+│   ├── lifecycle.ts      # Thread lifecycle (startup, footer, widget, state machine, auto-purge)
+│   └── state.ts          # Thread state management, heartbeats, watcher
 ├── bin/
 │   ├── thread-cli.mjs    # Human monitoring CLI (list, status, watch, tail, send)
 │   └── postbox-mcp.mjs  # MCP server for external agents (Claude Code, Codex)
@@ -162,18 +162,20 @@ npm run mcp                   # Start MCP server
 
 ### Core Logic
 
-| File                         | Responsibility                                                                               |
-| ---------------------------- | -------------------------------------------------------------------------------------------- |
-| `src/prompts/coordinator.md` | Coordinator rules + full herdr reference — **the prompt agents see at startup**              |
-| `src/prompts/worker-base.md` | Shared worker communication contract — all workers inherit this                              |
-| `src/prompts/<role>.md`      | Role-specific prompts (builder, reviewer, explorer, tester, designer, bug-hunter, scout)     |
-| `src/core/system-prompt.ts`  | Prompt loader — reads markdown files, adds dynamic context, handles overrides                |
-| `src/inbox.ts`               | Envelope delivery, barrier resolution, obligation tracking, dead-letter handling             |
-| `src/lifecycle.ts`           | Thread lifecycle, state machine transitions, footer/widget rendering                         |
-| `src/state.ts`               | Thread state persistence, heartbeats, journal storage, store operations                      |
-| `src/commands.ts`            | Slash command handlers (status, journal, send, models, suspend, resume)                      |
-| `src/journal.ts`             | Auto-journaling, compaction logic, duplicate suppression                                     |
-| `src/tools/`                 | Thread tools registration (send, wait, status, list, journal, suspend, resume, purge, spawn) |
+| File                         | Responsibility                                                                                                                |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `src/prompts/coordinator.md` | Coordinator rules + full herdr reference — **the prompt agents see at startup**                                               |
+| `src/prompts/worker-base.md` | Shared worker communication contract — all workers inherit this                                                               |
+| `src/prompts/<role>.md`      | Role-specific prompts (builder, reviewer, explorer, tester, designer, bug-hunter, scout)                                      |
+| `src/core/system-prompt.ts`  | Prompt loader — reads markdown files, adds dynamic context, handles overrides                                                 |
+| `src/inbox.ts`               | Envelope delivery, barrier resolution, obligation tracking, dead-letter handling. **Injection gate blocks during compaction** |
+| `src/lifecycle.ts`           | Thread startup, state machine, footer rendering, widget injection. **Auto-purges stale threads on coordinator startup**       |
+| `src/state.ts`               | Thread state persistence, heartbeats, journal storage. **Heartbeat re-attempts inbox drain**                                  |
+| `src/commands.ts`            | Slash command handlers (status, journal, send, models, suspend, resume)                                                       |
+| `src/journal.ts`             | Auto-journaling, compaction logic, duplicate suppression. **Fires at turn_end or agent_end depending on mode**                |
+| `src/tools/spawn.ts`         | spawn_worker tool — splits pane, launches pi, waits for idle. **Reuses dead panes, validates role**                           |
+| `src/tools/cleanup-panes.ts` | cleanup_panes tool — closes stale herdr worker panes. **dry_run option available**                                            |
+| `src/tools/purge.ts`         | thread_purge tool + `purgeStaleThreads()` helper. **Called on coordinator startup**                                           |
 
 ### Storage & Backend
 

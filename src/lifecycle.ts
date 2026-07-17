@@ -322,6 +322,9 @@ export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: I
         "thread_journal",
         "thread_suspend",
         "thread_resume",
+        "spawn_worker",
+        "thread_purge",
+        "cleanup_panes",
       ]);
       const filtered = active.filter(name => ALLOWED.has(name));
       pi.setActiveTools(filtered);

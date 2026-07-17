@@ -231,87 +231,7 @@ If the user explicitly asks for another tab, workspace, or worktree, discover th
 
 Always split from your own pane (the coordinator pane) with `--no-focus`. This keeps workers in the same tab. Never reuse panes from other tabs — close them and split fresh from your own pane.
 
-### Pane Layout Algorithm
-
-**Rule:** Never split the coordinator pane after initial setup. All subsequent splits happen on worker panes.
-
-**Split Queue:** Maintain a queue of panes to split, each with a direction (V or H).
-
-**Initial Setup:**
-
-1. Split coordinator right → worker area (first pane)
-2. Initialize queue: [(worker_pane, "down")]
-
-**When spawning a new worker:**
-
-1. Dequeue first entry: (pane_id, direction)
-2. Split pane_id in direction → creates new_pane
-3. Compute opposite direction: "right" if direction was "down", else "down"
-4. Enqueue both: (pane_id, opposite) and (new_pane, opposite)
-5. Assign task to new_pane
-
-**Layout Pattern:**
-
-```plaintext
-Step 1: V split coordinator → W1
-+----------+-------+
-|          |       |
-| coord    |  W1   |
-|          |       |
-+----------+-------+
-
-Step 2: H split W1 → W1 (top), W2 (bottom)
-+----------+-------+
-|          | W1    |
-| coord    +-------+
-|          | W2    |
-+----------+-------+
-
-Step 3: V split W1 → W1 (left), W3 (right)
-+----------+----+--+
-|          | W3 |W1|
-| coord    +----+  |
-|          | W2    |
-+----------+-------+
-
-Step 4: V split W2 → W2 (left), W4 (right)
-+----------+----+--+
-|          | W3 |W1|
-| coord    +----+--+
-|          | W4 |W2|
-+----------+----+--+
-
-Step 5: H split W3 → W3 (top), W5 (bottom)
-+----------+----+--+
-|          | W5 |  |
-|          +----+W1|
-| coord    | W3 |  |
-|          +----+--+
-|          | W4 |W2|
-+----------+----+--+
-
-Step 6: H split W4 → W4 (top), W6 (bottom)
-+----------+----+--+
-|          | W5 |  |
-|          +----+W1|
-| coord    | W3 |  |
-|          +----+--+
-|          | W6 |  |
-|          +----+W2|
-|          | W4 |  |
-+----------+----+--+
-```
-
-**Properties:**
-
-- Coordinator stays at full height on the left
-- Workers tile on the right in a grid pattern
-- Grid expands evenly (balanced aspect ratios)
-- Predictable layout (easy to reason about)
-- Works for any number of workers
-
-**For auto-splits (beyond initial pattern):**
-Continue the queue pattern — it naturally fills the next available slot.
+The `spawn_worker` tool handles layout automatically — it checks pane geometry and chooses the right direction. You can override with the `direction` param if needed.
 
 ### Worker Reuse
 
@@ -331,46 +251,28 @@ Then run `thread_list` to cross-check thread identities and roles.
 
 ### Spawning a worker
 
-```bash
-# Adaptive direction: split the longer dimension of the caller pane.
-# Wide pane (W>H) → split right (halves width). Tall pane (H>W) → split down (halves height).
-# Brings the new pane closer to 1:1 aspect ratio, avoiding unusably narrow columns.
-LAYOUT=$(herdr pane layout --pane "$HERDR_PANE_ID" 2>/dev/null)
-if [ -n "$LAYOUT" ] && [ "$LAYOUT" != "null" ]; then
-  W=$(echo "$LAYOUT" | jq -r '.layout.area.width // 0')
-  H=$(echo "$LAYOUT" | jq -r '.layout.area.height // 0')
-  if [ "$W" -gt 0 ] && [ "$H" -gt 0 ]; then
-    if [ "$W" -gt "$H" ]; then
-      DIRECTION="right"
-    else
-      DIRECTION="down"
-    fi
-  else
-    DIRECTION="right"
-  fi
-else
-  DIRECTION="right"  # fallback when herdr pane layout unavailable
-fi
-herdr pane split <your-pane-id> --direction "$DIRECTION" --no-focus
-# Read the returned pane_id from JSON, then:
-herdr pane rename <pane_id> "<role>"
+Use the `spawn_worker` tool — one call replaces 5+ bash commands. It handles:
 
-# Launch pi as the worker thread. Extension auto-loads from installed package.
-# Resolve theme path: themes are bundled in picode at $PICODE_THEMES_DIR/<name>.json
-THEME_FLAG=""
-if [ -n "<theme-from-config>" ]; then
-  THEME_PATH="$PICODE_THEMES_DIR/<theme-from-config>.json"
-  if [ -f "$THEME_PATH" ]; then
-    THEME_FLAG="--theme $THEME_PATH"
-  else
-    echo "Warning: theme '<theme-from-config>' not found at $THEME_PATH, skipping"
-  fi
-fi
-herdr pane run <pane_id> "pi --model <model-from-config> $THEME_FLAG --thread-id <role>"
+- Reusing dead panes with matching role (saves a split)
+- Adaptive split direction based on pane geometry
+- Role validation (prevents shell injection)
+- Model/theme resolution from `.thread/models.json`
+- Wait for idle (returns `warning` field if timeout)
 
-# Wait for it to be ready
-herdr wait agent-status <pane_id> --status idle --timeout 30000
+**Usage:**
+
 ```
+spawn_worker(role="builder", model?, theme?, direction?)
+```
+
+Params:
+
+- `role` (required): Worker role / thread-id (e.g. 'builder', 'explorer', 'worker-1')
+- `model` (optional): Override model. Omit to read from `.thread/models.json`
+- `theme` (optional): Override theme. Omit to read from `.thread/models.json`
+- `direction` (optional): "right" or "down". Omit to auto-detect from pane geometry
+
+Returns `{ ok, pane_id, role, model, theme, reused, direction, warning? }`.
 
 Then send the task via `thread_send(to="<role>", expects=true)`.
 
@@ -400,11 +302,19 @@ For ad-hoc tasks that don't match a known role (quick file edit, one-shot script
 
 ### Clean up after one-offs
 
-When a one-off worker reports done and you have no follow-up work for it, kill its pane: `herdr pane close <pane-id>`. Don't leave idle workers sitting around — they consume screen space, memory, and complicate the next `pane list`. Keep the worker column populated with workers that have active or pending tasks.
+When a one-off worker reports done and you have no follow-up work, use `cleanup_panes` to close its pane. Don't leave idle workers sitting around — they consume screen space, memory, and complicate the next `pane list`. Keep the worker column populated with workers that have active or pending tasks.
 
 ### Bulk cleanup
 
-When the thread list is cluttered with dead workers, run `thread_purge` to delete stale thread data (safe — only removes threads with no pending debts). Use after finishing a session's work, when workers are done and you've closed their panes, or when `thread_list` shows more stopped threads than live ones. Also run `cleanup_panes` (or `cleanup_panes` with `dry_run=true` to preview) to kill stale herdr panes. The two complement each other: `cleanup_panes` kills panes, `thread_purge` cleans thread data.
+When the thread list is cluttered with dead workers:
+
+1. Run `cleanup_panes(dry_run=true)` to preview what would close
+2. Run `cleanup_panes()` to close stale panes
+3. Run `thread_purge()` to delete stale thread data (safe — only removes threads with no pending debts)
+
+The two complement: `cleanup_panes` kills panes, `thread_purge` cleans thread data.
+
+**Note:** `thread_purge` is a model tool, not a slash command. Use it via the tool interface, not `/thread-purge`.
 
 ### Investigation delegation
 
