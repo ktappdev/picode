@@ -2,11 +2,15 @@
 
 All notable changes to picode are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [0.5.16] — 2026-07-17
+## [0.5.17] — 2026-07-17
 
-### Changed
+### Fixed
 
-- **Example prompts refreshed** — `examples/prompts/worker.md` now includes the Communication contract block (`thread_send` mandate, plain-text warning) that the bundled `WORKER_BASE_RULES` ships with since v0.5.13. `examples/prompts/coordinator.md` now includes bug-hunter delegation + the four coordinator rules (bug-investigation, parallelize, always-be-working, silent-recovery). `examples/prompts/builder.md` is unchanged in behavior (minor genericization only).
+- **Slash command error handling** — 5 commands (`/thread-status`, `/thread-journal`, `/thread-list`, `/thread-suspend`, `/thread-resume`) now wrap their handler bodies in try/catch with `ctx.ui.notify` on error, matching the pattern from `/thread-send` and `/thread-models`. Previously, errors propagated to pi's command wrapper silently.
+
+### Added
+
+- **4 missing unit tests** — `/thread-list` and `/thread-models` had zero test coverage. Both now have tests. Added `cwd` to test harness ctx (was `undefined`, caused `/thread-models` handler to crash in tests).
 
 ## [0.5.16] — 2026-07-17
 
