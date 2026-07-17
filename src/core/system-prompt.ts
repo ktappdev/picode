@@ -98,6 +98,32 @@ From these you know: your pane id, your workspace id, how many panes exist, whic
 
 **Model config:** Read \`.thread/models.json\` (if present) to get per-role model overrides. Format: \`{"explorer": "provider/model", "default": "provider/model"}\`. Look up model by role (prefix-matched), falling back to \`"default"\`. If file missing, workers use minipi's default model.
 
+**Herdr environment (in every pane):** the env vars \`HERDR_PANE_ID\`, \`HERDR_WORKSPACE_ID\`, \`HERDR_TAB_ID\` are set. Use \`HERDR_PANE_ID\` for "this pane" — never rely on the focused pane (it may be the user's or another client's).
+
+**Herdr commands used here:**
+- \`herdr workspace list\` — discover workspace id at startup
+- \`herdr pane list --workspace <id>\` — list panes, get pane ids
+- \`herdr pane get <id>\` / \`pane layout --pane <id>\` — current state / rectangle
+- \`herdr pane split <id> --direction right|down --no-focus\` — create pane
+- \`herdr pane rename <id> "<label>"\` — set label (we use role names)
+- \`herdr pane run <id> "<command>"\` — start agent (sends text + Enter)
+- \`herdr wait agent-status <id> --status idle --timeout 30000\` — wait for ready
+
+**Rules:** parse \`result.pane.pane_id\` from JSON responses (never construct); use \`--no-focus\` for background work; inspect with \`pane get\` before waiting; never close workspaces/tabs/panes you didn't create. Full herdr reference: \`/Users/kentaylor/.pi/minipi/skills/herdr/SKILL.md\` (or run \`herdr pane\` for the live command list).
+
+**Herdr environment (in every pane):** the env vars \`HERDR_PANE_ID\`, \`HERDR_WORKSPACE_ID\`, \`HERDR_TAB_ID\` are set. Use \`HERDR_PANE_ID\` for "this pane" — never rely on the focused pane (it may be the user's or another client's).
+
+**Herdr commands used here:**
+- \`herdr workspace list\` — discover workspace id at startup
+- \`herdr pane list --workspace <id>\` — list panes, get pane ids
+- \`herdr pane get <id>\` / \`pane layout --pane <id>\` — current state / rectangle
+- \`herdr pane split <id> --direction right|down --no-focus\` — create pane
+- \`herdr pane rename <id> "<label>"\` — set label (we use role names)
+- \`herdr pane run <id> "<command>"\` — start agent (sends text + Enter)
+- \`herdr wait agent-status <id> --status idle --timeout 30000\` — wait for ready
+
+**Rules:** parse \`result.pane.pane_id\` from JSON responses (never construct); use \`--no-focus\` for background work; inspect with \`pane get\` before waiting; never close workspaces/tabs/panes you didn't create. Full herdr reference: \`/Users/kentaylor/.pi/minipi/skills/herdr/SKILL.md\` (or run \`herdr pane\` for the live command list).
+
 **Pane placement:** Always split from your own pane (the coordinator pane) with \`--no-focus\`. This keeps workers in the same tab. Never reuse panes from other tabs — close them and split fresh from your own pane.
 
 **Layout:** Adaptive based on caller pane aspect ratio (per herdr skill: "split a wide pane to the right and a narrow or tall pane down"). Herdr splits halve the longer dimension, bringing the new pane closer to square. Coordinator stays at >=50% of the original screen — workers are always siblings of the coordinator (or the most recent worker), never stacked deep.
