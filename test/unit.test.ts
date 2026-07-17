@@ -1507,6 +1507,27 @@ describe("commands: slash commands", () => {
     assert.strictEqual(written.urgency, "high");
     assert.strictEqual(written.from, "t1");
   });
+
+  it("/thread-send rejects oversized bodies (human path matches thread_send tool guard)", async () => {
+    const h = makeHarness(tmpDir);
+    seedRemoteThread(h, "alice");
+    // Build a body one byte over the 256KB cap. Slash-command args
+    // arrive as a single string from the harness — just paste the
+    // oversized body after the target.
+    const oversized = "x".repeat(MAX_BODY_BYTES + 1);
+    await callCommand(h, "/thread-send", `alice ${oversized}`);
+    // No envelope should have been persisted.
+    assert.equal(
+      h.notifications.some(n => n.text.startsWith("Sent to alice")),
+      false,
+      "oversized body must not produce a 'Sent to ...' notification",
+    );
+    // Error notification must mention both the actual size and the limit.
+    const err = h.notifications.find(n => n.level === "error");
+    assert.ok(err, "expected an error notification for oversized body");
+    assert.match(err!.text, new RegExp(String(MAX_BODY_BYTES + 1)));
+    assert.match(err!.text, /thread_send body too large/);
+  });
 });
 
 // --- adapter layer --------------------------------------------------------

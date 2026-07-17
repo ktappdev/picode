@@ -3,6 +3,7 @@ import type { ThreadStore } from "./core/types";
 import { formatThreadLine } from "./core/format";
 import { resumeThread, suspendThread } from "./core/thread-ops";
 import type { Inbox } from "./inbox";
+import { checkBodySize } from "./tools/messaging";
 import { existsSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 
@@ -144,6 +145,14 @@ export function registerCommands(pi: ExtensionAPI, store: ThreadStore, inbox: In
       }
       if (to === store.threadId) {
         ctx.ui.notify("Cannot send to self.", "warning");
+        return;
+      }
+      // Same body-size guard as the thread_send tool: /thread-send is the
+      // human-equivalent entry point and must not bypass the 256KB cap
+      // that protects the inbox dir from runaway writes.
+      const sizeError = checkBodySize(body);
+      if (sizeError) {
+        ctx.ui.notify(sizeError, "error");
         return;
       }
       try {
