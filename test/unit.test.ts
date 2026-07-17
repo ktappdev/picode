@@ -35,6 +35,7 @@ import { createInbox } from "../src/inbox";
 import type { Injection } from "../src/inbox";
 import { registerLifecycle, computeTps, buildStatsRows } from "../src/lifecycle";
 import { deadlineFromSeconds } from "../src/core/time";
+import { checkBodySize, MAX_BODY_BYTES } from "../src/tools/messaging";
 import { registerTools } from "../src/tools/index";
 import { registerCommands } from "../src/commands";
 import {
@@ -2585,5 +2586,47 @@ describe("system-prompt: thread_send contract is in every worker template", () =
       src.includes("answered in plain text instead of via"),
       "silent-recovery rule must mention the plain-text mistake",
     );
+  });
+});
+
+describe("tools/messaging: checkBodySize (thread_send body-size guard)", () => {
+  it("body just under the limit is accepted", () => {
+    const body = "x".repeat(MAX_BODY_BYTES - 1);
+    assert.equal(checkBodySize(body), null);
+  });
+
+  it("body at exactly the limit is accepted (boundary inclusive)", () => {
+    const body = "x".repeat(MAX_BODY_BYTES);
+    assert.equal(checkBodySize(body), null);
+  });
+
+  it("body one byte over the limit is rejected with a helpful message", () => {
+    const body = "x".repeat(MAX_BODY_BYTES + 1);
+    const msg = checkBodySize(body);
+    assert.ok(msg, "expected an error message");
+    // Reports actual size and limit so the caller knows what to reduce.
+    assert.match(msg!, new RegExp(String(MAX_BODY_BYTES + 1)));
+    assert.match(msg!, new RegExp(String(MAX_BODY_BYTES)));
+    assert.match(msg!, /Split into multiple sends/);
+  });
+
+  it("counts UTF-8 bytes, not characters (emoji at the boundary)", () => {
+    // Each 😀 is 4 UTF-8 bytes. A body of MAX_BODY_BYTES/4 + 1 emoji
+    // exceeds the byte limit by a single byte — IF the guard counts
+    // bytes (not chars/surrogate pairs). The preflight confirms the
+    // setup: bytes must exceed the limit and a single char must be
+    // multi-byte in UTF-8.
+    const emoji = "\u{1F600}"; // 😀 — 4 bytes in UTF-8
+    const count = Math.floor(MAX_BODY_BYTES / 4) + 1; // guaranteed over by bytes
+    const body = emoji.repeat(count);
+    const bytes = Buffer.byteLength(body, "utf8");
+    assert.ok(bytes > MAX_BODY_BYTES, `preflight: bytes=${bytes} should exceed ${MAX_BODY_BYTES}`);
+    assert.ok(bytes > 4 * count / 2, "preflight: emoji must be multi-byte in UTF-8");
+    const msg = checkBodySize(body);
+    assert.ok(msg, "emoji body over the byte limit must be rejected");
+  });
+
+  it("empty body is trivially accepted", () => {
+    assert.equal(checkBodySize(""), null);
   });
 });

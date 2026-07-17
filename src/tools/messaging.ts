@@ -6,6 +6,30 @@ import { deadlineFromSeconds, nowIso } from "../core/time";
 import type { Inbox } from "../inbox";
 import { err } from "./shared";
 
+/** Hard upper bound on the UTF-8 byte length of a `thread_send` body.
+ *  Covers the realistic upper bound for a structured reply (multiple
+ *  paragraphs, fenced code blocks, file:line refs) without inviting
+ *  accidental paste of a base64'd binary blob, a 1MB JSON dump, or a
+ *  whole-file excerpt. Rejecting the whole message is safer than
+ *  silently truncating — a partial reply is worse than no reply, and
+ *  the caller can always split into multiple sends or use file refs. */
+export const MAX_BODY_BYTES = 256 * 1024;
+
+/** Check a candidate body against MAX_BODY_BYTES. Returns the error
+ *  message string when the body is too large, or null when it's OK.
+ *  Pulled out of the tool executor so the rule is unit-testable without
+ *  standing up pi's full ExtensionContext. */
+export function checkBodySize(body: string): string | null {
+  const bytes = Buffer.byteLength(body, "utf8");
+  if (bytes > MAX_BODY_BYTES) {
+    return (
+      `thread_send body too large: ${bytes} bytes (limit is ${MAX_BODY_BYTES} / ${MAX_BODY_BYTES / 1024} KB). ` +
+      `Split into multiple sends, or use file refs (read the file, send the path) for large content.`
+    );
+  }
+  return null;
+}
+
 /** Shared by thread_send(wait=true) and thread_wait — arm a barrier that
  *  wakes this thread (passively, at next Open) once its envelope ids
  *  resolve. An optional message payload is injected on resolution (§12.1). */
@@ -94,6 +118,13 @@ export function registerMessagingTools(pi: ExtensionAPI, store: ThreadStore, inb
     async execute(_id, params) {
       const toSpec = params.to;
       const expects = params.expects === true;
+
+      // Size guard: reject oversized bodies BEFORE any inbox work so we
+      // never persist a giant envelope to disk. The caller gets a clear
+      // error with the actual size and the limit.
+      const sizeError = checkBodySize(params.body);
+      if (sizeError) return err(sizeError);
+
       const deliverAfter = params.deliverAfterSeconds
         ? new Date(Date.now() + params.deliverAfterSeconds * 1000).toISOString()
         : undefined;
