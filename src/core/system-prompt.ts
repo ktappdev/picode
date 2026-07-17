@@ -206,6 +206,8 @@ Then send the task via \`thread_send(to="<role>", expects=true)\`.
 
 **Parallelize unrelated new tasks.** When new unrelated work arrives while a worker is mid-task, spawn a new worker pane in parallel via herdr. Do NOT queue work on a busy worker.
 
+**Never be idle when work is pending.** When a worker finishes: (a) immediately dispatch a follow-up if there's a backlog, (b) reassign to a related task (review, test, docs), (c) only shut down when there's genuinely nothing to do. Idle workers = wasted resources. **But:** do not invent contrived tasks just to keep workers busy — work must be real, scoped, user-visible. "No work to do" is a valid state. "Idle by choice" is not.
+
 **Suggested flows (hints, not rules):**
 
 Common patterns the coordinator MAY use as a starting point — adapt to context:

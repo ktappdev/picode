@@ -34,6 +34,7 @@ import { createThreadStore } from "../src/state";
 import { createInbox } from "../src/inbox";
 import type { Injection } from "../src/inbox";
 import { registerLifecycle, computeTps, buildStatsRows } from "../src/lifecycle";
+import { deadlineFromSeconds } from "../src/core/time";
 import { registerTools } from "../src/tools/index";
 import { registerCommands } from "../src/commands";
 import {
@@ -2514,5 +2515,44 @@ describe("lifecycle: buildStatsRows (footer layout)", () => {
   it("very narrow width still returns 2 rows (not 4)", () => {
     const rows = buildStatsRows(40, modelPart, ctxColored, ioStr, rateStr);
     assert.equal(rows.length, 2);
+  });
+});
+
+describe("core/time: deadlineFromSeconds", () => {
+  it("returns an ISO string parseable as the default 15 min in the future", () => {
+    const before = Date.now();
+    const iso = deadlineFromSeconds();
+    const parsed = new Date(iso).getTime();
+    const DEFAULT_MS = 15 * 60_000;
+    // Within a small tolerance (the function captured `now` once at call).
+    assert.ok(parsed >= before + DEFAULT_MS - 50, `parsed ${parsed} before ${before} + ${DEFAULT_MS}`);
+    assert.ok(parsed <= before + DEFAULT_MS + 50);
+  });
+
+  it("60 seconds → 60_000 ms in the future", () => {
+    const before = Date.now();
+    const iso = deadlineFromSeconds(60);
+    const parsed = new Date(iso).getTime();
+    assert.ok(parsed >= before + 60_000 - 50);
+    assert.ok(parsed <= before + 60_000 + 50);
+  });
+
+  it("explicit undefined matches the default", () => {
+    const a = deadlineFromSeconds();
+    const b = deadlineFromSeconds(undefined);
+    const DEFAULT_MS = 15 * 60_000;
+    const aMs = new Date(a).getTime();
+    const bMs = new Date(b).getTime();
+    assert.ok(Math.abs(aMs - bMs) < 50, `a-b = ${aMs - bMs}ms`);
+    assert.ok(Math.abs(aMs - (Date.now() + DEFAULT_MS)) < 50);
+  });
+
+  it("zero throws RangeError (would otherwise be already-expired)", () => {
+    assert.throws(() => deadlineFromSeconds(0), RangeError);
+  });
+
+  it("negative throws RangeError (would otherwise be already-expired)", () => {
+    assert.throws(() => deadlineFromSeconds(-5), RangeError);
+    assert.throws(() => deadlineFromSeconds(-0.0001), RangeError);
   });
 });
