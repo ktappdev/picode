@@ -129,6 +129,7 @@ function makeHarness(dir: string, id = "t1") {
     },
     isIdle: () => agent.idle,
     waitForIdle: async () => {},
+    cwd: dir,
   } as unknown as ExtensionCommandContext;
 
   return {
@@ -1527,6 +1528,27 @@ describe("commands: slash commands", () => {
     assert.ok(err, "expected an error notification for oversized body");
     assert.match(err!.text, new RegExp(String(MAX_BODY_BYTES + 1)));
     assert.match(err!.text, /thread_send body too large/);
+  });
+
+  it("/thread-list includes current thread and seeded threads", async () => {
+    const h = makeHarness(tmpDir);
+    seedRemoteThread(h, "alice");
+    await callCommand(h, "/thread-list");
+    const text = h.notifications.at(-1)!.text;
+    assert.match(text, /t1/);
+    assert.match(text, /alice/);
+  });
+
+  it("/thread-models shows unconfigured with no file", async () => {
+    const h = makeHarness(tmpDir);
+    await callCommand(h, "/thread-models");
+    assert.match(h.notifications.at(-1)!.text, /No models configured/);
+  });
+
+  it("/thread-models sets and persists a model", async () => {
+    const h = makeHarness(tmpDir);
+    await callCommand(h, "/thread-models", "builder gemini-2.5-flash");
+    assert.match(h.notifications.at(-1)!.text, /Set builder/);
   });
 });
 
