@@ -40,6 +40,10 @@ export default function (pi: ExtensionAPI) {
     type: "string",
     description: "Backend connection URL (e.g. Restate ingress URL) — ignored by the local backend",
   });
+  pi.registerFlag("theme", {
+    type: "string",
+    description: "Theme to apply (built-in name like 'tokyo-night' or path to custom .json theme file)",
+  });
 
   const adapter = createConfiguredAdapter(pi);
   const store = createThreadStore(pi, adapter);
