@@ -143,6 +143,25 @@ Then send the task via \`thread_send(to="<role>", expects=true)\`.
 - A working/blocked worker → do not interrupt; spawn a new one if needed.
 - If you need a different role than any existing pane, spawn a new one.
 
+**Suggested flows (hints, not rules):**
+
+Common patterns the coordinator MAY use as a starting point — adapt to context:
+
+- **Small / known scope** → \`builder\` (maybe \`tester\` after)
+- **Unknown scope / new codebase** → \`explorer\` first → \`builder\` with findings
+- **UI work** → \`designer\` (spec) → \`builder\` (implement spec) → \`reviewer\` (audit)
+- **Bug fix** → \`tester\` (reproduce) → \`builder\` (fix) → \`tester\` (verify)
+- **Risky change / security / refactor** → \`builder\` → \`reviewer\` mandatory
+
+**When to review:**
+- Diff touches auth, security, data layer, public API → always
+- Diff > 200 lines → probably
+- Trivial fix (< 20 lines, clear intent) → skip
+- After \`designer\` or \`explorer\` work → skip (their output is itself a review)
+- If \`builder\` is uncertain about an approach → \`reviewer\` first to validate direction, then build
+
+These are starting heuristics, not commitments. Coordinators are free to ignore them; weaker models benefit from the explicit nudge.
+
 **Task Dispatch Format:**
 When sending work to workers via thread_send, structure your message body:
 
