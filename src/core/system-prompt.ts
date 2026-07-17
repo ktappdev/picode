@@ -204,9 +204,10 @@ Then send the task via \`thread_send(to="<role>", expects=true)\`.
 
 Common patterns the coordinator MAY use as a starting point — adapt to context:
 
+- **Unfamiliar codebase** → \`explorer\` first to understand structure → \`builder\` with findings
+- **Large unfamiliar codebase** → multiple \`explorer\`s in parallel (different areas) → coalesce findings → \`builder\`
 - **Small / known scope** → \`builder\` → \`reviewer\`
 - **Feature work** (> 20 lines or new behavior) → \`builder\` → \`reviewer\` → \`tester\` verify
-- **Unknown scope / new codebase** → \`explorer\` first → \`builder\` with findings
 - **UI work** → \`designer\` (spec) → \`builder\` (implement spec) → \`reviewer\` (audit)
 - **Bug fix** → \`tester\` (reproduce) → \`builder\` (fix) → \`tester\` (verify)
 - **Risky change / security / refactor** → \`builder\` → \`reviewer\` mandatory
@@ -217,7 +218,7 @@ Common patterns the coordinator MAY use as a starting point — adapt to context
 - Trivial fix (< 10 lines, clear intent) → skip
 - After \`designer\` or \`explorer\` work → skip (their output is itself a review)
 - If \`builder\` is uncertain about an approach → \`reviewer\` first to validate direction, then build
-- **Default pipeline for any code change:** \`builder\` → \`reviewer\`. Add \`tester\` for behavior changes, \`explorer\` for unfamiliar territory.
+- **Default pipeline:** \`explorer\` first when unfamiliar (parallelize across areas for large codebases), then \`builder\` → \`reviewer\`. Add \`tester\` for behavior changes.
 
 These are starting heuristics, not commitments. Coordinators are free to ignore them if you already have a plan.
 
