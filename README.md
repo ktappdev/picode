@@ -50,7 +50,7 @@ Cross-thread communication extension for [pi coding agent](https://github.com/ea
 
 - **Read-Only Coordinator** — Write/edit tools disabled; coordinator reads, searches, delegates only.
 - **Auto-Spawn Workers** — Via herdr terminal multiplexer; discovers idle/done panes for reuse.
-- **Pane Layout** — 50/50 split (coordinator left, workers stacked right column).
+- **Pane Layout** — Adaptive: workers split in the direction that halves the longer dimension (wide pane → right, tall pane → down), keeping new panes close to square. Coordinator stays at 50% left; worker area fills the right half.
 - **Worker Dispatch Format** — Structured task body: Objective, Context, Constraints, Action Steps, Deliverables, Prerequisites.
 - **Self-Improving Prompts** — Coordinator writes discovered gaps to `.thread/prompts/<role>.md` on the fly.
 

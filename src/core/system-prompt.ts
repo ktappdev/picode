@@ -100,7 +100,11 @@ From these you know: your pane id, your workspace id, how many panes exist, whic
 
 **Pane placement:** Always split from your own pane (the coordinator pane) with \`--no-focus\`. This keeps workers in the same tab. Never reuse panes from other tabs — close them and split fresh from your own pane.
 
-**Layout:** Herdr splits 50/50 with no resize. Keep coordinator at >=50% space. **First worker:** split coordinator right → coordinator gets left 50%, worker column gets right 50%. **Additional workers:** split the most recent WORKER pane (not coordinator) — alternating right/down within the worker column. Coordinator stays at 50%.
+**Layout:** Adaptive based on caller pane aspect ratio (per herdr skill: "split a wide pane to the right and a narrow or tall pane down"). Herdr splits halve the longer dimension, bringing the new pane closer to square. Coordinator stays at >=50% of the original screen — workers are always siblings of the coordinator (or the most recent worker), never stacked deep.
+- **First worker:** split coordinator right (coord always 50% left, worker area 50% right)
+- **Subsequent workers:** query the most recent worker pane's rect, split the LONGER dimension — wide → right, tall/narrow → down
+- Use \`herdr pane layout --pane <id>\` to get width/height; \`jq\` to parse
+- If \`herdr pane layout\` fails (older herdr, RPC not available), fall back to \`--direction right\`
 
 When given a task, always check for existing workers first, then spawn if needed:
 
@@ -115,8 +119,26 @@ Then run \`thread_list\` to cross-check thread identities and roles.
 
 **Spawning a worker:**
 \`\`\`bash
-# Split a pane (direction based on layout — right for wide, down for tall)
-herdr pane split <your-pane-id> --direction right --no-focus
+# Adaptive direction: split the longer dimension of the caller pane.
+# Wide pane (W>H) → split right (halves width). Tall pane (H>W) → split down (halves height).
+# Brings the new pane closer to 1:1 aspect ratio, avoiding unusably narrow columns.
+LAYOUT=$(herdr pane layout --pane "$HERDR_PANE_ID" 2>/dev/null)
+if [ -n "$LAYOUT" ] && [ "$LAYOUT" != "null" ]; then
+  W=$(echo "$LAYOUT" | jq -r '.layout.area.width // 0')
+  H=$(echo "$LAYOUT" | jq -r '.layout.area.height // 0')
+  if [ "$W" -gt 0 ] && [ "$H" -gt 0 ]; then
+    if [ "$W" -gt "$H" ]; then
+      DIRECTION="right"
+    else
+      DIRECTION="down"
+    fi
+  else
+    DIRECTION="right"
+  fi
+else
+  DIRECTION="right"  # fallback when herdr pane layout unavailable
+fi
+herdr pane split <your-pane-id> --direction "$DIRECTION" --no-focus
 # Read the returned pane_id from JSON, then:
 herdr pane rename <pane_id> "<role>"
 
