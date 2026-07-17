@@ -2556,3 +2556,34 @@ describe("core/time: deadlineFromSeconds", () => {
     assert.throws(() => deadlineFromSeconds(-0.0001), RangeError);
   });
 });
+
+describe("system-prompt: thread_send contract is in every worker template", () => {
+  // Regression guard: the contract must live in the shared worker base
+  // block so it reaches builder, reviewer, explorer, tester, designer,
+  // bug-hunter, scout via the single WORKER_BASE_RULES + SUBTYPE_PROMPTS
+  // composition. If someone refactors and drops the block, the next
+  // worker will answer in plain text and the coordinator will go silent.
+  const src = readFileSync(new URL("../src/core/system-prompt.ts", import.meta.url), "utf-8");
+  it("WORKER_BASE_RULES mentions the communication contract and 'thread_send' reply path", () => {
+    // The source uses template-literal backtick escaping (\`...\`), so
+    // plain `includes` is the most robust check — no regex escaping
+    // minefield around backticks and backslashes.
+    assert.ok(src.includes("Communication contract"), "missing 'Communication contract' header");
+    assert.ok(src.includes("reaches ONLY the human user"), "missing plain-text-only warning");
+    assert.ok(
+      src.includes("Use `thread_send` for everything") ||
+        src.includes("Use \\`thread_send\\` for everything"),
+      "missing 'Use thread_send for everything' bullet",
+    );
+  });
+  it("COORDINATOR_RULES has the silent-recovery rule", () => {
+    assert.match(src, /Worker silent\? Check their pane/);
+    // The backticks in the source are template-literal-escaped (\`...\`).
+    // Use a substring check on the prose between them so we don't fight
+    // regex escaping.
+    assert.ok(
+      src.includes("answered in plain text instead of via"),
+      "silent-recovery rule must mention the plain-text mistake",
+    );
+  });
+});
