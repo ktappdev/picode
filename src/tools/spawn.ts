@@ -110,6 +110,37 @@ function getSplitDirection(paneId: string): "right" | "down" {
   }
 }
 
+/** Check if a thread-id already exists in the workspace.
+ *  Returns true if a pane with that exact thread-id label exists. */
+function threadIdExists(workspaceId: string, threadId: string): boolean {
+  try {
+    const result = herdrJson(`pane list --workspace ${workspaceId}`);
+    const panes =
+      ((result.result as Record<string, unknown> | undefined)?.panes as
+        Record<string, unknown>[] | undefined) || [];
+
+    for (const pane of panes) {
+      const label = (pane.label as string) || "";
+      const paneRole = extractRole(label);
+      if (paneRole.toLowerCase() === threadId.toLowerCase()) return true;
+    }
+  } catch {
+    // Ignore list errors
+  }
+  return false;
+}
+
+/** Generate a unique thread-id by suffixing -1, -2, etc. if needed. */
+function uniqueThreadId(role: string, workspaceId: string): string {
+  if (!threadIdExists(workspaceId, role)) return role;
+
+  let suffix = 1;
+  while (threadIdExists(workspaceId, `${role}-${suffix}`)) {
+    suffix++;
+  }
+  return `${role}-${suffix}`;
+}
+
 /** Look for an existing pane with the given role label.
  *  Prefers idle/done panes (safe to reuse) over unknown/stopped.
  *  Returns pane_id of best match or null if none found. */
@@ -170,6 +201,12 @@ export function registerSpawnTool(pi: ExtensionAPI) {
           description: "Override theme name or path. Omit to read from .thread/models.json",
         }),
       ),
+      reuse: Type.Optional(
+        Type.Boolean({
+          description:
+            "If true, reuse an existing idle/done pane with matching role. Default: false (always create new).",
+        }),
+      ),
     }),
     async execute(_id, params, _signal, _onUpdate, _ctx) {
       const paneId = process.env.HERDR_PANE_ID;
@@ -188,40 +225,45 @@ export function registerSpawnTool(pi: ExtensionAPI) {
           return err(`invalid role: ${roleErr}`);
         }
 
-        // 2. Check for existing pane with matching role
-        const existingPaneId = findExistingPane(workspaceId, params.role);
+        // 2. Generate unique thread-id (auto-suffix if role already exists)
+        const uniqueId = uniqueThreadId(params.role, workspaceId);
+
+        // 3. Check for existing pane with matching role (only if reuse=true)
         let reused = false;
         let paneIdToUse: string | null = null;
 
-        if (existingPaneId) {
-          // Get pane status to decide what to do
-          try {
-            const paneResult = herdrJson(`pane get ${existingPaneId}`);
-            const paneInfo = (paneResult.result as Record<string, unknown> | undefined) || {};
-            const agentStatus = (paneInfo.agent_status as string) || "unknown";
+        if (params.reuse) {
+          const existingPaneId = findExistingPane(workspaceId, params.role);
+          if (existingPaneId) {
+            // Get pane status to decide what to do
+            try {
+              const paneResult = herdrJson(`pane get ${existingPaneId}`);
+              const paneInfo = (paneResult.result as Record<string, unknown> | undefined) || {};
+              const agentStatus = (paneInfo.agent_status as string) || "unknown";
 
-            if (agentStatus === "working" || agentStatus === "blocked") {
-              return err(
-                `worker already active in pane ${existingPaneId} (status: ${agentStatus})`,
-              );
-            }
-            // idle/done — safe to reuse
-            // unknown/stopped — only reuse if pane has no running process
-            if (agentStatus === "idle" || agentStatus === "done") {
-              paneIdToUse = existingPaneId;
-              reused = true;
-            } else {
-              // unknown/stopped — check if pane is actually usable
-              const terminalId = (paneInfo.terminal_id as string) || "";
-              if (terminalId) {
-                // Has a terminal — might be usable, try to reuse
+              if (agentStatus === "working" || agentStatus === "blocked") {
+                return err(
+                  `worker already active in pane ${existingPaneId} (status: ${agentStatus})`,
+                );
+              }
+              // idle/done — safe to reuse
+              // unknown/stopped — only reuse if pane has no running process
+              if (agentStatus === "idle" || agentStatus === "done") {
                 paneIdToUse = existingPaneId;
                 reused = true;
+              } else {
+                // unknown/stopped — check if pane is actually usable
+                const terminalId = (paneInfo.terminal_id as string) || "";
+                if (terminalId) {
+                  // Has a terminal — might be usable, try to reuse
+                  paneIdToUse = existingPaneId;
+                  reused = true;
+                }
+                // No terminal — fall through to create new pane
               }
-              // No terminal — fall through to create new pane
+            } catch {
+              // Can't determine status — fall through to create new pane
             }
-          } catch {
-            // Can't determine status — fall through to create new pane
           }
         }
 
@@ -252,33 +294,33 @@ export function registerSpawnTool(pi: ExtensionAPI) {
             return err(`herdr pane split failed: ${String(e)}`);
           }
 
-          // 5. Rename pane
+          // 5. Rename pane (use uniqueId for label)
           try {
-            herdr(`pane rename ${newPaneId} "${params.role}"`);
+            herdr(`pane rename ${newPaneId} "${uniqueId}"`);
           } catch {
             // Non-fatal — continue even if rename fails
           }
         }
 
-        // 4. Resolve model and theme
+        // 7. Resolve model and theme
         const model = resolveModel(params.role, params.model);
         const theme = resolveTheme(params.theme);
 
-        // 5. Build launch command
+        // 8. Build launch command
         const parts = ["pi"];
         if (model) parts.push(`--model ${model}`);
         if (theme) parts.push(`--theme ${theme}`);
-        parts.push(`--thread-id ${params.role}`);
+        parts.push(`--thread-id ${uniqueId}`);
         const launchCmd = parts.join(" ");
 
-        // 6. Run launch command in new pane
+        // 9. Run launch command in new pane
         try {
           herdr(`pane run ${newPaneId} "${launchCmd}"`);
         } catch (e) {
           return err(`herdr pane run failed: ${String(e)}`);
         }
 
-        // 7. Wait for agent to be idle
+        // 10. Wait for agent to be idle
         let warning: string | undefined;
         try {
           herdr(`wait agent-status ${newPaneId} --status idle --timeout 30000`);
@@ -289,7 +331,7 @@ export function registerSpawnTool(pi: ExtensionAPI) {
         const result = {
           ok: true,
           pane_id: newPaneId,
-          role: params.role,
+          role: uniqueId,
           model: model || "(pi default)",
           theme: theme || "(none)",
           reused,

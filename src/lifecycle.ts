@@ -143,8 +143,8 @@ export function computeTps(
 }
 
 /** Split the stats line into 1 or 2 rows based on terminal width.
- *  Wide (>=100 cols): modelPart + ctx + io + rate on one row.
- *  Narrow (<100 cols): modelPart + ctx on row 1, io + rate on row 2. */
+ *  Wide (>=80 cols): model + ctx + io + rate on one row.
+ *  Narrow (<80 cols): model + ctx on row 1, io + rate on row 2. */
 export function buildStatsRows(
   width: number,
   modelPart: string,
@@ -152,7 +152,7 @@ export function buildStatsRows(
   ioStr: string,
   rateStr: string,
 ): string[] {
-  if (width >= 100) {
+  if (width >= 80) {
     return [`${modelPart}  ${ctxColored}  ${ioStr}${rateStr}`];
   }
   return [`${modelPart}  ${ctxColored}`, `${ioStr}${rateStr}`];
@@ -268,7 +268,7 @@ export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: I
         }).trim();
         const result = purgeStaleThreads(root, store.threadId, false);
         if (result.count > 0) {
-          console.log(`[thread] Auto-purged ${result.count} stale thread(s) on startup`);
+          ctx.ui.notify(`Auto-purged ${result.count} stale thread(s) on startup`, "info");
         }
       } catch {
         // Non-fatal — git not available or purge failed
@@ -315,6 +315,8 @@ export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: I
       const ALLOWED = new Set([
         "read",
         "bash",
+        "web_search",
+        "fetch_content",
         "thread_send",
         "thread_wait",
         "thread_list",
@@ -381,11 +383,11 @@ export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: I
             // cumulative numbers rather than crash the footer.
           }
 
-          // Line 2: model • thinking:L  ctx: X/Y (Z%)  ↑I ↓O  Rt/s
+          // Line 2: model  ctx: X/Y (Z%)  ↑I ↓O  Rt/s
           const modelId = ctx.model?.id ?? "no-model";
-          // getThinkingLevel lives on ExtensionAPI (pi), not ExtensionContext (ctx).
-          const thinking = pi.getThinkingLevel();
-          const modelPart = `${modelId} • thinking:${thinking}`;
+          // Shorten model ID: strip provider prefix if present
+          const shortModel = modelId.includes("/") ? modelId.split("/")[1] : modelId;
+          const modelPart = shortModel;
 
           const usage = ctx.getContextUsage();
           const contextWindow = usage?.contextWindow ?? 0;
@@ -486,7 +488,7 @@ export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: I
     // Reset the live-stream output tracker — no partial assistant message
     // exists yet at turn start. Updated by message_update below.
     liveAssistantOutput = 0;
-    // Snapshot the cumulative output BEFORE this turn starts so render()
+    // Snapshot the last assistant output BEFORE this turn starts so render()
     // can subtract to get THIS turn's output alone (not lifetime total).
     // getBranch() keeps the tps branch-safe — stale fork messages don't
     // pollute the delta.
@@ -494,7 +496,7 @@ export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: I
     try {
       for (const e of ctx.sessionManager.getBranch()) {
         if (e.type === "message" && e.message.role === "assistant") {
-          outputAtTurnStart += e.message.usage.output;
+          outputAtTurnStart = e.message.usage.output;
         }
       }
     } catch {

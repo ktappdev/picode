@@ -2541,8 +2541,8 @@ describe("lifecycle: buildStatsRows (footer layout)", () => {
   const ioStr = "↑12k ↓3.4k";
   const rateStr = " 85t/s";
 
-  it("wide (>=100) returns 1 row with all parts", () => {
-    const rows = buildStatsRows(100, modelPart, ctxColored, ioStr, rateStr);
+  it("wide (>=80) returns 1 row with all parts", () => {
+    const rows = buildStatsRows(80, modelPart, ctxColored, ioStr, rateStr);
     assert.equal(rows.length, 1);
     assert.ok(rows[0].includes(modelPart));
     assert.ok(rows[0].includes(ctxColored));
@@ -2550,8 +2550,8 @@ describe("lifecycle: buildStatsRows (footer layout)", () => {
     assert.ok(rows[0].includes(rateStr));
   });
 
-  it("narrow (<100) returns 2 rows", () => {
-    const rows = buildStatsRows(99, modelPart, ctxColored, ioStr, rateStr);
+  it("narrow (<80) returns 2 rows", () => {
+    const rows = buildStatsRows(79, modelPart, ctxColored, ioStr, rateStr);
     assert.equal(rows.length, 2);
     assert.ok(rows[0].includes(modelPart));
     assert.ok(rows[0].includes(ctxColored));
@@ -2560,21 +2560,21 @@ describe("lifecycle: buildStatsRows (footer layout)", () => {
     assert.ok(rows[1].includes(rateStr));
   });
 
-  it("boundary: 99 -> 2 rows, 100 -> 1 row, 101 -> 1 row", () => {
-    assert.equal(buildStatsRows(99, modelPart, ctxColored, ioStr, rateStr).length, 2);
-    assert.equal(buildStatsRows(100, modelPart, ctxColored, ioStr, rateStr).length, 1);
-    assert.equal(buildStatsRows(101, modelPart, ctxColored, ioStr, rateStr).length, 1);
+  it("boundary: 79 -> 2 rows, 80 -> 1 row, 81 -> 1 row", () => {
+    assert.equal(buildStatsRows(79, modelPart, ctxColored, ioStr, rateStr).length, 2);
+    assert.equal(buildStatsRows(80, modelPart, ctxColored, ioStr, rateStr).length, 1);
+    assert.equal(buildStatsRows(81, modelPart, ctxColored, ioStr, rateStr).length, 1);
   });
 
   it("missing rateStr still produces correct row count", () => {
-    const rows = buildStatsRows(80, modelPart, ctxColored, ioStr, "");
+    const rows = buildStatsRows(79, modelPart, ctxColored, ioStr, "");
     assert.equal(rows.length, 2);
     assert.equal(rows[1], ioStr);
   });
 
   it("missing context renders the ctxColored string as-is", () => {
     const ctxStr = "?/128k";
-    const rows = buildStatsRows(80, modelPart, ctxStr, ioStr, rateStr);
+    const rows = buildStatsRows(79, modelPart, ctxStr, ioStr, rateStr);
     assert.equal(rows.length, 2);
     assert.ok(rows[0].includes(ctxStr));
   });

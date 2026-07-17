@@ -162,20 +162,20 @@ npm run mcp                   # Start MCP server
 
 ### Core Logic
 
-| File                         | Responsibility                                                                                                                |
-| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `src/prompts/coordinator.md` | Coordinator rules + full herdr reference — **the prompt agents see at startup**                                               |
-| `src/prompts/worker-base.md` | Shared worker communication contract — all workers inherit this                                                               |
-| `src/prompts/<role>.md`      | Role-specific prompts (builder, reviewer, explorer, tester, designer, bug-hunter, scout)                                      |
-| `src/core/system-prompt.ts`  | Prompt loader — reads markdown files, adds dynamic context, handles overrides                                                 |
-| `src/inbox.ts`               | Envelope delivery, barrier resolution, obligation tracking, dead-letter handling. **Injection gate blocks during compaction** |
-| `src/lifecycle.ts`           | Thread startup, state machine, footer rendering, widget injection. **Auto-purges stale threads on coordinator startup**       |
-| `src/state.ts`               | Thread state persistence, heartbeats, journal storage. **Heartbeat re-attempts inbox drain**                                  |
-| `src/commands.ts`            | Slash command handlers (status, journal, send, models, suspend, resume)                                                       |
-| `src/journal.ts`             | Auto-journaling, compaction logic, duplicate suppression. **Fires at turn_end or agent_end depending on mode**                |
-| `src/tools/spawn.ts`         | spawn_worker tool — splits pane, launches pi, waits for idle. **Reuses dead panes, validates role**                           |
-| `src/tools/cleanup-panes.ts` | cleanup_panes tool — closes stale herdr worker panes. **dry_run option available**                                            |
-| `src/tools/purge.ts`         | thread_purge tool + `purgeStaleThreads()` helper. **Called on coordinator startup**                                           |
+| File                         | Responsibility                                                                                                                                                  |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/prompts/coordinator.md` | Coordinator rules + full herdr reference — **the prompt agents see at startup**                                                                                 |
+| `src/prompts/worker-base.md` | Shared worker communication contract — all workers inherit this                                                                                                 |
+| `src/prompts/<role>.md`      | Role-specific prompts (builder, reviewer, explorer, tester, designer, bug-hunter, scout)                                                                        |
+| `src/core/system-prompt.ts`  | Prompt loader — reads markdown files, adds dynamic context, handles overrides                                                                                   |
+| `src/inbox.ts`               | Envelope delivery, barrier resolution, obligation tracking, dead-letter handling. **Injection gate blocks during compaction**                                   |
+| `src/lifecycle.ts`           | Thread startup, state machine, footer rendering, widget injection. **Auto-purges stale threads on coordinator startup. Footer shows model, ctx usage, io, t/s** |
+| `src/state.ts`               | Thread state persistence, heartbeats, journal storage. **Heartbeat re-attempts inbox drain**                                                                    |
+| `src/commands.ts`            | Slash command handlers (status, journal, send, models, suspend, resume)                                                                                         |
+| `src/journal.ts`             | Auto-journaling, compaction logic, duplicate suppression. **Fires at turn_end or agent_end depending on mode**                                                  |
+| `src/tools/spawn.ts`         | spawn_worker tool — splits pane, launches pi, waits for idle. **Reuses dead panes, validates role**                                                             |
+| `src/tools/cleanup-panes.ts` | cleanup_panes tool — closes stale herdr worker panes. **dry_run option available**                                                                              |
+| `src/tools/purge.ts`         | thread_purge tool + `purgeStaleThreads()` helper. **Called on coordinator startup**                                                                             |
 
 ### Storage & Backend
 
