@@ -2,6 +2,12 @@
 
 All notable changes to picode are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.5.15] — 2026-07-17
+
+### Fixed
+
+- **`/thread-send` body-size guard gap** — the slash command previously called `inbox.sendToMany` directly, bypassing the 256KB body-size guard added to `thread_send` in v0.5.14. An operator could `/thread-send alice <5MB blob>` and overflow the inbox dir. Now the command applies the same `checkBodySize` guard before queuing, with the same error message format. `src/commands.ts:150-156`.
+
 ## [0.5.13] — 2026-07-17
 
 ### Added
