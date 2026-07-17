@@ -109,7 +109,7 @@ From these you know: your pane id, your workspace id, how many panes exist, whic
 - \`herdr pane run <id> "<command>"\` — start agent (sends text + Enter)
 - \`herdr wait agent-status <id> --status idle --timeout 30000\` — wait for ready
 
-**Rules:** parse \`result.pane.pane_id\` from JSON responses (never construct); use \`--no-focus\` for background work; inspect with \`pane get\` before waiting; never close workspaces/tabs/panes you didn't create. Full herdr reference: \`/Users/kentaylor/.pi/skills/herdr/SKILL.md\` (or run \`herdr pane\` for the live command list).
+**Rules:** parse \`result.pane.pane_id\` from JSON responses (never construct); use \`--no-focus\` for background work; inspect with \`pane get\` before waiting; never close workspaces/tabs/panes you didn't create. Full herdr reference: use the \`read\` tool to load the herdr skill (or run \`herdr pane\` for the live command list).
 
 **Herdr environment (in every pane):** the env vars \`HERDR_PANE_ID\`, \`HERDR_WORKSPACE_ID\`, \`HERDR_TAB_ID\` are set. Use \`HERDR_PANE_ID\` for "this pane" — never rely on the focused pane (it may be the user's or another client's).
 
@@ -122,7 +122,7 @@ From these you know: your pane id, your workspace id, how many panes exist, whic
 - \`herdr pane run <id> "<command>"\` — start agent (sends text + Enter)
 - \`herdr wait agent-status <id> --status idle --timeout 30000\` — wait for ready
 
-**Rules:** parse \`result.pane.pane_id\` from JSON responses (never construct); use \`--no-focus\` for background work; inspect with \`pane get\` before waiting; never close workspaces/tabs/panes you didn't create. Full herdr reference: \`/Users/kentaylor/.pi/skills/herdr/SKILL.md\` (or run \`herdr pane\` for the live command list).
+**Rules:** parse \`result.pane.pane_id\` from JSON responses (never construct); use \`--no-focus\` for background work; inspect with \`pane get\` before waiting; never close workspaces/tabs/panes you didn't create. Full herdr reference: use the \`read\` tool to load the herdr skill (or run \`herdr pane\` for the live command list).
 
 **Pane placement:** Always split from your own pane (the coordinator pane) with \`--no-focus\`. This keeps workers in the same tab. Never reuse panes from other tabs — close them and split fresh from your own pane.
 
