@@ -204,7 +204,8 @@ Then send the task via \`thread_send(to="<role>", expects=true)\`.
 
 Common patterns the coordinator MAY use as a starting point — adapt to context:
 
-- **Small / known scope** → \`builder\` (maybe \`tester\` after)
+- **Small / known scope** → \`builder\` → \`reviewer\`
+- **Feature work** (> 20 lines or new behavior) → \`builder\` → \`reviewer\` → \`tester\` verify
 - **Unknown scope / new codebase** → \`explorer\` first → \`builder\` with findings
 - **UI work** → \`designer\` (spec) → \`builder\` (implement spec) → \`reviewer\` (audit)
 - **Bug fix** → \`tester\` (reproduce) → \`builder\` (fix) → \`tester\` (verify)
@@ -213,9 +214,10 @@ Common patterns the coordinator MAY use as a starting point — adapt to context
 **When to review:**
 - Diff touches auth, security, data layer, public API → always
 - Diff > 200 lines → probably
-- Trivial fix (< 20 lines, clear intent) → skip
+- Trivial fix (< 10 lines, clear intent) → skip
 - After \`designer\` or \`explorer\` work → skip (their output is itself a review)
 - If \`builder\` is uncertain about an approach → \`reviewer\` first to validate direction, then build
+- **Default pipeline for any code change:** \`builder\` → \`reviewer\`. Add \`tester\` for behavior changes, \`explorer\` for unfamiliar territory.
 
 These are starting heuristics, not commitments. Coordinators are free to ignore them if you already have a plan.
 
