@@ -96,7 +96,7 @@ herdr pane list --workspace <cached_workspace_id>
 \`\`\`
 From these you know: your pane id, your workspace id, how many panes exist, which ones contain agents. Cache these values — do not re-discover every time.
 
-**Model config:** Read \`.thread/models.json\` (if present) to get per-role model overrides. Format: \`{"explorer": "provider/model", "default": "provider/model"}\`. Look up model by role (prefix-matched), falling back to \`"default"\`. If file missing, workers use minipi's default model.
+**Model config:** Read \`.thread/models.json\` (if present) to get per-role model overrides. Format: \`{"explorer": "provider/model", "default": "provider/model"}\`. Look up model by role (prefix-matched), falling back to \`"default"\`. If file missing, workers use pi's default model.
 
 **Herdr environment (in every pane):** the env vars \`HERDR_PANE_ID\`, \`HERDR_WORKSPACE_ID\`, \`HERDR_TAB_ID\` are set. Use \`HERDR_PANE_ID\` for "this pane" — never rely on the focused pane (it may be the user's or another client's).
 
@@ -109,7 +109,7 @@ From these you know: your pane id, your workspace id, how many panes exist, whic
 - \`herdr pane run <id> "<command>"\` — start agent (sends text + Enter)
 - \`herdr wait agent-status <id> --status idle --timeout 30000\` — wait for ready
 
-**Rules:** parse \`result.pane.pane_id\` from JSON responses (never construct); use \`--no-focus\` for background work; inspect with \`pane get\` before waiting; never close workspaces/tabs/panes you didn't create. Full herdr reference: \`/Users/kentaylor/.pi/minipi/skills/herdr/SKILL.md\` (or run \`herdr pane\` for the live command list).
+**Rules:** parse \`result.pane.pane_id\` from JSON responses (never construct); use \`--no-focus\` for background work; inspect with \`pane get\` before waiting; never close workspaces/tabs/panes you didn't create. Full herdr reference: \`/Users/kentaylor/.pi/skills/herdr/SKILL.md\` (or run \`herdr pane\` for the live command list).
 
 **Herdr environment (in every pane):** the env vars \`HERDR_PANE_ID\`, \`HERDR_WORKSPACE_ID\`, \`HERDR_TAB_ID\` are set. Use \`HERDR_PANE_ID\` for "this pane" — never rely on the focused pane (it may be the user's or another client's).
 
@@ -122,7 +122,7 @@ From these you know: your pane id, your workspace id, how many panes exist, whic
 - \`herdr pane run <id> "<command>"\` — start agent (sends text + Enter)
 - \`herdr wait agent-status <id> --status idle --timeout 30000\` — wait for ready
 
-**Rules:** parse \`result.pane.pane_id\` from JSON responses (never construct); use \`--no-focus\` for background work; inspect with \`pane get\` before waiting; never close workspaces/tabs/panes you didn't create. Full herdr reference: \`/Users/kentaylor/.pi/minipi/skills/herdr/SKILL.md\` (or run \`herdr pane\` for the live command list).
+**Rules:** parse \`result.pane.pane_id\` from JSON responses (never construct); use \`--no-focus\` for background work; inspect with \`pane get\` before waiting; never close workspaces/tabs/panes you didn't create. Full herdr reference: \`/Users/kentaylor/.pi/skills/herdr/SKILL.md\` (or run \`herdr pane\` for the live command list).
 
 **Pane placement:** Always split from your own pane (the coordinator pane) with \`--no-focus\`. This keeps workers in the same tab. Never reuse panes from other tabs — close them and split fresh from your own pane.
 
@@ -170,9 +170,9 @@ herdr pane split <your-pane-id> --direction "$DIRECTION" --no-focus
 # Read the returned pane_id from JSON, then:
 herdr pane rename <pane_id> "<role>"
 
-# Launch minipi as the worker thread. Extension auto-loads from installed package.
+# Launch pi as the worker thread. Extension auto-loads from installed package.
 
-herdr pane run <pane_id> "minipi --model <model-from-config> --thread-id <role>"
+herdr pane run <pane_id> "pi --model <model-from-config> --thread-id <role>"
 
 # Wait for it to be ready
 herdr wait agent-status <pane_id> --status idle --timeout 30000

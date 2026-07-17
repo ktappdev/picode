@@ -130,19 +130,19 @@ Start any number of pi processes in the same working directory, each with a uniq
 
 ```bash
 # Coordinator (role auto-detected from id)
-minipi --thread-id coordinator
+pi --thread-id coordinator
 
 # Workers (role + parent auto-detected from id)
-minipi --thread-id builder
-minipi --thread-id explorer
-minipi --thread-id tester
+pi --thread-id builder
+pi --thread-id explorer
+pi --thread-id tester
 
 # Prefix matching: builder-1 → role "builder"
-minipi --thread-id builder-1
-minipi --thread-id reviewer-a
+pi --thread-id builder-1
+pi --thread-id reviewer-a
 
 # Generic worker: any id not matching a known role
-minipi --thread-id my-worker
+pi --thread-id my-worker
 ```
 
 `--thread-role` and `--thread-parent` are now optional. Role is auto-detected from `--thread-id` (exact match or prefix: `builder-1` → `builder`). Parent auto-defaults to `coordinator` for non-coordinator threads.
@@ -178,7 +178,7 @@ Override which LLM model each worker role uses via `.thread/models.json`:
 ```
 
 - Roles match by prefix (e.g., `builder` key matches `builder-1`, `builder-a`)
-- Falls back to `"default"` key, then to minipi's default model
+- Falls back to `"default"` key, then to pi's default model
 - Coordinator reads this file on startup and passes the model to each worker spawn command
 - Human operator can manage via slash command:
 

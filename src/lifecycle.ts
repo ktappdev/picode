@@ -5,7 +5,6 @@ import { threadModelPrompt } from "./core/system-prompt";
 import { journalMode, shouldJournal } from "./journal";
 import { roleEmoji } from "./core/roles";
 import { execSync } from "node:child_process";
-import * as path from "node:path";
 import { basename } from "node:path";
 
 /** Wiring into pi's event stream: state transitions across the turn cycle,
@@ -49,8 +48,72 @@ function hasThreadIdentity(ctx: ExtensionContext): boolean {
   return false;
 }
 
+/** Compact token-count formatter (1.5k / 12k / 1.5M) — mirrors the
+ *  built-in `formatTokens` from pi's default footer so the picode footer
+ *  reads consistently with what users already know. */
+function formatTokens(count: number): string {
+  if (count < 1000) return count.toString();
+  if (count < 10000) return `${(count / 1000).toFixed(1)}k`;
+  if (count < 1000000) return `${Math.round(count / 1000)}k`;
+  if (count < 10000000) return `${(count / 1000000).toFixed(1)}M`;
+  return `${Math.round(count / 1000000)}M`;
+}
+
+/** Strip CSI SGR (`ESC[...m`) sequences for width measurement. The footer
+ *  only emits SGR codes (theme.fg / theme.fg error / warning), so this
+ *  regex covers everything we produce. No support for OSC, cursor moves,
+ *  or CJK wide-width — the footer text is short and ASCII-only. */
+const ANSI_SGR = /\x1b\[[0-9;]*m/g;
+function visibleWidth(s: string): number {
+  return s.replace(ANSI_SGR, "").length;
+}
+
+/** ANSI-aware truncation: walks code points (so surrogate-pair emoji stay
+ *  intact), preserves embedded SGR sequences, and stops once visible
+ *  width hits `maxWidth - ellipsisWidth`. If the input already fits,
+ *  returns it unchanged. Trailing `…` is added only when the visible
+ *  content was actually cut. */
+function truncateToWidth(text: string, maxWidth: number, ellipsis = "…"): string {
+  if (maxWidth <= 0) return "";
+  if (visibleWidth(text) <= maxWidth) return text;
+  const ellipsisW = visibleWidth(ellipsis);
+  const targetW = Math.max(0, maxWidth - ellipsisW);
+  let out = "";
+  let pending = "";
+  let width = 0;
+  for (let i = 0; i < text.length; ) {
+    if (text[i] === "\x1b" && text[i + 1] === "[") {
+      const m = text.slice(i).match(/^\x1b\[[0-9;]*m/);
+      if (m) {
+        pending += m[0];
+        i += m[0].length;
+        continue;
+      }
+    }
+    const code = text.codePointAt(i)!;
+    const ch = String.fromCodePoint(code);
+    const w = ch.length; // ASCII-only footer text; 1 code unit = 1 cell
+    if (width + w > targetW) break;
+    if (pending) {
+      out += pending;
+      pending = "";
+    }
+    out += ch;
+    width += w;
+    i += ch.length;
+  }
+  out += pending;
+  return out + ellipsis;
+}
+
 export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: Inbox) {
   let toolUsedThisTurn = false;
+  // Footer reactivity state: the factory passed to `setFooter` is invoked
+  // once with the TUI handle, which we stash so the turn/thinking handlers
+  // below can ask the TUI to repaint. lastTurnStart anchors the t/s
+  // computation — pair with the most recent assistant message's timestamp.
+  let lastTurnStart = 0;
+  let footerRequestRender: () => void = () => {};
   // Opt-in gate (§2.3 — participation is opt-in): this extension only turns
   // a directory into a picode workspace when explicitly asked —
   // --thread-id on this launch, or a thread-identity entry already stamped
@@ -93,11 +156,7 @@ export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: I
       return;
     }
 
-    if (store.role === "coordinator") {
-      console.log(
-        `[thread] Coordinator started. Models config: ${path.join(ctx.cwd, ".thread", "models.json")}`,
-      );
-    }
+
 
     // Set the terminal title so the role is visible in window lists and tmux
     // status bars, even when the user is not in herdr.
@@ -124,10 +183,99 @@ export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: I
       ]);
       const filtered = active.filter(name => ALLOWED.has(name));
       pi.setActiveTools(filtered);
-      console.log(
-        `[thread] ${store.role} mode: restricted to ${filtered.length} tools (${filtered.join(", ")})`,
-      );
     }
+
+    // Custom picode footer: two lines — cwd(branch) on top, model+thinking,
+    // context usage, cumulative ↑/↓ tokens, and a live t/s readout. The
+    // built-in footer is replaced because its symbols obscure what we care
+    // about most in a coordinated workspace. Re-render triggers come from
+    // turn_start (reset t/s clock), turn_end (tokens changed), and
+    // thinking_level_select (model/thinking changed). Branch changes are
+    // pushed by footerData's own subscription.
+    ctx.ui.setFooter((tui, theme, footerData) => {
+      const unsubBranch = footerData.onBranchChange(() => tui.requestRender());
+      footerRequestRender = () => tui.requestRender();
+      return {
+        invalidate() {
+          // No-op: render reads fresh state on every frame.
+        },
+        dispose() {
+          unsubBranch();
+          footerRequestRender = () => {};
+        },
+        render(width: number): string[] {
+          // Line 1: dirname (branch) — dimmed
+          const dirName = basename(ctx.cwd);
+          const branch = footerData.getGitBranch();
+          const cwdStr = branch ? `${dirName} (${branch})` : dirName;
+          const pwdLine = truncateToWidth(theme.fg("dim", cwdStr), width, theme.fg("dim", "..."));
+
+          // Cumulative input/output from every assistant message in the
+          // session — mirrors the default footer's "all session entries"
+          // approach so a compacted history still reports the lifetime total.
+          let input = 0;
+          let output = 0;
+          let lastAssistantTimestamp = 0;
+          let lastAssistantOutput = 0;
+          for (const e of ctx.sessionManager.getEntries()) {
+            if (e.type === "message" && e.message.role === "assistant") {
+              // Inline shape avoids importing AssistantMessage from @earendil-works/pi-ai
+              // (a transitive dep nested under pi-coding-agent; importing it would
+              // require shimming tsconfig paths for both tsc and the tsx test runner).
+              const m = e.message as {
+                usage: { input: number; output: number };
+                timestamp: number;
+              };
+              input += m.usage.input;
+              output += m.usage.output;
+              lastAssistantTimestamp = m.timestamp;
+              lastAssistantOutput = m.usage.output;
+            }
+          }
+
+          // Line 2: model • thinking:L  ctx: X/Y (Z%)  ↑I ↓O  Rt/s
+          const modelId = ctx.model?.id ?? "no-model";
+          // getThinkingLevel lives on ExtensionAPI (pi), not ExtensionContext (ctx).
+          const thinking = pi.getThinkingLevel();
+          const modelPart = `${modelId} • thinking:${thinking}`;
+
+          const usage = ctx.getContextUsage();
+          const contextWindow = usage?.contextWindow ?? 0;
+          const contextTokens = usage?.tokens ?? null;
+          const percent = usage?.percent ?? null;
+          const ctxStr =
+            contextTokens === null
+              ? `?/${formatTokens(contextWindow)}`
+              : `${formatTokens(contextTokens)}/${formatTokens(contextWindow)} (${percent !== null ? percent.toFixed(1) : "?"}%)`;
+          let ctxColored: string = ctxStr;
+          if (percent !== null) {
+            if (percent > 90) ctxColored = theme.fg("error", ctxStr);
+            else if (percent > 70) ctxColored = theme.fg("warning", ctxStr);
+          }
+
+          const ioStr = `↑${formatTokens(input)} ↓${formatTokens(output)}`;
+
+          // t/s = output tokens of the most recent assistant message
+          // divided by wall time from turn_start to that message's
+          // timestamp. Hidden until at least one assistant message exists
+          // AND we've seen a turn_start, so a fresh session shows nothing
+          // rather than a meaningless number.
+          let rateStr = "";
+          if (lastTurnStart > 0 && lastAssistantTimestamp > 0) {
+            const elapsedMs = lastAssistantTimestamp - lastTurnStart;
+            if (elapsedMs > 0) {
+              const tps = lastAssistantOutput / (elapsedMs / 1000);
+              if (tps > 0) rateStr = ` ${Math.round(tps)}t/s`;
+            }
+          }
+
+          const statsLine = `${modelPart}  ${ctxColored}  ${ioStr}${rateStr}`;
+          const statsOut = truncateToWidth(theme.fg("dim", statsLine), width, theme.fg("dim", "..."));
+
+          return [pwdLine, statsOut];
+        },
+      };
+    });
 
     // Defer initial drain to next tick — calling pi.sendUserMessage
     // synchronously from session_start deadlocks turn scheduling.
@@ -176,6 +324,10 @@ export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: I
     inbox.noteRunStarted();
     const wasOnHold = store.state === "on-hold";
     toolUsedThisTurn = false;
+    // Anchor the t/s clock: footer's render() pairs this with the next
+    // assistant message's timestamp to compute tokens-per-second.
+    lastTurnStart = Date.now();
+    footerRequestRender();
     await store.transition("thinking", ctx);
     if (wasOnHold) {
       // A prompt landing on a suspended thread is an implicit resume.
@@ -236,6 +388,9 @@ export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: I
     // The turn boundary is the documented "Open" moment — pick up anything
     // the watcher couldn't deliver while the injection gate was closed.
     await inbox.drainInbox(ctx);
+    // Footer reactivity: cumulative ↑/↓ and t/s only change when an
+    // assistant message has landed, which has happened by turn_end.
+    footerRequestRender();
   });
 
   pi.on("agent_end", async (_event, ctx) => {
@@ -273,5 +428,15 @@ export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: I
     return {
       systemPrompt: event.systemPrompt + "\n\n" + threadModelPrompt(store),
     };
+  });
+
+  // Footer reactivity: thinking level appears on line 2 next to the model
+  // name, so a level change must trigger a re-render. The event is
+  // dispatched by pi's own UI when the user picks a new level — it does
+  // NOT fire on session_start, which is why we capture the initial level
+  // implicitly via pi.getThinkingLevel() inside render().
+  pi.on("thinking_level_select", () => {
+    if (!active) return;
+    footerRequestRender();
   });
 }

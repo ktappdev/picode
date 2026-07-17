@@ -122,6 +122,7 @@ function makeHarness(dir: string, id = "t1") {
     ui: {
       setStatus: () => {},
       setTitle: () => {},
+      setFooter: () => {},
       notify: (text: string, level?: string) => notifications.push({ text, level }),
     },
     isIdle: () => agent.idle,
@@ -286,7 +287,7 @@ function makeLifecycleHarness(dir: string) {
   function makeCtx(entries: CustomEntry[] = []) {
     return {
       cwd: dir,
-      ui: { setStatus: () => {}, setTitle: () => {}, notify: () => {} },
+      ui: { setStatus: () => {}, setTitle: () => {}, setFooter: () => {}, notify: () => {} },
       sessionManager: {
         getEntries: () => entries,
         getSessionFile: () => undefined,
