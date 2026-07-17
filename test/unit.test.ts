@@ -33,7 +33,7 @@ import type {
 import { createThreadStore } from "../src/state";
 import { createInbox } from "../src/inbox";
 import type { Injection } from "../src/inbox";
-import { registerLifecycle, computeTps } from "../src/lifecycle";
+import { registerLifecycle, computeTps, buildStatsRows } from "../src/lifecycle";
 import { registerTools } from "../src/tools/index";
 import { registerCommands } from "../src/commands";
 import {
@@ -2464,5 +2464,55 @@ describe("lifecycle: footer tps (computeTps)", () => {
     assert.equal(computeTps(t0, t0 - 1, 0, 100), "");
     // endTime == startTime → no rate (would be Infinity).
     assert.equal(computeTps(t0, t0, 0, 100), "");
+  });
+});
+
+describe("lifecycle: buildStatsRows (footer layout)", () => {
+  const modelPart = "deepseek-v4 • thinking:L";
+  const ctxColored = "1.5k/128k (1.2%)";
+  const ioStr = "↑12k ↓3.4k";
+  const rateStr = " 85t/s";
+
+  it("wide (>=100) returns 1 row with all parts", () => {
+    const rows = buildStatsRows(100, modelPart, ctxColored, ioStr, rateStr);
+    assert.equal(rows.length, 1);
+    assert.ok(rows[0].includes(modelPart));
+    assert.ok(rows[0].includes(ctxColored));
+    assert.ok(rows[0].includes(ioStr));
+    assert.ok(rows[0].includes(rateStr));
+  });
+
+  it("narrow (<100) returns 2 rows", () => {
+    const rows = buildStatsRows(99, modelPart, ctxColored, ioStr, rateStr);
+    assert.equal(rows.length, 2);
+    assert.ok(rows[0].includes(modelPart));
+    assert.ok(rows[0].includes(ctxColored));
+    assert.ok(!rows[0].includes(ioStr));
+    assert.ok(rows[1].includes(ioStr));
+    assert.ok(rows[1].includes(rateStr));
+  });
+
+  it("boundary: 99 -> 2 rows, 100 -> 1 row, 101 -> 1 row", () => {
+    assert.equal(buildStatsRows(99, modelPart, ctxColored, ioStr, rateStr).length, 2);
+    assert.equal(buildStatsRows(100, modelPart, ctxColored, ioStr, rateStr).length, 1);
+    assert.equal(buildStatsRows(101, modelPart, ctxColored, ioStr, rateStr).length, 1);
+  });
+
+  it("missing rateStr still produces correct row count", () => {
+    const rows = buildStatsRows(80, modelPart, ctxColored, ioStr, "");
+    assert.equal(rows.length, 2);
+    assert.equal(rows[1], ioStr);
+  });
+
+  it("missing context renders the ctxColored string as-is", () => {
+    const ctxStr = "?/128k";
+    const rows = buildStatsRows(80, modelPart, ctxStr, ioStr, rateStr);
+    assert.equal(rows.length, 2);
+    assert.ok(rows[0].includes(ctxStr));
+  });
+
+  it("very narrow width still returns 2 rows (not 4)", () => {
+    const rows = buildStatsRows(40, modelPart, ctxColored, ioStr, rateStr);
+    assert.equal(rows.length, 2);
   });
 });

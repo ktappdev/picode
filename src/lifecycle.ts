@@ -140,6 +140,25 @@ export function computeTps(
   return ` ${Math.round(tps)}t/s`;
 }
 
+/** Split the stats line into 1 or 2 rows based on terminal width.
+ *  Wide (>=100 cols): modelPart + ctx + io + rate on one row.
+ *  Narrow (<100 cols): modelPart + ctx on row 1, io + rate on row 2. */
+export function buildStatsRows(
+  width: number,
+  modelPart: string,
+  ctxColored: string,
+  ioStr: string,
+  rateStr: string,
+): string[] {
+  if (width >= 100) {
+    return [`${modelPart}  ${ctxColored}  ${ioStr}${rateStr}`];
+  }
+  return [
+    `${modelPart}  ${ctxColored}`,
+    `${ioStr}${rateStr}`,
+  ];
+}
+
 export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: Inbox) {
   let toolUsedThisTurn = false;
   // Footer reactivity state: the factory passed to `setFooter` is invoked
@@ -307,10 +326,12 @@ export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: I
             lastAssistantOutput,
           );
 
-          const statsLine = `${modelPart}  ${ctxColored}  ${ioStr}${rateStr}`;
-          const statsOut = truncateToWidth(theme.fg("dim", statsLine), width, theme.fg("dim", "..."));
+          const rows = buildStatsRows(width, modelPart, ctxColored, ioStr, rateStr);
+          const statsOut = rows.map(row =>
+            truncateToWidth(theme.fg("dim", row), width, theme.fg("dim", "...")),
+          );
 
-          return [pwdLine, statsOut];
+          return [pwdLine, ...statsOut];
         },
       };
     });
