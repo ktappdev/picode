@@ -91,7 +91,7 @@ export function registerCleanupPanesTool(pi: ExtensionAPI) {
             try {
               herdr(`pane close ${paneId}`);
               closed.push(paneId);
-            } catch (e) {
+            } catch {
               // Non-fatal — pane may already be closed
               closed.push(paneId);
             }

@@ -3,7 +3,6 @@ import { Type } from "typebox";
 import { rmSync, readdirSync, readFileSync, existsSync } from "fs";
 import { join } from "path";
 import { execSync } from "child_process";
-import { err } from "./shared";
 
 const STALE_MS = 60_000;
 
@@ -122,7 +121,7 @@ export function registerPurgeTool(pi: ExtensionAPI) {
         }),
       ),
     }),
-    async execute(_id, params, _signal, _onUpdate, ctx) {
+    async execute(_id, params, _signal, _onUpdate, _ctx) {
       const currentThreadId = pi.getFlag("thread-id") as string | undefined;
       const root = findProjectRoot();
       const result = purgeStaleThreads(root, currentThreadId, params.force ?? false);

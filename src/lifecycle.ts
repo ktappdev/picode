@@ -177,7 +177,7 @@ export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: I
           const lastTask = taskParts[taskParts.length - 1];
           const body = extractBodyFromRendered(lastTask.text);
           const firstLine = extractFirstLine(body);
-          const ui = injectCtx.ui as any;
+          const ui = injectCtx.ui as unknown as Record<string, unknown>;
           if (typeof ui.setWidget === "function") {
             ui.setWidget("current-task", ["🎯 " + firstLine], { placement: "aboveEditor" });
           }
