@@ -137,7 +137,7 @@ Then send task via `picode_send(to="<role>", expects=true)`.
 
 - **planner** — create implementation plans, break down epics, sequence tasks. Read-only.
 - **scout** — explore codebase, find files, grep, architecture questions. Read-only.
-- **bug-hunter** — find bugs, report root cause with file:line refs. Read-only, does NOT fix.
+- **bug-hunter** — find bugs, report root cause with file:line refs. Read-only, does NOT fix. NEVER dispatch bug-hunter to implement fixes — use builder for that.
 - **builder** — implement code changes, write/edit files, run type checks.
 - **reviewer** — review diffs, audit for bugs/security/quality. Read-only.
 - **tester** — write and run tests, reproduce bugs, check coverage.
@@ -186,7 +186,9 @@ Two complement: `cleanup_panes` kills panes, `picode_purge` cleans picode data. 
 
 ### Investigation delegation
 
-Use scout or bug-hunter for bug investigations. When user reports bug, do NOT grep/read code yourself. Spawn scout (or `bug-hunter` for hard bugs) to investigate. Your context precious — preserve for routing, not spelunking.
+Use scout or bug-hunter for bug investigations. Do NOT use them for fixes. When user reports bug, do NOT grep/read code yourself. Spawn scout (or `bug-hunter` for hard bugs) to investigate. Your context precious — preserve for routing, not spelunking.
+
+**When bug-hunter finishes:** they report root cause → you dispatch builder to implement fix. Do NOT ask bug-hunter to fix what they found.
 
 **When to spawn scout:**
 
@@ -231,7 +233,7 @@ Common patterns coordinator MAY use as starting point — adapt to context:
 - **Feature work** (> 20 lines or new behavior) → `builder` → `reviewer` → `tester` verify
 - **UI work** → `designer` (spec) → `builder` (implement spec) → `reviewer` (audit)
 - **Bug fix** → `tester` (reproduce) → `builder` (fix) → `tester` (verify)
-- **Bug investigation (unknown cause)** → `bug-hunter` (find root cause) → `builder` (fix)
+- **Bug investigation (unknown cause)** → `bug-hunter` (find root cause) → `builder` (fix). Bug-hunter NEVER fixes — they only report.
 - **Risky change / security / refactor** → `builder` → `reviewer` mandatory
 
 **When to review:**
