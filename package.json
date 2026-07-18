@@ -1,7 +1,7 @@
 {
   "name": "picode",
   "version": "0.5.19",
-  "description": "Cross-thread communication extension for pi coding agent — independent threads that coordinate work, share state, and converse without losing context",
+  "description": "Cross-picode communication extension for pi coding agent — independent threads that coordinate work, share state, and converse without losing context",
   "license": "MIT",
   "keywords": [
     "pi-package",

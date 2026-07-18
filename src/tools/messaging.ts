@@ -1,12 +1,12 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import type { Barrier, ThreadStore, Urgency } from "../core/types";
+import type { Barrier, PicodeStore, Urgency } from "../core/types";
 import { mintId } from "../core/ids";
 import { deadlineFromSeconds, nowIso } from "../core/time";
 import type { Inbox } from "../inbox";
 import { err } from "./shared";
 
-/** Hard upper bound on the UTF-8 byte length of a `thread_send` body.
+/** Hard upper bound on the UTF-8 byte length of a `picode_send` body.
  *  Covers the realistic upper bound for a structured reply (multiple
  *  paragraphs, fenced code blocks, file:line refs) without inviting
  *  accidental paste of a base64'd binary blob, a 1MB JSON dump, or a
@@ -23,25 +23,25 @@ export function checkBodySize(body: string): string | null {
   const bytes = Buffer.byteLength(body, "utf8");
   if (bytes > MAX_BODY_BYTES) {
     return (
-      `thread_send body too large: ${bytes} bytes (limit is ${MAX_BODY_BYTES} / ${MAX_BODY_BYTES / 1024} KB). ` +
+      `picode_send body too large: ${bytes} bytes (limit is ${MAX_BODY_BYTES} / ${MAX_BODY_BYTES / 1024} KB). ` +
       `Split into multiple sends, or use file refs (read the file, send the path) for large content.`
     );
   }
   return null;
 }
 
-/** Shared by thread_send(wait=true) and thread_wait — arm a barrier that
- *  wakes this thread (passively, at next Open) once its envelope ids
+/** Shared by picode_send(wait=true) and picode_wait — arm a barrier that
+ *  wakes this picode (passively, at next Open) once its envelope ids
  *  resolve. An optional message payload is injected on resolution (§12.1). */
 async function armBarrier(
-  store: ThreadStore,
+  store: PicodeStore,
   ids: string[],
   mode: "all" | "any",
   deadline?: string,
   message?: string,
 ): Promise<Barrier> {
   const barrier: Barrier = {
-    id: mintId(`barrier.${store.threadId}`),
+    id: mintId(`barrier.${store.picodeId}`),
     pending: [...ids],
     mode,
     createdAt: nowIso(),
@@ -55,21 +55,21 @@ async function armBarrier(
 
 /** Envelope messaging (PROTOCOL-FORMALISM.md §6): one send tool, one wait
  *  tool. Kind is structural — expects/re — never a type tag. */
-export function registerMessagingTools(pi: ExtensionAPI, store: ThreadStore, inbox: Inbox) {
+export function registerMessagingTools(pi: ExtensionAPI, store: PicodeStore, inbox: Inbox) {
   pi.registerTool({
-    name: "thread_send",
-    label: "Thread Send",
+    name: "picode_send",
+    label: "Picode Send",
     description:
-      'Send a message to other thread(s). `to` accepts a thread id, a comma-separated list, `*` (all known threads), or `role:<role>` — see thread_list. Set expects=true when you need a reply (a "request" — tracked as an obligation until the reply lands). Set re=<id> to reply to a message you received (this discharges the debt). Both together = a reply that asks a follow-up. Neither = a plain note. To your parent with expects=true and urgency="high" = an escalation. A future-dated send to your OWN id (deliverAfterSeconds) is a scheduled self-wake.',
+      'Send a message to other picode(s). `to` accepts a picode id, a comma-separated list, `*` (all known threads), or `role:<role>` — see picode_list. Set expects=true when you need a reply (a "request" — tracked as an obligation until the reply lands). Set re=<id> to reply to a message you received (this discharges the debt). Both together = a reply that asks a follow-up. Neither = a plain note. To your parent with expects=true and urgency="high" = an escalation. A future-dated send to your OWN id (deliverAfterSeconds) is a scheduled self-wake.',
     parameters: Type.Object({
       to: Type.String({
-        description: 'Target: thread id, "a,b,c", "*", or "role:<role>".',
+        description: 'Target: picode id, "a,b,c", "*", or "role:<role>".',
       }),
       body: Type.String({ description: "Message content" }),
       re: Type.Optional(
         Type.String({
           description:
-            "Reply correlation: the envelope id you received (from the [#id] header or thread_status owed list). Discharges the owed reply.",
+            "Reply correlation: the envelope id you received (from the [#id] header or picode_status owed list). Discharges the owed reply.",
         }),
       ),
       expects: Type.Optional(
@@ -105,7 +105,7 @@ export function registerMessagingTools(pi: ExtensionAPI, store: ThreadStore, inb
       wait: Type.Optional(
         Type.Boolean({
           description:
-            "With expects=true: arm a barrier for the reply right after sending, so you get a passive wake-up when it lands — merges thread_wait into this call. End your turn after calling this.",
+            "With expects=true: arm a barrier for the reply right after sending, so you get a passive wake-up when it lands — merges picode_wait into this call. End your turn after calling this.",
         }),
       ),
       waitMode: Type.Optional(
@@ -134,13 +134,13 @@ export function registerMessagingTools(pi: ExtensionAPI, store: ThreadStore, inb
 
       // Self-sends are only meaningful with a future delivery time (§12.2 —
       // a scheduled wake); an immediate self-send is noise.
-      const selfWake = toSpec === store.threadId && Boolean(deliverAfter);
+      const selfWake = toSpec === store.picodeId && Boolean(deliverAfter);
       const targets = selfWake
-        ? [store.threadId]
-        : (await inbox.resolveTargets(toSpec)).filter(t => t !== store.threadId);
+        ? [store.picodeId]
+        : (await inbox.resolveTargets(toSpec)).filter(t => t !== store.picodeId);
       if (targets.length === 0) {
         return err(
-          toSpec === store.threadId
+          toSpec === store.picodeId
             ? "Self-sends need deliverAfterSeconds (a scheduled wake) — an immediate send to yourself is a no-op."
             : `No matching targets for "${toSpec}" (self-sends are excluded).`,
         );
@@ -149,7 +149,7 @@ export function registerMessagingTools(pi: ExtensionAPI, store: ThreadStore, inb
       // Coordinator hierarchy: workers cannot send NEW requests to coordinator
       // (replies with re=<id> are allowed, even with expects=true for follow-ups)
       if (expects && !params.re) {
-        const threads = await store.listThreads();
+        const threads = await store.listPcodes();
         const coordTargets = targets.filter(t => {
           const th = threads.find(x => x.id === t);
           return th?.role === "coordinator";
@@ -170,13 +170,13 @@ export function registerMessagingTools(pi: ExtensionAPI, store: ThreadStore, inb
       if (params.re) {
         const owedMatch = store.owed.find(o => o.id === params.re);
         if (!owedMatch) {
-          targetWarning = `Warning: no owed reply matches re "${params.re}" — check thread_status before sending, in case this reply is misdirected or stale.`;
+          targetWarning = `Warning: no owed reply matches re "${params.re}" — check picode_status before sending, in case this reply is misdirected or stale.`;
         } else if (!targets.includes(owedMatch.from)) {
           targetWarning = `Warning: re "${params.re}" is owed to ${owedMatch.from}, not "${toSpec}" — double check the target.`;
         }
       }
 
-      // "*"/role: targets come from listThreads and exist by construction; a
+      // "*"/role: targets come from listPcodes and exist by construction; a
       // direct id may be a typo. Queueing is a durable dead-drop (§7.1), so
       // this is a warning, never a refusal.
       const missing = selfWake ? [] : await inbox.findMissingTargets(targets);
@@ -206,7 +206,7 @@ export function registerMessagingTools(pi: ExtensionAPI, store: ThreadStore, inb
       if (targetWarning) lines.push(targetWarning);
       if (missing.length) {
         lines.push(
-          `(note: ${missing.join(", ")} ${missing.length === 1 ? "has" : "have"} never been seen in this workspace — the message is queued durably and delivers if a thread with that id starts. If this was a typo, check thread_list.)`,
+          `(note: ${missing.join(", ")} ${missing.length === 1 ? "has" : "have"} never been seen in this workspace — the message is queued durably and delivers if a picode with that id starts. If this was a typo, check picode_list.)`,
         );
       }
 
@@ -234,13 +234,13 @@ export function registerMessagingTools(pi: ExtensionAPI, store: ThreadStore, inb
   });
 
   pi.registerTool({
-    name: "thread_wait",
-    label: "Thread Wait",
+    name: "picode_wait",
+    label: "Picode Wait",
     description:
-      "Wait for replies to outstanding requests (envelope ids from thread_send results / thread_status). When all (or any) of them receive a reply, you get a wake-up message — optionally with your own `message` payload injected alongside it. Non-blocking: end your turn after calling this.",
+      "Wait for replies to outstanding requests (envelope ids from picode_send results / picode_status). When all (or any) of them receive a reply, you get a wake-up message — optionally with your own `message` payload injected alongside it. Non-blocking: end your turn after calling this.",
     parameters: Type.Object({
       ids: Type.Array(Type.String(), {
-        description: "The envelope ids to wait on (from thread_send results / thread_status)",
+        description: "The envelope ids to wait on (from picode_send results / picode_status)",
         minItems: 1,
       }),
       mode: Type.Optional(

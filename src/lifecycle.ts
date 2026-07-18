@@ -1,21 +1,21 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { ThreadStore, ThreadState } from "./core/types";
+import type { PicodeStore, PicodeState } from "./core/types";
 import type { Inbox, Injection } from "./inbox";
 import { threadModelPrompt } from "./core/system-prompt";
 import { journalMode, shouldJournal } from "./journal";
 import { roleEmoji } from "./core/roles";
-import { purgeStaleThreads } from "./tools/purge";
+import { purgeStalePcodes } from "./tools/purge";
 import { execSync } from "node:child_process";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /** Wiring into pi's event stream: state transitions across the turn cycle,
- *  the silent-debtor nudge, journal cadence triggers, and the thread-model
+ *  the silent-debtor nudge, journal cadence triggers, and the picode-model
  *  system prompt. */
 
-/** Where a thread settles between turns: On Hold must survive the turn
+/** Where a picode settles between turns: On Hold must survive the turn
  *  boundary instead of being stomped to open/done (§11.1). */
-function restingState(store: ThreadStore, whenFree: ThreadState): ThreadState {
+function restingState(store: PicodeStore, whenFree: PicodeState): PicodeState {
   if (store.state === "on-hold") return "on-hold";
   return whenFree;
 }
@@ -23,7 +23,7 @@ function restingState(store: ThreadStore, whenFree: ThreadState): ThreadState {
 /** Rename this pane in herdr so the label shows role emoji + name
  *  (e.g. 🧭 coordinator). Uses $HERDR_PANE_ID — never rely on focused pane.
  *  Startup-only, so execSync is fine. Errors logged, not fatal. */
-function setHerdrPaneLabel(store: ThreadStore): void {
+function setHerdrPaneLabel(store: PicodeStore): void {
   if (process.env.HERDR_ENV !== "1" || !process.env.HERDR_PANE_ID) return;
   const label = `${roleEmoji(store.role)} ${store.role ?? "worker"}`;
   try {
@@ -32,14 +32,14 @@ function setHerdrPaneLabel(store: ThreadStore): void {
     });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
-    console.log(`[thread] Failed to set herdr pane label: ${msg}`);
+    console.log(`[picode] Failed to set herdr pane label: ${msg}`);
   }
 }
 
 /** Set agent_status to "working" for coordinators so cleanup_panes never
  *  considers them stale. Workers report their own status via pi core.
  *  Startup-only, so execSync is fine. Errors logged, not fatal. */
-function setCoordinatorWorking(store: ThreadStore): void {
+function setCoordinatorWorking(store: PicodeStore): void {
   if (store.role !== "coordinator") return;
   if (process.env.HERDR_ENV !== "1" || !process.env.HERDR_PANE_ID) return;
   try {
@@ -48,17 +48,17 @@ function setCoordinatorWorking(store: ThreadStore): void {
     });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
-    console.log(`[thread] Failed to set coordinator status to working: ${msg}`);
+    console.log(`[picode] Failed to set coordinator status to working: ${msg}`);
   }
 }
 
-/** True once this session has stamped its own thread-identity entry — the
- *  signal that lets a later launch of the *same* session stay a thread
- *  without repassing --thread-id. Mirrors the lookup in state.ts's init(). */
+/** True once this session has stamped its own picode-identity entry — the
+ *  signal that lets a later launch of the *same* session stay a picode
+ *  without repassing --picode-id. Mirrors the lookup in state.ts's init(). */
 function hasThreadIdentity(ctx: ExtensionContext): boolean {
   try {
     for (const e of ctx.sessionManager.getEntries()) {
-      if (e.type === "custom" && e.customType === "thread-identity") return true;
+      if (e.type === "custom" && e.customType === "picode-identity") return true;
     }
   } catch {
     // --no-session or unreadable session — nothing to recover.
@@ -99,15 +99,15 @@ export function extractFirstLine(body: string): string {
   return body.slice(0, 80);
 }
 
-export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: Inbox) {
+export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: Inbox) {
   let toolUsedThisTurn = false;
   // Opt-in gate (§2.3 — participation is opt-in): this extension only turns
   // a directory into a picode workspace when explicitly asked —
-  // --thread-id on this launch, or a thread-identity entry already stamped
+  // --picode-id on this launch, or a picode-identity entry already stamped
   // into this session's own history from an earlier one. Every handler below
   // no-ops while this is false, so an unrelated session (including forked
-  // children, which never inherit participation) never gets a .thread/ dir,
-  // a random identity, the thread_* tools, or the thread-model system prompt.
+  // children, which never inherit participation) never gets a .picode/ dir,
+  // a random identity, the picode_* tools, or the picode-model system prompt.
   let active = false;
 
   pi.on("session_start", async (_event, ctx) => {
@@ -119,13 +119,13 @@ export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: I
     const themesDir = join(dirname(fileURLToPath(import.meta.url)), "..", "themes");
     process.env.PICODE_THEMES_DIR = themesDir;
 
-    const flagId = pi.getFlag("thread-id");
+    const flagId = pi.getFlag("picode-id");
     active = (typeof flagId === "string" && flagId.length > 0) || hasThreadIdentity(ctx);
     if (!active) {
-      // Keep the thread_* tools out of this session's active set entirely —
+      // Keep the picode_* tools out of this session's active set entirely —
       // an unrelated session shouldn't see them offered, let alone have the
       // model attempt one against an uninitialized store.
-      pi.setActiveTools(pi.getActiveTools().filter(name => !name.startsWith("thread_")));
+      pi.setActiveTools(pi.getActiveTools().filter(name => !name.startsWith("picode_")));
       return;
     }
 
@@ -151,16 +151,16 @@ export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: I
       return;
     }
 
-    // Auto-purge stale thread data on coordinator startup (fire-and-forget)
+    // Auto-purge stale picode data on coordinator startup (fire-and-forget)
     if (store.role === "coordinator") {
       try {
         const root = execSync("git rev-parse --show-toplevel", {
           encoding: "utf-8",
           stdio: ["ignore", "pipe", "ignore"],
         }).trim();
-        const result = purgeStaleThreads(root, store.threadId, false);
+        const result = purgeStalePcodes(root, store.picodeId, false);
         if (result.count > 0) {
-          ctx.ui.notify(`Auto-purged ${result.count} stale thread(s) on startup`, "info");
+          ctx.ui.notify(`Auto-purged ${result.count} stale picode(s) on startup`, "info");
         }
       } catch {
         // Non-fatal — git not available or purge failed
@@ -211,15 +211,15 @@ export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: I
         "bash",
         "web_search",
         "fetch_content",
-        "thread_send",
-        "thread_wait",
-        "thread_list",
-        "thread_status",
-        "thread_journal",
-        "thread_suspend",
-        "thread_resume",
+        "picode_send",
+        "picode_wait",
+        "picode_list",
+        "picode_status",
+        "picode_journal",
+        "picode_suspend",
+        "picode_resume",
         "spawn_worker",
-        "thread_purge",
+        "picode_purge",
         "cleanup_panes",
       ]);
       const filtered = active.filter(name => ALLOWED.has(name));
@@ -275,7 +275,7 @@ export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: I
     toolUsedThisTurn = false;
     await store.transition("thinking", ctx);
     if (wasOnHold) {
-      // A prompt landing on a suspended thread is an implicit resume.
+      // A prompt landing on a suspended picode is an implicit resume.
       store.holdReason = null;
       await store.persist();
       await inbox.drainInbox(ctx);
@@ -292,14 +292,14 @@ export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: I
     if (!active) return;
     await store.transition(restingState(store, "open"), ctx);
 
-    // Silent-debtor nudge (§9.4): a thread holding owed replies that ends a
-    // pure-text turn instead of replying via thread_send — the classic
+    // Silent-debtor nudge (§9.4): a picode holding owed replies that ends a
+    // pure-text turn instead of replying via picode_send — the classic
     // channel confusion, where the model "answers" but only the human sees
     // it. Inject a passive reminder (no turn trigger — a forced turn goads
     // the model into acting just to have something to do). Gated by
     // owedNudgePending so a long run of consecutive silent+owed turns queues
     // exactly one reminder, not one per turn; agent_end re-arms the gate so
-    // a persistently silent thread still gets one fresh, escalating nudge
+    // a persistently silent picode still gets one fresh, escalating nudge
     // per run rather than exactly one ever. The reminder solicits the
     // "Standing by" canary — an acknowledged hold is conforming (§9.4/§9.5).
     if (toolUsedThisTurn) {
@@ -316,8 +316,8 @@ export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: I
             : "";
         pi.sendMessage(
           {
-            customType: "thread-owed-reminder",
-            content: `[thread-system] Automated reminder (not from the human): you still owe a reply to ${items}. Plain text reaches only the human — never them. Reply for real via thread_send with the re id.${escalation} Still working on it? Acknowledge with "Standing by". Missing information from the requester? Pass the ball: reply with what you need and expects=true.`,
+            customType: "picode-owed-reminder",
+            content: `[picode-system] Automated reminder (not from the human): you still owe a reply to ${items}. Plain text reaches only the human — never them. Reply for real via picode_send with the re id.${escalation} Still working on it? Acknowledge with "Standing by". Missing information from the requester? Pass the ball: reply with what you need and expects=true.`,
             display: true,
           },
           { triggerTurn: false, deliverAs: "nextTurn" },

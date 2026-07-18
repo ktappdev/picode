@@ -30,7 +30,7 @@ import type {
   ExtensionCommandContext,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { createThreadStore } from "../src/state";
+import { createPicodeStore } from "../src/state";
 import { createInbox } from "../src/inbox";
 import type { Injection } from "../src/inbox";
 import { registerLifecycle, extractFirstLine } from "../src/lifecycle";
@@ -55,7 +55,7 @@ import {
 import { buildWakeLaunch } from "../src/restate/wake-launch";
 import { createLocalFsAdapter } from "../src/adapter/local-fs";
 import type { StorageAdapter } from "../src/adapter/types";
-import type { StateFile, Envelope, ThreadSummary } from "../src/core/types";
+import type { StateFile, Envelope, PicodeSummary } from "../src/core/types";
 import { STALE_MS, PROCESSED_TTL_MS, CLIENT_CAPABILITIES, toSummary } from "../src/core/types";
 import { ulid, mintEnvelopeId } from "../src/core/ids";
 
@@ -97,15 +97,15 @@ function makeHarness(dir: string, id = "t1") {
     },
   } as unknown as ExtensionAPI;
 
-  const store = createThreadStore(stubPi);
+  const store = createPicodeStore(stubPi);
   // No internal `await` in LocalFsAdapter.configure — this synchronously
   // sets its root before the call returns, same reasoning as persist()
   // below, so the harness doesn't need to become async just for this.
   void store.adapter.configure(dir);
-  store.threadId = id;
-  store.threadsRootDir = join(dir, ".thread", "threads");
-  store.threadDir = join(store.threadsRootDir, id);
-  mkdirSync(join(store.threadDir, "inbox", "processed"), { recursive: true });
+  store.picodeId = id;
+  store.picodesRootDir = join(dir, ".picode", "picodes");
+  store.picodeDir = join(store.picodesRootDir, id);
+  mkdirSync(join(store.picodeDir, "inbox", "processed"), { recursive: true });
 
   const inbox = createInbox(store, stubPi);
   registerTools(stubPi, store, inbox);
@@ -161,7 +161,7 @@ function callCommand(h: Harness, name: string, args = "") {
 }
 
 function seedRemoteThread(h: Harness, id: string, opts: { role?: string; stale?: boolean } = {}) {
-  const dir = join(h.store.threadsRootDir, id);
+  const dir = join(h.store.picodesRootDir, id);
   mkdirSync(join(dir, "inbox", "processed"), { recursive: true });
   const lastSeen = opts.stale
     ? new Date(Date.now() - 5 * 60_000).toISOString()
@@ -188,7 +188,7 @@ function seedRemoteThread(h: Harness, id: string, opts: { role?: string; stale?:
   );
 }
 
-/** Write an envelope file directly into a thread's inbox, the way an
+/** Write an envelope file directly into a picode's inbox, the way an
  *  external C1 actor would (Appendix B). `name` controls FIFO order. */
 function seedEnvelope(
   h: Harness,
@@ -196,7 +196,7 @@ function seedEnvelope(
   msg: Partial<Envelope> & { from: string; body: string },
   name = `${ulid()}.json`,
 ) {
-  const dir = join(h.store.threadsRootDir, ownId, "inbox");
+  const dir = join(h.store.picodesRootDir, ownId, "inbox");
   mkdirSync(dir, { recursive: true });
   const envelope: Envelope = {
     id: msg.id ?? mintEnvelopeId(msg.from),
@@ -209,13 +209,13 @@ function seedEnvelope(
 }
 
 function inboxFileCount(h: Harness, id: string): number {
-  const dir = join(h.store.threadsRootDir, id, "inbox");
+  const dir = join(h.store.picodesRootDir, id, "inbox");
   if (!existsSync(dir)) return 0;
   return readdirSync(dir).filter(f => f.endsWith(".json")).length;
 }
 
 function readInboxFile(h: Harness, id: string, index = 0): Envelope {
-  const dir = join(h.store.threadsRootDir, id, "inbox");
+  const dir = join(h.store.picodesRootDir, id, "inbox");
   const files = readdirSync(dir)
     .filter(f => f.endsWith(".json"))
     .sort();
@@ -232,7 +232,7 @@ function journalEntry(ts: string, workingOn: string, done = "did stuff"): string
   return `\n<!-- ${ts} -->\nWorking on: ${workingOn}\nDone: ${done}\nDoing: more\nNext: ship\nBlockers: none\n`;
 }
 function writeJournal(h: Harness, id: string, content: string) {
-  const dir = join(h.store.threadsRootDir, id);
+  const dir = join(h.store.picodesRootDir, id);
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, "journal.md"), content.trim() + "\n");
 }
@@ -242,7 +242,7 @@ function owedRecord(from: string, id: string, summary = "?") {
 }
 
 // A second harness, separate from makeHarness above: that one sets
-// store.threadId directly and never touches lifecycle.ts, so it can't
+// store.picodeId directly and never touches lifecycle.ts, so it can't
 // exercise the opt-in gate that lives in registerLifecycle's session_start
 // handler. This one goes through the real pi.on(...) wiring instead.
 type CustomEntry = { type: "custom"; customType: string; data?: unknown };
@@ -254,13 +254,13 @@ function makeLifecycleHarness(dir: string) {
   const setActiveToolsCalls: string[][] = [];
   const sentMessages: SentMessage[] = [];
   const registeredThreadTools = [
-    "thread_status",
-    "thread_list",
-    "thread_journal",
-    "thread_send",
-    "thread_wait",
-    "thread_suspend",
-    "thread_resume",
+    "picode_status",
+    "picode_list",
+    "picode_journal",
+    "picode_send",
+    "picode_wait",
+    "picode_suspend",
+    "picode_resume",
   ];
   let activeTools = [...registeredThreadTools, "bash", "read_file"]; // some unrelated tool too
 
@@ -283,7 +283,7 @@ function makeLifecycleHarness(dir: string) {
     appendEntry: () => {},
   } as unknown as ExtensionAPI;
 
-  const store = createThreadStore(stubPi);
+  const store = createPicodeStore(stubPi);
   const inbox = createInbox(store, stubPi);
   registerLifecycle(stubPi, store, inbox);
 
@@ -322,7 +322,7 @@ function makeLifecycleHarness(dir: string) {
 let tmpDir: string;
 
 beforeEach(() => {
-  tmpDir = mkdtempSync(join(tmpdir(), "pi-thread-unit-"));
+  tmpDir = mkdtempSync(join(tmpdir(), "pi-picode-unit-"));
 });
 
 afterEach(() => {
@@ -331,20 +331,20 @@ afterEach(() => {
 
 // --- tests ---------------------------------------------------------------
 
-describe("tools: thread_send", () => {
+describe("tools: picode_send", () => {
   it("targets a single explicit id", async () => {
     const h = makeHarness(tmpDir);
-    const r = await callTool(h, "thread_send", { to: "alice", body: "hi" });
+    const r = await callTool(h, "picode_send", { to: "alice", body: "hi" });
     assert.strictEqual(r.details.ok, true);
     assert.strictEqual(r.details.sent.length, 1);
     assert.strictEqual(r.details.sent[0].to, "alice");
   });
 
-  it('to="*" fans out to every known thread except self', async () => {
+  it('to="*" fans out to every known picode except self', async () => {
     const h = makeHarness(tmpDir);
     seedRemoteThread(h, "alice");
     seedRemoteThread(h, "bob");
-    const r = await callTool(h, "thread_send", { to: "*", body: "standup" });
+    const r = await callTool(h, "picode_send", { to: "*", body: "standup" });
     assert.strictEqual(r.details.sent.length, 2);
     assert.deepStrictEqual(r.details.sent.map((s: { to: string }) => s.to).sort(), [
       "alice",
@@ -356,14 +356,14 @@ describe("tools: thread_send", () => {
     const h = makeHarness(tmpDir);
     seedRemoteThread(h, "alice", { role: "dev" });
     seedRemoteThread(h, "bob", { role: "qa" });
-    const r = await callTool(h, "thread_send", { to: "role:dev", body: "hi" });
+    const r = await callTool(h, "picode_send", { to: "role:dev", body: "hi" });
     assert.strictEqual(r.details.sent.length, 1);
     assert.strictEqual(r.details.sent[0].to, "alice");
   });
 
   it("comma-separated targets exclude self", async () => {
     const h = makeHarness(tmpDir);
-    const r = await callTool(h, "thread_send", { to: "alice,t1,bob", body: "hi" });
+    const r = await callTool(h, "picode_send", { to: "alice,t1,bob", body: "hi" });
     assert.deepStrictEqual(r.details.sent.map((s: { to: string }) => s.to).sort(), [
       "alice",
       "bob",
@@ -373,17 +373,17 @@ describe("tools: thread_send", () => {
   it("a reply (re) with no matching owed record gets a soft warning, not a failure", async () => {
     const h = makeHarness(tmpDir);
     seedRemoteThread(h, "alice");
-    const r = await callTool(h, "thread_send", { to: "alice", body: "ok", re: "alice/999" });
+    const r = await callTool(h, "picode_send", { to: "alice", body: "ok", re: "alice/999" });
     assert.strictEqual(r.details.ok, true);
     assert.match(r.content[0].text, /no owed reply matches re "alice\/999"/);
   });
 
-  it("a reply to the wrong thread for a real owed id warns with the correct target", async () => {
+  it("a reply to the wrong picode for a real owed id warns with the correct target", async () => {
     const h = makeHarness(tmpDir);
     seedRemoteThread(h, "alice");
     seedRemoteThread(h, "bob");
     h.store.owed.push(owedRecord("alice", "alice/q1"));
-    const r = await callTool(h, "thread_send", { to: "bob", body: "ok", re: "alice/q1" });
+    const r = await callTool(h, "picode_send", { to: "bob", body: "ok", re: "alice/q1" });
     assert.strictEqual(r.details.ok, true);
     assert.match(r.content[0].text, /owed to alice, not "bob"/);
   });
@@ -392,7 +392,7 @@ describe("tools: thread_send", () => {
     const h = makeHarness(tmpDir);
     seedRemoteThread(h, "alice");
     h.store.owed.push(owedRecord("alice", "alice/q1"));
-    const r = await callTool(h, "thread_send", { to: "alice", body: "ok", re: "alice/q1" });
+    const r = await callTool(h, "picode_send", { to: "alice", body: "ok", re: "alice/q1" });
     assert.strictEqual(r.details.ok, true);
     assert.doesNotMatch(r.content[0].text, /Warning/);
   });
@@ -400,7 +400,7 @@ describe("tools: thread_send", () => {
   it("expects=true records an obligation with the default deadline (§9.2)", async () => {
     const h = makeHarness(tmpDir);
     seedRemoteThread(h, "alice");
-    await callTool(h, "thread_send", { to: "alice", body: "do it", expects: true });
+    await callTool(h, "picode_send", { to: "alice", body: "do it", expects: true });
     assert.strictEqual(h.store.obligations.length, 1);
     assert.ok(h.store.obligations[0].deadline, "default deadline must be applied");
   });
@@ -408,7 +408,7 @@ describe("tools: thread_send", () => {
   it("an explicit deadlineSeconds overrides the default", async () => {
     const h = makeHarness(tmpDir);
     seedRemoteThread(h, "alice");
-    await callTool(h, "thread_send", {
+    await callTool(h, "picode_send", {
       to: "alice",
       body: "do it",
       expects: true,
@@ -421,7 +421,7 @@ describe("tools: thread_send", () => {
   it("a plain note creates no obligation and no owed record", async () => {
     const h = makeHarness(tmpDir);
     seedRemoteThread(h, "alice");
-    await callTool(h, "thread_send", { to: "alice", body: "fyi" });
+    await callTool(h, "picode_send", { to: "alice", body: "fyi" });
     assert.strictEqual(h.store.obligations.length, 0);
     const written = readInboxFile(h, "alice");
     assert.strictEqual(written.expects, undefined);
@@ -432,7 +432,7 @@ describe("tools: thread_send", () => {
     const h = makeHarness(tmpDir);
     seedRemoteThread(h, "alice");
     h.store.owed.push(owedRecord("alice", "alice/q1", "what's the ETA?"));
-    const r = await callTool(h, "thread_send", {
+    const r = await callTool(h, "picode_send", {
       to: "alice",
       body: "need the deploy env first — which one?",
       re: "alice/q1",
@@ -451,7 +451,7 @@ describe("tools: thread_send", () => {
   it("wait=true with expects arms a barrier carrying the given deadline", async () => {
     const h = makeHarness(tmpDir);
     seedRemoteThread(h, "alice");
-    const r = await callTool(h, "thread_send", {
+    const r = await callTool(h, "picode_send", {
       to: "alice",
       body: "do it",
       expects: true,
@@ -467,36 +467,36 @@ describe("tools: thread_send", () => {
   it("wait=true without expects is ignored with a note", async () => {
     const h = makeHarness(tmpDir);
     seedRemoteThread(h, "alice");
-    const r = await callTool(h, "thread_send", { to: "alice", body: "fyi", wait: true });
+    const r = await callTool(h, "picode_send", { to: "alice", body: "fyi", wait: true });
     assert.match(r.content[0].text, /wait=true ignored/);
     assert.strictEqual(h.store.barriers.length, 0);
   });
 
   it("a send to a never-seen id queues durably but carries a typo warning", async () => {
     const h = makeHarness(tmpDir);
-    const r = await callTool(h, "thread_send", { to: "ghost", body: "hello?", expects: true });
+    const r = await callTool(h, "picode_send", { to: "ghost", body: "hello?", expects: true });
     assert.strictEqual(r.details.ok, true);
     assert.match(r.content[0].text, /never been seen in this workspace/);
     assert.strictEqual(inboxFileCount(h, "ghost"), 1);
   });
 
-  it("a send to a known thread carries no typo warning", async () => {
+  it("a send to a known picode carries no typo warning", async () => {
     const h = makeHarness(tmpDir);
     seedRemoteThread(h, "alice");
-    const r = await callTool(h, "thread_send", { to: "alice", body: "hi" });
+    const r = await callTool(h, "picode_send", { to: "alice", body: "hi" });
     assert.doesNotMatch(r.content[0].text, /never been seen/);
   });
 
   it("an immediate self-send is refused", async () => {
     const h = makeHarness(tmpDir);
-    const r = await callTool(h, "thread_send", { to: "t1", body: "note to self" });
+    const r = await callTool(h, "picode_send", { to: "t1", body: "note to self" });
     assert.strictEqual(r.details.ok, false);
     assert.match(r.content[0].text, /deliverAfterSeconds/);
   });
 
   it("a self-send with deliverAfterSeconds is a scheduled wake (§12.2)", async () => {
     const h = makeHarness(tmpDir);
-    const r = await callTool(h, "thread_send", {
+    const r = await callTool(h, "picode_send", {
       to: "t1",
       body: "check CI",
       deliverAfterSeconds: 120,
@@ -513,8 +513,8 @@ describe("tools: thread_send", () => {
   it("urgency=high is written on the wire; low is absence (§6)", async () => {
     const h = makeHarness(tmpDir);
     seedRemoteThread(h, "alice");
-    await callTool(h, "thread_send", { to: "alice", body: "now!", urgency: "high" });
-    await callTool(h, "thread_send", { to: "alice", body: "later" });
+    await callTool(h, "picode_send", { to: "alice", body: "now!", urgency: "high" });
+    await callTool(h, "picode_send", { to: "alice", body: "later" });
     const first = readInboxFile(h, "alice", 0);
     const second = readInboxFile(h, "alice", 1);
     assert.strictEqual(first.urgency, "high");
@@ -523,24 +523,24 @@ describe("tools: thread_send", () => {
 });
 
 describe("Errata 1: misdirected replies do not discharge the owed ledger (§9.1)", () => {
-  it("a reply sent to the wrong thread leaves the owed record intact", async () => {
+  it("a reply sent to the wrong picode leaves the owed record intact", async () => {
     const h = makeHarness(tmpDir);
     seedRemoteThread(h, "alice");
     seedRemoteThread(h, "bob");
     h.store.owed.push(owedRecord("alice", "alice/q1"));
-    await callTool(h, "thread_send", { to: "bob", body: "ok", re: "alice/q1" });
+    await callTool(h, "picode_send", { to: "bob", body: "ok", re: "alice/q1" });
     assert.strictEqual(h.store.owed.length, 1, "misdirected reply must not discharge");
   });
 
-  it("a reply reaching the correct owed thread discharges it, on disk too", async () => {
+  it("a reply reaching the correct owed picode discharges it, on disk too", async () => {
     const h = makeHarness(tmpDir);
     seedRemoteThread(h, "alice");
     h.store.owed.push(owedRecord("alice", "alice/q1"));
     await h.store.persist();
-    await callTool(h, "thread_send", { to: "alice", body: "ok", re: "alice/q1" });
+    await callTool(h, "picode_send", { to: "alice", body: "ok", re: "alice/q1" });
     assert.strictEqual(h.store.owed.length, 0);
     const onDisk = JSON.parse(
-      readFileSync(join(h.store.threadDir, "state.json"), "utf8"),
+      readFileSync(join(h.store.picodeDir, "state.json"), "utf8"),
     ) as StateFile;
     assert.strictEqual(onDisk.owed.length, 0);
   });
@@ -556,7 +556,7 @@ describe("Errata 1, obligation side: misdirected replies do not clear the sender
     });
   }
 
-  it("a reply from the wrong thread leaves the obligation and its barrier intact", async () => {
+  it("a reply from the wrong picode leaves the obligation and its barrier intact", async () => {
     const h = makeHarness(tmpDir);
     seedObligation(h, "t1/q1", "alice");
     h.store.barriers.push({
@@ -620,10 +620,10 @@ describe("expiresAt: stale mail self-discards at drain (Rev 10 §6)", () => {
     assert.match(h.calls[0].content, /hurry/);
   });
 
-  it("thread_send expiresAfterSeconds writes expiresAt on the wire", async () => {
+  it("picode_send expiresAfterSeconds writes expiresAt on the wire", async () => {
     const h = makeHarness(tmpDir);
     seedRemoteThread(h, "alice");
-    await callTool(h, "thread_send", { to: "alice", body: "now-ish", expiresAfterSeconds: 30 });
+    await callTool(h, "picode_send", { to: "alice", body: "now-ish", expiresAfterSeconds: 30 });
     const written = readInboxFile(h, "alice");
     assert.ok(written.expiresAt, "expiresAt must be set");
     const ttl = new Date(written.expiresAt!).getTime() - Date.now();
@@ -636,7 +636,7 @@ describe("presence: capabilities and wake (Rev 10 §8.1)", () => {
     const h = makeHarness(tmpDir);
     await h.store.persist();
     const onDisk = JSON.parse(
-      readFileSync(join(h.store.threadDir, "state.json"), "utf8"),
+      readFileSync(join(h.store.picodeDir, "state.json"), "utf8"),
     ) as StateFile;
     assert.deepStrictEqual(onDisk.capabilities, [...CLIENT_CAPABILITIES]);
     assert.strictEqual(onDisk.wake, undefined, "no wake recipe unless the operator sets one");
@@ -646,7 +646,7 @@ describe("presence: capabilities and wake (Rev 10 §8.1)", () => {
 describe("local-fs: processed/ GC (Appendix B)", () => {
   it("drain prunes processed files older than PROCESSED_TTL_MS", async () => {
     const h = makeHarness(tmpDir, "gc1");
-    const processed = join(h.store.threadDir, "inbox", "processed");
+    const processed = join(h.store.picodeDir, "inbox", "processed");
     const oldFile = join(processed, "ancient.json");
     const freshFile = join(processed, "fresh.json");
     writeFileSync(oldFile, "{}");
@@ -679,7 +679,7 @@ describe("ids: envelope identity (§6.2)", () => {
     const h = makeHarness(tmpDir);
     seedRemoteThread(h, "alice");
     seedRemoteThread(h, "bob");
-    const r = await callTool(h, "thread_send", { to: "*", body: "go", expects: true });
+    const r = await callTool(h, "picode_send", { to: "*", body: "go", expects: true });
     const ids = r.details.sent.map((s: { id: string }) => s.id);
     assert.strictEqual(new Set(ids).size, 2);
   });
@@ -691,10 +691,10 @@ describe("ids: envelope identity (§6.2)", () => {
   });
 });
 
-describe("tools: thread_wait", () => {
+describe("tools: picode_wait", () => {
   it("arms a barrier with deadlineSeconds converted to an ISO deadline", async () => {
     const h = makeHarness(tmpDir);
-    await callTool(h, "thread_wait", { ids: ["t1/a", "t1/b"], deadlineSeconds: 60 });
+    await callTool(h, "picode_wait", { ids: ["t1/a", "t1/b"], deadlineSeconds: 60 });
     assert.strictEqual(h.store.barriers.length, 1);
     assert.ok(h.store.barriers[0].deadline);
     assert.deepStrictEqual(h.store.barriers[0].pending, ["t1/a", "t1/b"]);
@@ -702,40 +702,40 @@ describe("tools: thread_wait", () => {
 
   it("warns when an id has no matching obligation", async () => {
     const h = makeHarness(tmpDir);
-    const r = await callTool(h, "thread_wait", { ids: ["t1/nope"] });
+    const r = await callTool(h, "picode_wait", { ids: ["t1/nope"] });
     assert.match(r.content[0].text, /no open obligation matches t1\/nope/);
   });
 
   it("does not warn when the id matches an open obligation", async () => {
     const h = makeHarness(tmpDir);
     seedRemoteThread(h, "alice");
-    const send = await callTool(h, "thread_send", { to: "alice", body: "do", expects: true });
-    const r = await callTool(h, "thread_wait", { ids: [send.details.sent[0].id] });
+    const send = await callTool(h, "picode_send", { to: "alice", body: "do", expects: true });
+    const r = await callTool(h, "picode_wait", { ids: [send.details.sent[0].id] });
     assert.doesNotMatch(r.content[0].text, /Warning/);
   });
 
   it("stores an optional message payload on the barrier (§12.1)", async () => {
     const h = makeHarness(tmpDir);
-    await callTool(h, "thread_wait", { ids: ["t1/a"], message: "now merge the results" });
+    await callTool(h, "picode_wait", { ids: ["t1/a"], message: "now merge the results" });
     assert.strictEqual(h.store.barriers[0].message, "now merge the results");
   });
 });
 
-describe("tools: thread_suspend / thread_resume", () => {
+describe("tools: picode_suspend / picode_resume", () => {
   it("suspend sets on-hold with the given reason", async () => {
     const h = makeHarness(tmpDir);
-    await callTool(h, "thread_suspend", { reason: "lunch" });
+    await callTool(h, "picode_suspend", { reason: "lunch" });
     assert.strictEqual(h.store.state, "on-hold");
     assert.strictEqual(h.store.holdReason, "lunch");
   });
 
   it("resume clears on-hold and drains the queued inbox", async () => {
     const h = makeHarness(tmpDir);
-    await callTool(h, "thread_suspend", { reason: "wait" });
+    await callTool(h, "picode_suspend", { reason: "wait" });
     seedEnvelope(h, "t1", { from: "alice", body: "queued while held" });
     await h.inbox.drainInbox(h.ctx); // on-hold: must NOT deliver
     assert.strictEqual(h.calls.length, 0);
-    await callTool(h, "thread_resume", {});
+    await callTool(h, "picode_resume", {});
     assert.strictEqual(h.store.state, "open");
     assert.strictEqual(h.calls.length, 1);
     assert.match(h.calls[0].content, /queued while held/);
@@ -743,12 +743,12 @@ describe("tools: thread_suspend / thread_resume", () => {
 
   it("resume is a no-op when not on-hold", async () => {
     const h = makeHarness(tmpDir);
-    const r = await callTool(h, "thread_resume", {});
+    const r = await callTool(h, "picode_resume", {});
     assert.strictEqual(r.details.ok, false);
   });
 });
 
-describe("tools: thread_status", () => {
+describe("tools: picode_status", () => {
   it("itemizes obligations and barriers in the text output", async () => {
     const h = makeHarness(tmpDir);
     h.store.obligations.push({
@@ -764,7 +764,7 @@ describe("tools: thread_status", () => {
       mode: "all",
       createdAt: new Date().toISOString(),
     });
-    const r = await callTool(h, "thread_status");
+    const r = await callTool(h, "picode_status");
     const text = r.content[0].text;
     assert.match(text, /request to alice #t1\/b1 "build the lexer" \(deadline /);
     assert.match(text, /barrier\.t1\.1 \(all\) pending: t1\/b1/);
@@ -773,7 +773,7 @@ describe("tools: thread_status", () => {
   it("itemizes owed replies with the id to echo", async () => {
     const h = makeHarness(tmpDir);
     h.store.owed.push(owedRecord("boss", "boss/q1", "which parser?"));
-    const r = await callTool(h, "thread_status");
+    const r = await callTool(h, "picode_status");
     assert.match(
       r.content[0].text,
       /you owe a reply to boss for their request #boss\/q1 "which parser\?" — reply with re="boss\/q1"/,
@@ -782,28 +782,28 @@ describe("tools: thread_status", () => {
 
   it("shows 'none' for empty obligations and barriers", async () => {
     const h = makeHarness(tmpDir);
-    const r = await callTool(h, "thread_status");
+    const r = await callTool(h, "picode_status");
     assert.match(r.content[0].text, /Obligations: none/);
     assert.match(r.content[0].text, /Barriers: none/);
   });
 });
 
-describe("tools: thread_list", () => {
-  it("reports a stale thread as stopped regardless of its stored status", async () => {
+describe("tools: picode_list", () => {
+  it("reports a stale picode as stopped regardless of its stored status", async () => {
     const h = makeHarness(tmpDir);
     seedRemoteThread(h, "ghost", { stale: true });
-    const r = await callTool(h, "thread_list");
-    const ghost = (r.details.threads as ThreadSummary[]).find(t => t.id === "ghost")!;
+    const r = await callTool(h, "picode_list");
+    const ghost = (r.details.threads as PicodeSummary[]).find(t => t.id === "ghost")!;
     assert.strictEqual(ghost.status, "stopped");
   });
 });
 
-describe("tools: thread_journal", () => {
+describe("tools: picode_journal", () => {
   it("returns the full journal with no filters", async () => {
     const h = makeHarness(tmpDir);
     seedRemoteThread(h, "alice");
     writeJournal(h, "alice", journalEntry(nowStamp(), "task A") + journalEntry(nowStamp(), "B"));
-    const r = await callTool(h, "thread_journal", { id: "alice" });
+    const r = await callTool(h, "picode_journal", { id: "alice" });
     assert.match(r.content[0].text, /task A/);
     assert.match(r.content[0].text, /Working on: B/);
   });
@@ -812,7 +812,7 @@ describe("tools: thread_journal", () => {
     const h = makeHarness(tmpDir);
     seedRemoteThread(h, "alice");
     writeJournal(h, "alice", journalEntry(nowStamp(), "old") + journalEntry(nowStamp(), "newest"));
-    const r = await callTool(h, "thread_journal", { id: "alice", tail: 1 });
+    const r = await callTool(h, "picode_journal", { id: "alice", tail: 1 });
     assert.doesNotMatch(r.content[0].text, /Working on: old/);
     assert.match(r.content[0].text, /Working on: newest/);
   });
@@ -822,14 +822,14 @@ describe("tools: thread_journal", () => {
     seedRemoteThread(h, "alice");
     const oldTs = stamp(new Date(Date.now() - 3 * 60 * 60_000));
     writeJournal(h, "alice", journalEntry(oldTs, "ancient") + journalEntry(nowStamp(), "fresh"));
-    const r = await callTool(h, "thread_journal", { id: "alice", lookbackMinutes: 60 });
+    const r = await callTool(h, "picode_journal", { id: "alice", lookbackMinutes: 60 });
     assert.doesNotMatch(r.content[0].text, /Working on: ancient/);
     assert.match(r.content[0].text, /Working on: fresh/);
   });
 
-  it("errors for an unknown thread id", async () => {
+  it("errors for an unknown picode id", async () => {
     const h = makeHarness(tmpDir);
-    const r = await callTool(h, "thread_journal", { id: "ghost" });
+    const r = await callTool(h, "picode_journal", { id: "ghost" });
     assert.strictEqual(r.details.ok, false);
   });
 });
@@ -987,7 +987,7 @@ describe("inbox: owed replies (recipient-side durability)", () => {
     assert.strictEqual(h.store.owed.length, 1);
     assert.strictEqual(h.store.owed[0].id, "boss/b1");
     const onDisk = JSON.parse(
-      readFileSync(join(h.store.threadDir, "state.json"), "utf8"),
+      readFileSync(join(h.store.picodeDir, "state.json"), "utf8"),
     ) as StateFile;
     assert.strictEqual(onDisk.owed[0]?.id, "boss/b1");
   });
@@ -1012,7 +1012,7 @@ describe("inbox: owed replies (recipient-side durability)", () => {
     const h = makeHarness(tmpDir);
     seedRemoteThread(h, "boss");
     await h.inbox.deliver(requestEnvelope("boss", "boss/b1"), h.ctx);
-    await callTool(h, "thread_send", { to: "boss", body: "done", re: "boss/b1" });
+    await callTool(h, "picode_send", { to: "boss", body: "done", re: "boss/b1" });
     assert.strictEqual(h.store.owed.length, 0);
   });
 
@@ -1020,7 +1020,7 @@ describe("inbox: owed replies (recipient-side durability)", () => {
     const h = makeHarness(tmpDir);
     seedRemoteThread(h, "boss");
     await h.inbox.deliver(requestEnvelope("boss", "boss/b1"), h.ctx);
-    await callTool(h, "thread_send", { to: "boss", body: "unrelated", re: "boss/other" });
+    await callTool(h, "picode_send", { to: "boss", body: "unrelated", re: "boss/other" });
     assert.strictEqual(h.store.owed.length, 1);
   });
 });
@@ -1028,7 +1028,7 @@ describe("inbox: owed replies (recipient-side durability)", () => {
 describe("inbox: drainInbox", () => {
   it("skips malformed JSON without crashing or redelivering it", async () => {
     const h = makeHarness(tmpDir);
-    const dir = join(h.store.threadsRootDir, "t1", "inbox");
+    const dir = join(h.store.picodesRootDir, "t1", "inbox");
     writeFileSync(join(dir, "0-bad.json"), "{nope");
     seedEnvelope(h, "t1", { from: "alice", body: "good one" });
     await h.inbox.drainInbox(h.ctx);
@@ -1306,7 +1306,7 @@ describe("lifecycle: journalSignature / shouldJournal", () => {
     assert.notStrictEqual(journalSignature(store), before);
   });
 
-  it("the journal fork opts out of extensions so it can never become a thread itself", () => {
+  it("the journal fork opts out of extensions so it can never become a picode itself", () => {
     const args = journalForkArgs("/ses/file.jsonl", "/tmp/x");
     assert.ok(args.includes("--no-extensions"));
     assert.ok(args.includes("--fork"));
@@ -1332,29 +1332,29 @@ describe("lifecycle: journalSignature / shouldJournal", () => {
 });
 
 describe("lifecycle: opt-in gate (§2.3)", () => {
-  it("no --thread-id and no prior identity: stays inactive, never touches disk, hides thread_* tools", async () => {
+  it("no --picode-id and no prior identity: stays inactive, never touches disk, hides picode_* tools", async () => {
     const h = makeLifecycleHarness(tmpDir);
     await h.fire("session_start", h.makeCtx());
-    assert.ok(!existsSync(join(tmpDir, ".thread")), "no .thread/ dir for a non-thread session");
+    assert.ok(!existsSync(join(tmpDir, ".picode")), "no .picode/ dir for a non-picode session");
     assert.strictEqual(h.setActiveToolsCalls.length, 1);
     assert.deepStrictEqual(h.activeTools, ["bash", "read_file"]);
   });
 
-  it("--thread-id passed: activates, creates .thread/, leaves the tool list alone", async () => {
+  it("--picode-id passed: activates, creates .picode/, leaves the tool list alone", async () => {
     const h = makeLifecycleHarness(tmpDir);
-    h.setFlag("thread-id", "t9");
+    h.setFlag("picode-id", "t9");
     await h.fire("session_start", h.makeCtx());
-    assert.ok(existsSync(join(tmpDir, ".thread", "threads", "t9", "state.json")));
+    assert.ok(existsSync(join(tmpDir, ".picode", "picodes", "t9", "state.json")));
     assert.strictEqual(h.setActiveToolsCalls.length, 0);
     h.store.stopHeartbeat();
     h.store.stopWatcher();
   });
 
-  it("no flag but a prior thread-identity entry: stays active on a session resume", async () => {
+  it("no flag but a prior picode-identity entry: stays active on a session resume", async () => {
     const h = makeLifecycleHarness(tmpDir);
-    const ctx = h.makeCtx([{ type: "custom", customType: "thread-identity", data: { id: "t7" } }]);
+    const ctx = h.makeCtx([{ type: "custom", customType: "picode-identity", data: { id: "t7" } }]);
     await h.fire("session_start", ctx);
-    assert.ok(existsSync(join(tmpDir, ".thread", "threads", "t7", "state.json")));
+    assert.ok(existsSync(join(tmpDir, ".picode", "picodes", "t7", "state.json")));
     h.store.stopHeartbeat();
     h.store.stopWatcher();
   });
@@ -1368,15 +1368,15 @@ describe("lifecycle: opt-in gate (§2.3)", () => {
     await h.fire("turn_end", ctx);
     await h.fire("agent_end", ctx);
     await h.fire("session_shutdown", ctx, { reason: "quit" });
-    assert.ok(!existsSync(join(tmpDir, ".thread")));
-    assert.strictEqual(h.store.threadId, "");
+    assert.ok(!existsSync(join(tmpDir, ".picode")));
+    assert.strictEqual(h.store.picodeId, "");
   });
 });
 
 describe("lifecycle: silent-debtor nudge (§9.4)", () => {
   async function activeHarness() {
     const h = makeLifecycleHarness(tmpDir);
-    h.setFlag("thread-id", "t9");
+    h.setFlag("picode-id", "t9");
     const ctx = h.makeCtx();
     await h.fire("session_start", ctx);
     h.store.stopHeartbeat();
@@ -1394,7 +1394,7 @@ describe("lifecycle: silent-debtor nudge (§9.4)", () => {
     await h.fire("turn_start", ctx);
     await h.fire("turn_end", ctx);
     assert.strictEqual(h.sentMessages.length, 1);
-    assert.strictEqual(h.sentMessages[0].customType, "thread-owed-reminder");
+    assert.strictEqual(h.sentMessages[0].customType, "picode-owed-reminder");
     assert.match(h.sentMessages[0].content, /boss \(re #boss\/q1\)/);
     assert.match(h.sentMessages[0].content, /"Standing by"/);
     assert.match(h.sentMessages[0].content, /Pass the ball/);
@@ -1447,7 +1447,7 @@ describe("lifecycle: silent-debtor nudge (§9.4)", () => {
     assert.match(h.sentMessages.at(-1)!.content, /turn 3 with no reply/);
   });
 
-  it("never fires when the thread never activated", async () => {
+  it("never fires when the picode never activated", async () => {
     const h = makeLifecycleHarness(tmpDir);
     const ctx = h.makeCtx();
     await h.fire("session_start", ctx);
@@ -1463,14 +1463,14 @@ describe("lifecycle: silent-debtor nudge (§9.4)", () => {
 });
 
 describe("commands: slash commands", () => {
-  it("refuses to run when the thread never activated (opt-in gate never ran)", async () => {
+  it("refuses to run when the picode never activated (opt-in gate never ran)", async () => {
     const h = makeHarness(tmpDir);
-    h.store.threadId = ""; // simulate: init() never ran
-    await callCommand(h, "/thread-status");
+    h.store.picodeId = ""; // simulate: init() never ran
+    await callCommand(h, "/picode-status");
     assert.match(h.notifications[0].text, /hasn't opted into picode/);
   });
 
-  it("/thread-status notification includes the coordination counts", async () => {
+  it("/picode-status notification includes the coordination counts", async () => {
     const h = makeHarness(tmpDir);
     h.store.barriers.push({
       id: "b1",
@@ -1479,44 +1479,44 @@ describe("commands: slash commands", () => {
       createdAt: new Date().toISOString(),
     });
     h.store.owed.push(owedRecord("boss", "boss/q1"));
-    await callCommand(h, "/thread-status");
+    await callCommand(h, "/picode-status");
     assert.match(h.notifications[0].text, /Barriers: 1/);
     assert.match(h.notifications[0].text, /Owed: 1/);
   });
 
-  it("/thread-suspend then /thread-resume round-trips on-hold state", async () => {
+  it("/picode-suspend then /picode-resume round-trips on-hold state", async () => {
     const h = makeHarness(tmpDir);
-    await callCommand(h, "/thread-suspend", "coffee");
+    await callCommand(h, "/picode-suspend", "coffee");
     assert.strictEqual(h.store.state, "on-hold");
     assert.strictEqual(h.store.holdReason, "coffee");
-    await callCommand(h, "/thread-resume");
+    await callCommand(h, "/picode-resume");
     assert.strictEqual(h.store.state, "open");
   });
 
-  it("/thread-send rejects sending to self", async () => {
+  it("/picode-send rejects sending to self", async () => {
     const h = makeHarness(tmpDir);
-    await callCommand(h, "/thread-send", "t1 hello");
+    await callCommand(h, "/picode-send", "t1 hello");
     assert.match(h.notifications[0].text, /Cannot send to self/);
   });
 
-  it("/thread-send writes a high-urgency envelope (operator sends interrupt)", async () => {
+  it("/picode-send writes a high-urgency envelope (operator sends interrupt)", async () => {
     const h = makeHarness(tmpDir);
     seedRemoteThread(h, "alice");
-    await callCommand(h, "/thread-send", "alice please pause");
+    await callCommand(h, "/picode-send", "alice please pause");
     const written = readInboxFile(h, "alice");
     assert.strictEqual(written.body, "please pause");
     assert.strictEqual(written.urgency, "high");
     assert.strictEqual(written.from, "t1");
   });
 
-  it("/thread-send rejects oversized bodies (human path matches thread_send tool guard)", async () => {
+  it("/picode-send rejects oversized bodies (human path matches picode_send tool guard)", async () => {
     const h = makeHarness(tmpDir);
     seedRemoteThread(h, "alice");
     // Build a body one byte over the 256KB cap. Slash-command args
     // arrive as a single string from the harness — just paste the
     // oversized body after the target.
     const oversized = "x".repeat(MAX_BODY_BYTES + 1);
-    await callCommand(h, "/thread-send", `alice ${oversized}`);
+    await callCommand(h, "/picode-send", `alice ${oversized}`);
     // No envelope should have been persisted.
     assert.equal(
       h.notifications.some(n => n.text.startsWith("Sent to alice")),
@@ -1527,27 +1527,27 @@ describe("commands: slash commands", () => {
     const err = h.notifications.find(n => n.level === "error");
     assert.ok(err, "expected an error notification for oversized body");
     assert.match(err!.text, new RegExp(String(MAX_BODY_BYTES + 1)));
-    assert.match(err!.text, /thread_send body too large/);
+    assert.match(err!.text, /picode_send body too large/);
   });
 
-  it("/thread-list includes current thread and seeded threads", async () => {
+  it("/picode-list includes current picode and seeded threads", async () => {
     const h = makeHarness(tmpDir);
     seedRemoteThread(h, "alice");
-    await callCommand(h, "/thread-list");
+    await callCommand(h, "/picode-list");
     const text = h.notifications.at(-1)!.text;
     assert.match(text, /t1/);
     assert.match(text, /alice/);
   });
 
-  it("/thread-models shows unconfigured with no file", async () => {
+  it("/picode-models shows unconfigured with no file", async () => {
     const h = makeHarness(tmpDir);
-    await callCommand(h, "/thread-models");
+    await callCommand(h, "/picode-models");
     assert.match(h.notifications.at(-1)!.text, /No models configured/);
   });
 
-  it("/thread-models sets and persists a model", async () => {
+  it("/picode-models sets and persists a model", async () => {
     const h = makeHarness(tmpDir);
-    await callCommand(h, "/thread-models", "builder gemini-2.5-flash");
+    await callCommand(h, "/picode-models", "builder gemini-2.5-flash");
     assert.match(h.notifications.at(-1)!.text, /Set builder/);
   });
 });
@@ -1593,26 +1593,26 @@ function wireEnvelope(
 }
 
 describe("adapter: LocalFsAdapter (Appendix B binding)", () => {
-  it("saveState/loadState round-trips through state.json", async () => {
+  it("savePicodeState/loadPicodeState round-trips through state.json", async () => {
     const adapter = createLocalFsAdapter();
     await adapter.configure(tmpDir);
-    await adapter.saveState("a", baseState("a"));
-    const loaded = await adapter.loadState("a");
+    await adapter.savePicodeState("a", baseState("a"));
+    const loaded = await adapter.loadPicodeState("a");
     assert.strictEqual(loaded?.id, "a");
-    assert.ok(existsSync(join(tmpDir, ".thread", "threads", "a", "state.json")));
+    assert.ok(existsSync(join(tmpDir, ".picode", "picodes", "a", "state.json")));
   });
 
-  it("loadState returns undefined for an unknown thread", async () => {
+  it("loadPicodeState returns undefined for an unknown picode", async () => {
     const adapter = createLocalFsAdapter();
     await adapter.configure(tmpDir);
-    assert.strictEqual(await adapter.loadState("ghost"), undefined);
+    assert.strictEqual(await adapter.loadPicodeState("ghost"), undefined);
   });
 
   it("threadExists reflects whether state.json is present", async () => {
     const adapter = createLocalFsAdapter();
     await adapter.configure(tmpDir);
     assert.strictEqual(await adapter.threadExists("a"), false);
-    await adapter.saveState("a", baseState("a"));
+    await adapter.savePicodeState("a", baseState("a"));
     assert.strictEqual(await adapter.threadExists("a"), true);
   });
 
@@ -1634,11 +1634,11 @@ describe("adapter: LocalFsAdapter (Appendix B binding)", () => {
     const adapter = createLocalFsAdapter();
     await adapter.configure(tmpDir);
     await adapter.enqueueMessage(wireEnvelope("alice", "bob", "hi"));
-    const staging = join(tmpDir, ".thread", "threads", "bob", "inbox.tmp");
+    const staging = join(tmpDir, ".picode", "picodes", "bob", "inbox.tmp");
     assert.ok(existsSync(staging), "staging dir exists");
     assert.strictEqual(readdirSync(staging).length, 0, "no leftover temp files");
     assert.strictEqual(
-      readdirSync(join(tmpDir, ".thread", "threads", "bob", "inbox")).filter(f =>
+      readdirSync(join(tmpDir, ".picode", "picodes", "bob", "inbox")).filter(f =>
         f.endsWith(".json"),
       ).length,
       1,
@@ -1673,7 +1673,7 @@ describe("adapter: LocalFsAdapter (Appendix B binding)", () => {
   it("drainInbox leaves malformed JSON in place and never returns it", async () => {
     const adapter = createLocalFsAdapter();
     await adapter.configure(tmpDir);
-    const dir = join(tmpDir, ".thread", "threads", "bob", "inbox");
+    const dir = join(tmpDir, ".picode", "picodes", "bob", "inbox");
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "1-bad.json"), "{not valid json");
     const claimed = await adapter.drainInbox("bob");
@@ -1681,22 +1681,22 @@ describe("adapter: LocalFsAdapter (Appendix B binding)", () => {
     assert.ok(existsSync(join(dir, "1-bad.json")));
   });
 
-  it("listThreads reports a thread stale past STALE_MS as stopped", async () => {
+  it("listPcodes reports a picode stale past STALE_MS as stopped", async () => {
     const adapter = createLocalFsAdapter();
     await adapter.configure(tmpDir);
-    await adapter.saveState(
+    await adapter.savePicodeState(
       "ghost",
       baseState("ghost", { lastSeen: new Date(Date.now() - STALE_MS - 1000).toISOString() }),
     );
-    const threads = await adapter.listThreads();
+    const threads = await adapter.listPcodes();
     assert.strictEqual(threads[0]?.status, "stopped");
   });
 
-  it("watchInbox doesn't throw for a thread that has never received a message (no inbox/ dir yet)", async () => {
+  it("watchInbox doesn't throw for a picode that has never received a message (no inbox/ dir yet)", async () => {
     const adapter = createLocalFsAdapter();
     await adapter.configure(tmpDir);
-    await adapter.saveState("fresh", baseState("fresh"));
-    assert.ok(!existsSync(join(tmpDir, ".thread", "threads", "fresh", "inbox")));
+    await adapter.savePicodeState("fresh", baseState("fresh"));
+    assert.ok(!existsSync(join(tmpDir, ".picode", "picodes", "fresh", "inbox")));
     let fired = false;
     const dispose = adapter.watchInbox("fresh", () => {
       fired = true;
@@ -1705,7 +1705,7 @@ describe("adapter: LocalFsAdapter (Appendix B binding)", () => {
     // alive forever if an assertion throws first (observed as a 5-minute
     // hang when the fixed 50ms wait flaked under load).
     try {
-      assert.ok(existsSync(join(tmpDir, ".thread", "threads", "fresh", "inbox")));
+      assert.ok(existsSync(join(tmpDir, ".picode", "picodes", "fresh", "inbox")));
       // A message arriving after the (now-live) watch should still be observed.
       await adapter.enqueueMessage(wireEnvelope("other", "fresh", "hi"));
       for (let i = 0; i < 40 && !fired; i++) {
@@ -1720,7 +1720,7 @@ describe("adapter: LocalFsAdapter (Appendix B binding)", () => {
 
 /** Minimal in-memory StorageAdapter — proves state.ts/inbox.ts never reach
  *  into fs directly, only through store.adapter, by running the same
- *  cross-thread send/deliver flow against a backend with no filesystem at
+ *  cross-picode send/deliver flow against a backend with no filesystem at
  *  all. Deliberately implements ONLY the core contract, no JournalAdapter —
  *  which also exercises the journal channel's optionality (§5). */
 function createFakeAdapter(): StorageAdapter {
@@ -1729,13 +1729,13 @@ function createFakeAdapter(): StorageAdapter {
 
   return {
     async configure() {},
-    async loadState(id) {
+    async loadPicodeState(id) {
       return states.get(id);
     },
-    async saveState(id, state) {
+    async savePicodeState(id, state) {
       states.set(id, structuredClone(state));
     },
-    async listThreads(): Promise<ThreadSummary[]> {
+    async listPcodes(): Promise<PicodeSummary[]> {
       return [...states.values()].map(toSummary);
     },
     async threadExists(id) {
@@ -1775,7 +1775,7 @@ describe("adapter seam: core logic against a fake in-memory adapter", () => {
       registerCommand: () => {},
     }) as unknown as ExtensionAPI;
 
-  it("a note sent from one thread is drained and delivered on the other, with no fs involved", async () => {
+  it("a note sent from one picode is drained and delivered on the other, with no fs involved", async () => {
     const fake = createFakeAdapter();
     const calls: Call[] = [];
     const stubPi = stubPiWith(calls);
@@ -1783,17 +1783,17 @@ describe("adapter seam: core logic against a fake in-memory adapter", () => {
       ui: { setStatus: () => {}, setTitle: () => {} },
     } as unknown as ExtensionCommandContext;
 
-    const sender = createThreadStore(stubPi, fake);
-    sender.threadId = "sender";
-    sender.threadsRootDir = "/virtual";
-    sender.threadDir = "/virtual/sender";
+    const sender = createPicodeStore(stubPi, fake);
+    sender.picodeId = "sender";
+    sender.picodesRootDir = "/virtual";
+    sender.picodeDir = "/virtual/sender";
     await sender.persist();
     const senderInbox = createInbox(sender, stubPi);
 
-    const receiver = createThreadStore(stubPi, fake);
-    receiver.threadId = "receiver";
-    receiver.threadsRootDir = "/virtual";
-    receiver.threadDir = "/virtual/receiver";
+    const receiver = createPicodeStore(stubPi, fake);
+    receiver.picodeId = "receiver";
+    receiver.picodesRootDir = "/virtual";
+    receiver.picodeDir = "/virtual/receiver";
     await receiver.persist();
     const receiverInbox = createInbox(receiver, stubPi);
 
@@ -1805,26 +1805,26 @@ describe("adapter seam: core logic against a fake in-memory adapter", () => {
     assert.match(calls[0].content, /hi from fake adapter/);
   });
 
-  it("transition persists through adapter.saveState, not raw fs", async () => {
+  it("transition persists through adapter.savePicodeState, not raw fs", async () => {
     const fake = createFakeAdapter();
     const stubPi = stubPiWith([]);
-    const store = createThreadStore(stubPi, fake);
-    store.threadId = "solo";
-    store.threadDir = "/virtual/solo";
+    const store = createPicodeStore(stubPi, fake);
+    store.picodeId = "solo";
+    store.picodeDir = "/virtual/solo";
     await store.transition("open");
-    const loaded = await fake.loadState("solo");
+    const loaded = await fake.loadPicodeState("solo");
     assert.strictEqual(loaded?.state, "open");
   });
 
   it("readJournal degrades to undefined on a backend without the JournalAdapter extension", async () => {
     const fake = createFakeAdapter();
     const stubPi = stubPiWith([]);
-    const store = createThreadStore(stubPi, fake);
-    store.threadId = "solo";
+    const store = createPicodeStore(stubPi, fake);
+    store.picodeId = "solo";
     assert.strictEqual(await store.readJournal("solo"), undefined);
   });
 
-  it("thread_journal errors cleanly on a backend without the journal channel", async () => {
+  it("picode_journal errors cleanly on a backend without the journal channel", async () => {
     const fake = createFakeAdapter();
     const tools: Record<string, AnyTool> = {};
     const stubPi = {
@@ -1834,22 +1834,22 @@ describe("adapter seam: core logic against a fake in-memory adapter", () => {
       },
       registerCommand: () => {},
     } as unknown as ExtensionAPI;
-    const store = createThreadStore(stubPi, fake);
-    store.threadId = "solo";
+    const store = createPicodeStore(stubPi, fake);
+    store.picodeId = "solo";
     await store.persist();
     const inbox = createInbox(store, stubPi);
     registerTools(stubPi, store, inbox);
     const ctx = {
       ui: { setStatus: () => {}, setTitle: () => {} },
     } as unknown as ExtensionCommandContext;
-    const r = await tools["thread_journal"].execute("t", { id: "solo" }, undefined, undefined, ctx);
+    const r = await tools["picode_journal"].execute("t", { id: "solo" }, undefined, undefined, ctx);
     assert.strictEqual(r.details.ok, false);
     assert.match(r.content[0].text, /no journal channel/);
   });
 });
 
 describe("restate: buildWakeLaunch", () => {
-  it("spawns pi against the restate backend, in the thread's own cwd", () => {
+  it("spawns pi against the restate backend, in the picode's own cwd", () => {
     const l = buildWakeLaunch(
       "t1",
       "[delayed envelope due #t1/01X] — drain your inbox.",
@@ -1859,9 +1859,9 @@ describe("restate: buildWakeLaunch", () => {
     assert.strictEqual(l.cmd, "pi");
     assert.strictEqual(l.cwd, "/work/space");
     const args = l.args.join(" ");
-    assert.match(args, /--thread-id t1/);
-    assert.match(args, /--thread-storage restate/);
-    assert.match(args, /--thread-storage-url http:\/\/localhost:8080/);
+    assert.match(args, /--picode-id t1/);
+    assert.match(args, /--picode-storage restate/);
+    assert.match(args, /--picode-storage-url http:\/\/localhost:8080/);
     assert.match(args, /--print \[delayed envelope due #t1\/01X\]/);
     assert.doesNotMatch(args, /--extension/); // only when PI_THREAD_EXTENSION is set
   });
@@ -1874,13 +1874,13 @@ describe("restate: buildWakeLaunch", () => {
     });
     assert.strictEqual(l.cmd, "/opt/pi/bin/pi");
     const args = l.args.join(" ");
-    assert.match(args, /--thread-storage-url http:\/\/restate\.internal:8080/);
+    assert.match(args, /--picode-storage-url http:\/\/restate\.internal:8080/);
     assert.match(args, /--extension \/opt\/picode\/src\/index\.ts/);
   });
 });
 
-describe("bin/thread-cli.mjs: external C1 actor", () => {
-  const cli = join(import.meta.dirname, "..", "bin", "thread-cli.mjs");
+describe("bin/picode-cli.mjs: external C1 actor", () => {
+  const cli = join(import.meta.dirname, "..", "bin", "picode-cli.mjs");
   const runCli = (dir: string, ...cliArgs: string[]) =>
     execFileSync(process.execPath, [cli, ...cliArgs, "--dir", dir], { encoding: "utf8" });
 
@@ -1924,8 +1924,8 @@ describe("bin/thread-cli.mjs: external C1 actor", () => {
     assert.deepStrictEqual(parsed.inboxPending, []);
   });
 
-  it("status errors for an unknown thread", () => {
-    makeHarness(tmpDir); // materializes .thread/threads so only the id is missing
+  it("status errors for an unknown picode", () => {
+    makeHarness(tmpDir); // materializes .picode/threads so only the id is missing
     assert.throws(() => runCli(tmpDir, "status", "ghost"));
   });
 
@@ -1953,7 +1953,7 @@ describe("bin/thread-cli.mjs: external C1 actor", () => {
     assert.strictEqual(h.store.owed[0].from, "user");
   });
 
-  it("send --re settles the loop back: a human reply discharges the thread's obligation shape", async () => {
+  it("send --re settles the loop back: a human reply discharges the picode's obligation shape", async () => {
     const h = makeHarness(tmpDir);
     const send = await h.inbox.sendEnvelope("user", "please review", { expects: true });
     runCli(h.dir, "send", "t1", "looks", "good", "--from", "user", "--re", send.id);
@@ -1963,7 +1963,7 @@ describe("bin/thread-cli.mjs: external C1 actor", () => {
 });
 
 describe("core: toSummary / formatThreadLine coordination counts", () => {
-  it("thread_list lines show non-zero coordination counts only", async () => {
+  it("picode_list lines show non-zero coordination counts only", async () => {
     const h = makeHarness(tmpDir);
     seedRemoteThread(h, "alice");
     h.store.obligations.push({
@@ -1973,8 +1973,8 @@ describe("core: toSummary / formatThreadLine coordination counts", () => {
       sentAt: new Date().toISOString(),
     });
     await h.store.persist();
-    const r = await callTool(h, "thread_list");
-    const own = (r.details.threads as ThreadSummary[]).find(t => t.id === "t1")!;
+    const r = await callTool(h, "picode_list");
+    const own = (r.details.threads as PicodeSummary[]).find(t => t.id === "t1")!;
     assert.strictEqual(own.obligations, 1);
     assert.strictEqual(own.owed, 0);
     const text = r.content[0].text;
@@ -1988,10 +1988,10 @@ describe("state: restore rules (§11.2)", () => {
   it("done/stopped restore to idle; unknown legacy states settle to open", async () => {
     const adapter = createLocalFsAdapter();
     await adapter.configure(tmpDir);
-    await adapter.saveState("a", baseState("a", { state: "done", status: "stopped" }));
+    await adapter.savePicodeState("a", baseState("a", { state: "done", status: "stopped" }));
     // A state.json from a pre-Rev-8 file may carry a state this revision
     // no longer knows (e.g. "listening") — it must settle to open.
-    await adapter.saveState("b", {
+    await adapter.savePicodeState("b", {
       ...baseState("b"),
       state: "listening" as unknown as StateFile["state"],
       status: "stopped",
@@ -2001,7 +2001,7 @@ describe("state: restore rules (§11.2)", () => {
       sendUserMessage: () => {},
       registerTool: () => {},
       registerCommand: () => {},
-      getFlag: (name: string) => (name === "thread-id" ? "a" : undefined),
+      getFlag: (name: string) => (name === "picode-id" ? "a" : undefined),
       appendEntry: () => {},
     } as unknown as ExtensionAPI;
     const mkCtx = () =>
@@ -2011,15 +2011,15 @@ describe("state: restore rules (§11.2)", () => {
         sessionManager: { getEntries: () => [], getSessionFile: () => undefined },
       }) as unknown as ExtensionContext;
 
-    const storeA = createThreadStore(stubPi);
+    const storeA = createPicodeStore(stubPi);
     await storeA.init(tmpDir, mkCtx());
     assert.strictEqual(storeA.state, "idle");
 
     const stubPiB = {
       ...stubPi,
-      getFlag: (name: string) => (name === "thread-id" ? "b" : undefined),
+      getFlag: (name: string) => (name === "picode-id" ? "b" : undefined),
     } as unknown as ExtensionAPI;
-    const storeB = createThreadStore(stubPiB);
+    const storeB = createPicodeStore(stubPiB);
     await storeB.init(tmpDir, mkCtx());
     assert.strictEqual(storeB.state, "open");
   });
@@ -2027,7 +2027,7 @@ describe("state: restore rules (§11.2)", () => {
   it("debts and barriers survive a restart unconditionally (§13.2)", async () => {
     const adapter = createLocalFsAdapter();
     await adapter.configure(tmpDir);
-    await adapter.saveState(
+    await adapter.savePicodeState(
       "a",
       baseState("a", {
         state: "open",
@@ -2043,10 +2043,10 @@ describe("state: restore rules (§11.2)", () => {
       sendUserMessage: () => {},
       registerTool: () => {},
       registerCommand: () => {},
-      getFlag: (name: string) => (name === "thread-id" ? "a" : undefined),
+      getFlag: (name: string) => (name === "picode-id" ? "a" : undefined),
       appendEntry: () => {},
     } as unknown as ExtensionAPI;
-    const store = createThreadStore(stubPi);
+    const store = createPicodeStore(stubPi);
     await store.init(tmpDir, {
       cwd: tmpDir,
       ui: { setStatus: () => {}, setTitle: () => {} },
@@ -2065,8 +2065,8 @@ describe("state: init() enforcement", () => {
       registerTool: () => {},
       registerCommand: () => {},
       getFlag: (name: string) => {
-        if (name === "thread-id" && id) return id;
-        if (name === "thread-role" && role) return role;
+        if (name === "picode-id" && id) return id;
+        if (name === "picode-role" && role) return role;
         return undefined;
       },
       appendEntry: () => {},
@@ -2081,44 +2081,44 @@ describe("state: init() enforcement", () => {
     } as unknown as ExtensionContext;
   }
 
-  it("role defaults to 'worker' when no --thread-role flag is given", async () => {
+  it("role defaults to 'worker' when no --picode-role flag is given", async () => {
     const adapter = createLocalFsAdapter();
     await adapter.configure(tmpDir);
-    const store = createThreadStore(mkPi("new-thread"), adapter);
+    const store = createPicodeStore(mkPi("new-picode"), adapter);
     await store.init(tmpDir, mkCtx(tmpDir));
     assert.strictEqual(store.role, "worker");
   });
 
-  it("duplicate thread ID: init() throws when another running thread has the same ID", async () => {
+  it("duplicate picode ID: init() throws when another running picode has the same ID", async () => {
     const adapter = createLocalFsAdapter();
     await adapter.configure(tmpDir);
-    await adapter.saveState(
+    await adapter.savePicodeState(
       "dup",
       baseState("dup", { status: "running", lastSeen: new Date().toISOString() }),
     );
-    const store = createThreadStore(mkPi("dup"), adapter);
+    const store = createPicodeStore(mkPi("dup"), adapter);
     await assert.rejects(() => store.init(tmpDir, mkCtx(tmpDir)), /already exists and is running/);
   });
 
-  it("duplicate thread ID: init() succeeds when existing same-ID thread is stale/stopped", async () => {
+  it("duplicate picode ID: init() succeeds when existing same-ID picode is stale/stopped", async () => {
     const adapter = createLocalFsAdapter();
     await adapter.configure(tmpDir);
-    await adapter.saveState(
+    await adapter.savePicodeState(
       "old",
       baseState("old", {
         status: "stopped",
         lastSeen: new Date(Date.now() - STALE_MS - 1000).toISOString(),
       }),
     );
-    const store = createThreadStore(mkPi("old"), adapter);
+    const store = createPicodeStore(mkPi("old"), adapter);
     await store.init(tmpDir, mkCtx(tmpDir));
-    assert.strictEqual(store.threadId, "old");
+    assert.strictEqual(store.picodeId, "old");
   });
 
   it("singleton coordinator: init() throws when a running coordinator exists", async () => {
     const adapter = createLocalFsAdapter();
     await adapter.configure(tmpDir);
-    await adapter.saveState(
+    await adapter.savePicodeState(
       "coord1",
       baseState("coord1", {
         role: "coordinator",
@@ -2126,7 +2126,7 @@ describe("state: init() enforcement", () => {
         lastSeen: new Date().toISOString(),
       }),
     );
-    const store = createThreadStore(mkPi("coord2", "coordinator"), adapter);
+    const store = createPicodeStore(mkPi("coord2", "coordinator"), adapter);
     await assert.rejects(
       () => store.init(tmpDir, mkCtx(tmpDir)),
       /Coordinator "coord1" already exists/,
@@ -2136,7 +2136,7 @@ describe("state: init() enforcement", () => {
   it("singleton coordinator: init() succeeds when existing coordinator is stale/stopped", async () => {
     const adapter = createLocalFsAdapter();
     await adapter.configure(tmpDir);
-    await adapter.saveState(
+    await adapter.savePicodeState(
       "coord1",
       baseState("coord1", {
         role: "coordinator",
@@ -2144,7 +2144,7 @@ describe("state: init() enforcement", () => {
         lastSeen: new Date(Date.now() - STALE_MS - 1000).toISOString(),
       }),
     );
-    const store = createThreadStore(mkPi("coord2", "coordinator"), adapter);
+    const store = createPicodeStore(mkPi("coord2", "coordinator"), adapter);
     await store.init(tmpDir, mkCtx(tmpDir));
     assert.strictEqual(store.role, "coordinator");
   });
@@ -2152,17 +2152,17 @@ describe("state: init() enforcement", () => {
   it("singleton coordinator: init() succeeds when no other coordinator exists", async () => {
     const adapter = createLocalFsAdapter();
     await adapter.configure(tmpDir);
-    const store = createThreadStore(mkPi("coord1", "coordinator"), adapter);
+    const store = createPicodeStore(mkPi("coord1", "coordinator"), adapter);
     await store.init(tmpDir, mkCtx(tmpDir));
     assert.strictEqual(store.role, "coordinator");
-    assert.strictEqual(store.threadId, "coord1");
+    assert.strictEqual(store.picodeId, "coord1");
   });
 
   it("shutdown preserves done/on-hold; interrupted states become stopped", async () => {
     // done survives shutdown
     const a1 = createLocalFsAdapter();
     await a1.configure(tmpDir);
-    const s1 = createThreadStore(mkPi("done-thread"), a1);
+    const s1 = createPicodeStore(mkPi("done-picode"), a1);
     await s1.init(tmpDir, mkCtx(tmpDir));
     s1.state = "done";
     await s1.persist();
@@ -2172,10 +2172,10 @@ describe("state: init() enforcement", () => {
 
     // on-hold survives shutdown
     const a2 = createLocalFsAdapter();
-    const dir2 = mkdtempSync(join(tmpdir(), "pi-thread-unit-"));
+    const dir2 = mkdtempSync(join(tmpdir(), "pi-picode-unit-"));
     try {
       await a2.configure(dir2);
-      const s2 = createThreadStore(mkPi("held-thread"), a2);
+      const s2 = createPicodeStore(mkPi("held-picode"), a2);
       await s2.init(dir2, mkCtx(dir2));
       s2.state = "on-hold";
       await s2.persist();
@@ -2188,10 +2188,10 @@ describe("state: init() enforcement", () => {
 
     // open (interrupted) → stopped
     const a3 = createLocalFsAdapter();
-    const dir3 = mkdtempSync(join(tmpdir(), "pi-thread-unit-"));
+    const dir3 = mkdtempSync(join(tmpdir(), "pi-picode-unit-"));
     try {
       await a3.configure(dir3);
-      const s3 = createThreadStore(mkPi("open-thread"), a3);
+      const s3 = createPicodeStore(mkPi("open-picode"), a3);
       await s3.init(dir3, mkCtx(dir3));
       s3.state = "open";
       await s3.persist();
@@ -2206,7 +2206,7 @@ describe("state: init() enforcement", () => {
   it("init() restores obligations, owed, and barriers from previous state file", async () => {
     const adapter = createLocalFsAdapter();
     await adapter.configure(tmpDir);
-    await adapter.saveState(
+    await adapter.savePicodeState(
       "t1",
       baseState("t1", {
         status: "stopped",
@@ -2221,7 +2221,7 @@ describe("state: init() enforcement", () => {
         ],
       }),
     );
-    const store = createThreadStore(mkPi("t1"), adapter);
+    const store = createPicodeStore(mkPi("t1"), adapter);
     await store.init(tmpDir, mkCtx(tmpDir));
     assert.strictEqual(store.obligations.length, 1);
     assert.strictEqual(store.owed.length, 1);
@@ -2269,8 +2269,8 @@ describe("state: watcher idempotency", () => {
       registerTool: () => {},
       registerCommand: () => {},
     } as unknown as ExtensionAPI;
-    const store = createThreadStore(stubPi, counting);
-    store.threadId = "w1";
+    const store = createPicodeStore(stubPi, counting);
+    store.picodeId = "w1";
     const ctx = { ui: { setStatus: () => {}, setTitle: () => {} } } as unknown as ExtensionContext;
     store.startWatcher(() => {}, ctx);
     store.startWatcher(() => {}, ctx); // e.g. a second session_start
@@ -2345,23 +2345,23 @@ describe("journal: compaction (auto at 500 entries)", () => {
 });
 
 describe("local-fs: journal lock and setJournal", () => {
-  it("acquireJournalLock succeeds on a free thread dir", async () => {
+  it("acquireJournalLock succeeds on a free picode dir", async () => {
     const adapter = createLocalFsAdapter();
     await adapter.configure(tmpDir);
-    mkdirSync(join(tmpDir, ".thread", "threads", "lock1"), { recursive: true });
+    mkdirSync(join(tmpDir, ".picode", "picodes", "lock1"), { recursive: true });
     await adapter.acquireJournalLock!("lock1");
-    assert.ok(existsSync(join(tmpDir, ".thread", "threads", "lock1", "journal.lock")));
+    assert.ok(existsSync(join(tmpDir, ".picode", "picodes", "lock1", "journal.lock")));
     await adapter.releaseJournalLock!("lock1");
-    assert.ok(!existsSync(join(tmpDir, ".thread", "threads", "lock1", "journal.lock")));
+    assert.ok(!existsSync(join(tmpDir, ".picode", "picodes", "lock1", "journal.lock")));
   });
 
   it("acquireJournalLock throws after exhausting retries on a stuck (fresh) lock", async () => {
     const adapter = createLocalFsAdapter();
     await adapter.configure(tmpDir);
-    mkdirSync(join(tmpDir, ".thread", "threads", "lock2"), { recursive: true });
+    mkdirSync(join(tmpDir, ".picode", "picodes", "lock2"), { recursive: true });
     // Place a fresh lock — well under the 10s stale cutoff — that this
     // process can't see (simulated by writing the file with a future mtime).
-    const lockPath = join(tmpDir, ".thread", "threads", "lock2", "journal.lock");
+    const lockPath = join(tmpDir, ".picode", "picodes", "lock2", "journal.lock");
     writeFileSync(lockPath, "");
     const future = new Date(Date.now() + 60_000);
     utimesSync(lockPath, future, future);
@@ -2371,8 +2371,8 @@ describe("local-fs: journal lock and setJournal", () => {
   it("acquireJournalLock unlinks a stale (old) lock and acquires", async () => {
     const adapter = createLocalFsAdapter();
     await adapter.configure(tmpDir);
-    mkdirSync(join(tmpDir, ".thread", "threads", "lock3"), { recursive: true });
-    const lockPath = join(tmpDir, ".thread", "threads", "lock3", "journal.lock");
+    mkdirSync(join(tmpDir, ".picode", "picodes", "lock3"), { recursive: true });
+    const lockPath = join(tmpDir, ".picode", "picodes", "lock3", "journal.lock");
     writeFileSync(lockPath, "");
     const past = new Date(Date.now() - 30_000);
     utimesSync(lockPath, past, past);
@@ -2395,16 +2395,16 @@ describe("local-fs: journal lock and setJournal", () => {
     const adapter = createLocalFsAdapter();
     await adapter.configure(tmpDir);
     await adapter.appendJournal!("lock4", "\n<!-- ts -->\nx\n");
-    assert.ok(!existsSync(join(tmpDir, ".thread", "threads", "lock4", "journal.lock")));
+    assert.ok(!existsSync(join(tmpDir, ".picode", "picodes", "lock4", "journal.lock")));
   });
 });
 
-describe("commands: /thread-journal", () => {
+describe("commands: /picode-journal", () => {
   it("no args shows the last 12 entries", async () => {
     const h = makeHarness(tmpDir);
     const entries = Array.from({ length: 20 }, (_, i) => journalEntry(nowStamp(), `task ${i}`));
     writeJournal(h, "t1", entries.join(""));
-    await callCommand(h, "/thread-journal");
+    await callCommand(h, "/picode-journal");
     const text = h.notifications.at(-1)!.text;
     // Last entry must be visible, first must not.
     assert.match(text, /Working on: task 19/);
@@ -2414,7 +2414,7 @@ describe("commands: /thread-journal", () => {
   it("status reports entry count, size, oldest and newest timestamps", async () => {
     const h = makeHarness(tmpDir);
     writeJournal(h, "t1", journalEntry(nowStamp(), "first") + journalEntry(nowStamp(), "last"));
-    await callCommand(h, "/thread-journal", "status");
+    await callCommand(h, "/picode-journal", "status");
     const text = h.notifications.at(-1)!.text;
     assert.match(text, /2 entries/);
     assert.match(text, /bytes/);
@@ -2426,7 +2426,7 @@ describe("commands: /thread-journal", () => {
     const h = makeHarness(tmpDir);
     const entries = Array.from({ length: 5 }, (_, i) => journalEntry(nowStamp(), `t${i}`));
     writeJournal(h, "t1", entries.join(""));
-    await callCommand(h, "/thread-journal", "tail 2");
+    await callCommand(h, "/picode-journal", "tail 2");
     const text = h.notifications.at(-1)!.text;
     assert.match(text, /Working on: t4/);
     assert.doesNotMatch(text, /Working on: t0/);
@@ -2436,7 +2436,7 @@ describe("commands: /thread-journal", () => {
     const h = makeHarness(tmpDir);
     const entries = Array.from({ length: 10 }, (_, i) => journalEntry(nowStamp(), `task ${i}`));
     writeJournal(h, "t1", entries.join(""));
-    await callCommand(h, "/thread-journal", "trim 3");
+    await callCommand(h, "/picode-journal", "trim 3");
     const content = await h.store.adapter.readJournal!("t1");
     assert.match(h.notifications.at(-1)!.text, /Trimmed: 10 → 3/);
     // Most recent 3 must survive.
@@ -2448,15 +2448,15 @@ describe("commands: /thread-journal", () => {
   it("clear deletes the journal", async () => {
     const h = makeHarness(tmpDir);
     writeJournal(h, "t1", journalEntry(nowStamp(), "stuff"));
-    assert.ok(existsSync(join(h.store.threadDir, "journal.md")));
-    await callCommand(h, "/thread-journal", "clear");
-    assert.ok(!existsSync(join(h.store.threadDir, "journal.md")));
+    assert.ok(existsSync(join(h.store.picodeDir, "journal.md")));
+    await callCommand(h, "/picode-journal", "clear");
+    assert.ok(!existsSync(join(h.store.picodeDir, "journal.md")));
   });
 
-  it("refuses to run when the thread never activated (opt-in gate)", async () => {
+  it("refuses to run when the picode never activated (opt-in gate)", async () => {
     const h = makeHarness(tmpDir);
-    h.store.threadId = "";
-    await callCommand(h, "/thread-journal", "status");
+    h.store.picodeId = "";
+    await callCommand(h, "/picode-journal", "status");
     assert.match(h.notifications[0].text, /hasn't opted into picode/);
   });
 });
@@ -2495,7 +2495,7 @@ describe("lifecycle: extractFirstLine (current-task widget)", () => {
     assert.equal(extractFirstLine(""), "");
   });
 
-  it("handles a realistic thread_send task body", () => {
+  it("handles a realistic picode_send task body", () => {
     const body =
       "**Objective:** Add a current-task widget.\n\n## Context\nUser wants workers to see their task.\n\n## Steps\n1. Implement\n2. Test";
     assert.equal(extractFirstLine(body), "Objective: Add a current-task widget.");
@@ -2544,7 +2544,7 @@ describe("core/time: deadlineFromSeconds", () => {
   });
 });
 
-describe("system-prompt: thread_send contract is in every worker template", () => {
+describe("system-prompt: picode_send contract is in every worker template", () => {
   // Regression guard: the contract must live in the shared worker base
   // block so it reaches builder, reviewer, explorer, tester, designer,
   // bug-hunter, scout via the single WORKER_BASE_RULES + SUBTYPE_PROMPTS
@@ -2560,7 +2560,7 @@ describe("system-prompt: thread_send contract is in every worker template", () =
     new URL("../src/prompts/coordinator.md", import.meta.url),
     "utf-8",
   );
-  it("WORKER_BASE_RULES mentions the communication contract and 'thread_send' reply path", () => {
+  it("WORKER_BASE_RULES mentions the communication contract and 'picode_send' reply path", () => {
     assert.ok(
       workerBase.includes("Communication contract"),
       "missing 'Communication contract' header",
@@ -2570,8 +2570,8 @@ describe("system-prompt: thread_send contract is in every worker template", () =
       "missing plain-text-only warning",
     );
     assert.ok(
-      workerBase.includes("Use `thread_send` for everything"),
-      "missing 'Use thread_send for everything' bullet",
+      workerBase.includes("Use `picode_send` for everything"),
+      "missing 'Use picode_send for everything' bullet",
     );
   });
   it("COORDINATOR_RULES has the silent-recovery rule", () => {
@@ -2583,7 +2583,7 @@ describe("system-prompt: thread_send contract is in every worker template", () =
   });
 });
 
-describe("tools/messaging: checkBodySize (thread_send body-size guard)", () => {
+describe("tools/messaging: checkBodySize (picode_send body-size guard)", () => {
   it("body just under the limit is accepted", () => {
     const body = "x".repeat(MAX_BODY_BYTES - 1);
     assert.equal(checkBodySize(body), null);

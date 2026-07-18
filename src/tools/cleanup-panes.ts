@@ -31,7 +31,7 @@ export function registerCleanupPanesTool(pi: ExtensionAPI) {
     name: "cleanup_panes",
     label: "Cleanup Panes",
     description:
-      "Close stale herdr worker panes spawned by the coordinator. Removes panes with role labels (builder, explorer, reviewer, tester, worker, scout, bug-hunter, designer) that are not working or idle. Use when the thread list is cluttered with dead workers.",
+      "Close stale herdr worker panes spawned by the coordinator. Removes panes with role labels (builder, explorer, reviewer, tester, worker, scout, bug-hunter, designer) that are not working or idle. Use when the picode list is cluttered with dead workers.",
     parameters: Type.Object({
       dry_run: Type.Optional(
         Type.Boolean({

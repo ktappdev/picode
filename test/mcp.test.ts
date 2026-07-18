@@ -44,9 +44,9 @@ class McpClient {
   private waiters = new Map<number, (r: RpcResponse) => void>();
   private nextId = 1;
 
-  constructor(dir: string, threadId: string, extraEnv: Record<string, string> = {}) {
+  constructor(dir: string, picodeId: string, extraEnv: Record<string, string> = {}) {
     this.child = spawn("node", [SERVER], {
-      env: { ...process.env, POSTBOX_THREAD_ID: threadId, POSTBOX_DIR: dir, ...extraEnv },
+      env: { ...process.env, POSTBOX_THREAD_ID: picodeId, POSTBOX_DIR: dir, ...extraEnv },
       stdio: ["pipe", "pipe", "pipe"],
     });
     this.child.stdout.setEncoding("utf8");
@@ -130,19 +130,19 @@ async function connect(
 }
 
 function readState(dir: string, id: string): StateFile | null {
-  const f = join(dir, ".thread", "threads", id, "state.json");
+  const f = join(dir, ".picode", "threads", id, "state.json");
   return existsSync(f) ? (JSON.parse(readFileSync(f, "utf8")) as StateFile) : null;
 }
 
 function inboxFiles(dir: string, id: string, sub: "" | "processed" = ""): string[] {
-  const d = join(dir, ".thread", "threads", id, "inbox", sub);
+  const d = join(dir, ".picode", "threads", id, "inbox", sub);
   return existsSync(d) ? readdirSync(d).filter(f => f.endsWith(".json")) : [];
 }
 
-/** Write an envelope straight into a mailbox the way bin/thread-cli.mjs would —
+/** Write an envelope straight into a mailbox the way bin/picode-cli.mjs would —
  *  inbox.tmp staging + rename — with no MCP server involved on the send side. */
 function enqueueRaw(dir: string, to: string, msg: Envelope): void {
-  const base = join(dir, ".thread", "threads", to);
+  const base = join(dir, ".picode", "threads", to);
   mkdirSync(join(base, "inbox"), { recursive: true });
   mkdirSync(join(base, "inbox.tmp"), { recursive: true });
   const tail = msg.id.includes("/") ? msg.id.slice(msg.id.lastIndexOf("/") + 1) : msg.id;
@@ -188,12 +188,12 @@ describe("unit: postbox-mcp server", () => {
     const listed = await c.request("tools/list");
     const tools = (listed.result as { tools: { name: string }[] }).tools.map(t => t.name).sort();
     assert.deepEqual(tools, [
-      "thread_inbox",
-      "thread_journal",
-      "thread_list",
-      "thread_send",
-      "thread_status",
-      "thread_wait",
+      "picode_inbox",
+      "picode_journal",
+      "picode_list",
+      "picode_send",
+      "picode_status",
+      "picode_wait",
     ]);
   });
 
@@ -203,23 +203,23 @@ describe("unit: postbox-mcp server", () => {
     assert.equal(r.error?.code, -32601);
   });
 
-  it("thread_send writes a conforming envelope and records an obligation with a default deadline", async () => {
+  it("picode_send writes a conforming envelope and records an obligation with a default deadline", async () => {
     const c = await spawnClient("a");
     // Give the target a home so the file lands somewhere a drain would find it.
     await spawnClient("b");
 
     const before = Date.now();
-    const res = await c.call("thread_send", { to: "b", body: "need an ETA", expects: true });
+    const res = await c.call("picode_send", { to: "b", body: "need an ETA", expects: true });
     assert.ok(!res.isError, res.text);
 
     const files = inboxFiles(dir, "b");
     assert.equal(files.length, 1, "exactly one envelope written to b's inbox");
     // Staging dir must be left empty after the rename (Appendix B enqueue).
     assert.equal(inboxFiles(dir, "b").length + inboxFiles(dir, "b", "processed").length, 1);
-    assert.equal(readdirSync(join(dir, ".thread", "threads", "b", "inbox.tmp")).length, 0);
+    assert.equal(readdirSync(join(dir, ".picode", "threads", "b", "inbox.tmp")).length, 0);
 
     const env = JSON.parse(
-      readFileSync(join(dir, ".thread", "threads", "b", "inbox", files[0]), "utf8"),
+      readFileSync(join(dir, ".picode", "threads", "b", "inbox", files[0]), "utf8"),
     ) as Envelope;
     assert.ok(env.id.startsWith("a/"), `id is <from>/<ulid>, got ${env.id}`);
     assert.equal(env.from, "a");
@@ -253,10 +253,10 @@ describe("unit: postbox-mcp server", () => {
       expects: true,
     });
 
-    const res = await c.call("thread_inbox");
+    const res = await c.call("picode_inbox");
     assert.ok(res.text.includes(id), "rendered text carries the id to echo back");
     assert.ok(res.text.includes("please review the plan"));
-    assert.match(res.text, /reply with thread_send re=/);
+    assert.match(res.text, /reply with picode_send re=/);
 
     // Claimed file moved into processed/, inbox drained.
     assert.equal(inboxFiles(dir, "a").length, 0);
@@ -270,11 +270,11 @@ describe("unit: postbox-mcp server", () => {
 
   it("empty inbox renders (no messages)", async () => {
     const c = await spawnClient("a");
-    const res = await c.call("thread_inbox");
+    const res = await c.call("picode_inbox");
     assert.equal(res.text, "(no messages)");
   });
 
-  it("thread_send re settles the owed record only for the right target and warns otherwise", async () => {
+  it("picode_send re settles the owed record only for the right target and warns otherwise", async () => {
     const c = await spawnClient("a");
     await spawnClient("b");
     await spawnClient("wrong");
@@ -288,30 +288,30 @@ describe("unit: postbox-mcp server", () => {
       sentAt: new Date().toISOString(),
       expects: true,
     });
-    await c.call("thread_inbox");
+    await c.call("picode_inbox");
     assert.equal(readState(dir, "a")!.owed.length, 1);
 
     // Wrong target: debt is owed to b, reply addressed to wrong → left, warned.
-    const misdirected = await c.call("thread_send", { to: "wrong", body: "done", re: id });
+    const misdirected = await c.call("picode_send", { to: "wrong", body: "done", re: id });
     assert.match(misdirected.text, /warning/i);
     assert.equal(readState(dir, "a")!.owed.length, 1, "misdirected reply must not discharge");
 
     // Right target: debt cleared.
-    const ok = await c.call("thread_send", { to: "b", body: "done", re: id });
+    const ok = await c.call("picode_send", { to: "b", body: "done", re: id });
     assert.doesNotMatch(ok.text, /warning/i);
     assert.equal(readState(dir, "a")!.owed.length, 0, "correct reply discharges the debt");
   });
 
-  it("draining a reply clears the obligation only when it comes from the right thread", async () => {
+  it("draining a reply clears the obligation only when it comes from the right picode", async () => {
     const c = await spawnClient("a");
     await spawnClient("b");
-    const sent = await c.call("thread_send", { to: "b", body: "do it", expects: true });
+    const sent = await c.call("picode_send", { to: "b", body: "do it", expects: true });
     const idMatch = /id=(\S+)/.exec(sent.text);
     assert.ok(idMatch, `sent text carries the envelope id: ${sent.text}`);
     const id = idMatch![1];
     assert.equal(readState(dir, "a")!.obligations.length, 1);
 
-    // A reply from an unrelated thread echoing the same re must not discharge.
+    // A reply from an unrelated picode echoing the same re must not discharge.
     enqueueRaw(dir, "a", {
       id: "c/01ABCDEFGHIMPOSTOR000000001",
       from: "c",
@@ -320,11 +320,11 @@ describe("unit: postbox-mcp server", () => {
       sentAt: new Date().toISOString(),
       re: id,
     });
-    await c.call("thread_inbox");
+    await c.call("picode_inbox");
     assert.equal(
       readState(dir, "a")!.obligations.length,
       1,
-      "reply from the wrong thread must not clear the obligation",
+      "reply from the wrong picode must not clear the obligation",
     );
 
     // The real reply from b discharges it.
@@ -336,7 +336,7 @@ describe("unit: postbox-mcp server", () => {
       sentAt: new Date().toISOString(),
       re: id,
     });
-    await c.call("thread_inbox");
+    await c.call("picode_inbox");
     assert.equal(readState(dir, "a")!.obligations.length, 0, "real reply discharges");
   });
 
@@ -350,7 +350,7 @@ describe("unit: postbox-mcp server", () => {
       sentAt: new Date(Date.now() - 60_000).toISOString(),
       expiresAt: new Date(Date.now() - 1000).toISOString(),
     });
-    const res = await c.call("thread_inbox");
+    const res = await c.call("picode_inbox");
     assert.equal(res.text, "(no messages)", "expired mail must not render");
     assert.equal(inboxFiles(dir, "a").length, 0, "claimed out of the inbox");
     assert.equal(inboxFiles(dir, "a", "processed").length, 1, "retained as audit");
@@ -368,14 +368,14 @@ describe("unit: postbox-mcp server", () => {
       deliverAfter: new Date(now + 3600_000).toISOString(),
     };
     enqueueRaw(dir, "a", future);
-    const held = await c.call("thread_inbox");
+    const held = await c.call("picode_inbox");
     assert.equal(held.text, "(no messages)", "future deliverAfter stays queued");
     assert.equal(inboxFiles(dir, "a").length, 1, "held envelope left in place");
 
     // Same id, now in the past → drains.
     const past: Envelope = { ...future, deliverAfter: new Date(now - 1000).toISOString() };
     enqueueRaw(dir, "a", past);
-    const drained = await c.call("thread_inbox");
+    const drained = await c.call("picode_inbox");
     assert.ok(drained.text.includes("later"));
     assert.equal(inboxFiles(dir, "a").length, 0);
   });
@@ -397,21 +397,21 @@ describe("unit: postbox-mcp server", () => {
   it("obligations/owed survive a restart (durable ledger)", async () => {
     const c1 = await spawnClient("a");
     await spawnClient("b");
-    await c1.call("thread_send", { to: "b", body: "q", expects: true });
+    await c1.call("picode_send", { to: "b", body: "q", expects: true });
     assert.equal(readState(dir, "a")!.obligations.length, 1);
     c1.signal("SIGTERM");
     await c1.waitExit();
 
     const c2 = await spawnClient("a");
-    const status = await c2.call("thread_status");
+    const status = await c2.call("picode_status");
     assert.match(status.text, /request to b/, "obligation restored from state.json on restart");
     assert.equal(readState(dir, "a")!.obligations.length, 1);
   });
 
-  it("thread_list applies the liveness rule to a stale peer", async () => {
+  it("picode_list applies the liveness rule to a stale peer", async () => {
     const c = await spawnClient("a");
     // A peer whose lastSeen is old must read as stopped regardless of status.
-    const staleDir = join(dir, ".thread", "threads", "ghost");
+    const staleDir = join(dir, ".picode", "threads", "ghost");
     mkdirSync(staleDir, { recursive: true });
     const old = new Date(Date.now() - 120_000).toISOString();
     writeFileSync(
@@ -428,34 +428,34 @@ describe("unit: postbox-mcp server", () => {
         barriers: [],
       }),
     );
-    const res = await c.call("thread_list");
+    const res = await c.call("picode_list");
     assert.match(res.text, /ghost.*status=stopped/, "stale lastSeen overrides stored running");
   });
 
-  it("thread_journal returns content, a no-journal marker, and an unknown-thread error", async () => {
+  it("picode_journal returns content, a no-journal marker, and an unknown-picode error", async () => {
     const c = await spawnClient("a");
-    const none = await c.call("thread_journal", { id: "a" });
+    const none = await c.call("picode_journal", { id: "a" });
     assert.equal(none.text, "(no journal)");
 
-    writeFileSync(join(dir, ".thread", "threads", "a", "journal.md"), "<!-- e --> hello\n");
-    const some = await c.call("thread_journal", { id: "a" });
+    writeFileSync(join(dir, ".picode", "threads", "a", "journal.md"), "<!-- e --> hello\n");
+    const some = await c.call("picode_journal", { id: "a" });
     assert.match(some.text, /hello/);
 
-    const missing = await c.call("thread_journal", { id: "nope" });
+    const missing = await c.call("picode_journal", { id: "nope" });
     assert.ok(missing.isError);
-    assert.match(missing.text, /unknown thread/);
+    assert.match(missing.text, /unknown picode/);
   });
 
-  it("thread_wait times out with a clear message when nothing is due", async () => {
+  it("picode_wait times out with a clear message when nothing is due", async () => {
     const c = await spawnClient("a");
-    const res = await c.call("thread_wait", { timeoutSeconds: 1 });
+    const res = await c.call("picode_wait", { timeoutSeconds: 1 });
     assert.equal(res.text, "(no messages after 1s)");
   });
 
-  it("thread_wait drains a message that arrives mid-wait", async () => {
+  it("picode_wait drains a message that arrives mid-wait", async () => {
     const c = await spawnClient("a");
     const id = "b/01ABCDEFGHWAIT000000000001";
-    const waiting = c.call("thread_wait", { timeoutSeconds: 10 });
+    const waiting = c.call("picode_wait", { timeoutSeconds: 10 });
     // Drop a message in after the wait has started polling.
     setTimeout(() => {
       enqueueRaw(dir, "a", {
@@ -486,7 +486,7 @@ describe("unit: postbox-mcp server", () => {
       };
       await adapter.enqueueMessage(env);
 
-      const res = await c.call("thread_inbox");
+      const res = await c.call("picode_inbox");
       assert.ok(res.text.includes("from the adapter"));
       assert.ok(res.text.includes(env.id));
       assert.equal(readState(dir, "a")!.owed[0].id, env.id);
@@ -495,7 +495,7 @@ describe("unit: postbox-mcp server", () => {
     it("an MCP-sent envelope is returned by adapter.drainInbox", async () => {
       const c = await spawnClient("a");
       await spawnClient("b");
-      const sent = await c.call("thread_send", { to: "b", body: "from the server", expects: true });
+      const sent = await c.call("picode_send", { to: "b", body: "from the server", expects: true });
       assert.ok(!sent.isError, sent.text);
 
       const adapter = createLocalFsAdapter();

@@ -1,30 +1,30 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import type { ThreadStore } from "../core/types";
+import type { PicodeStore } from "../core/types";
 import { barrierLines, formatThreadLine, obligationLines, owedLines } from "../core/format";
 import { splitJournalEntries } from "../journal";
 import { err } from "./shared";
 
-/** Read-only tools: this thread's status, the workspace roster, journals. */
-export function registerIntrospectionTools(pi: ExtensionAPI, store: ThreadStore) {
+/** Read-only tools: this picode's status, the workspace roster, journals. */
+export function registerIntrospectionTools(pi: ExtensionAPI, store: PicodeStore) {
   pi.registerTool({
-    name: "thread_status",
-    label: "Thread Status",
+    name: "picode_status",
+    label: "Picode Status",
     description:
-      "Read this thread's own state and journal. Use this to understand what you were doing before a compaction, and to recover the envelope ids you owe replies to.",
+      "Read this picode's own state and journal. Use this to understand what you were doing before a compaction, and to recover the envelope ids you owe replies to.",
     parameters: Type.Object({}),
     async execute() {
       const journal =
-        (await store.readJournal(store.threadId)) ?? "(no journal yet — this is the first turn)";
+        (await store.readJournal(store.picodeId)) ?? "(no journal yet — this is the first turn)";
       return {
         content: [
           {
             type: "text" as const,
-            text: `Id: ${store.threadId}\nRole: ${store.role ?? "-"}\nState: ${store.state}${store.holdReason ? ` (${store.holdReason})` : ""}\nStatus: ${store.status}\nBarriers:${barrierLines(store.barriers)}\nObligations:${obligationLines(store.obligations)}\nOwed replies:${owedLines(store.owed)}\n\n${journal}`,
+            text: `Id: ${store.picodeId}\nRole: ${store.role ?? "-"}\nState: ${store.state}${store.holdReason ? ` (${store.holdReason})` : ""}\nStatus: ${store.status}\nBarriers:${barrierLines(store.barriers)}\nObligations:${obligationLines(store.obligations)}\nOwed replies:${owedLines(store.owed)}\n\n${journal}`,
           },
         ],
         details: {
-          id: store.threadId,
+          id: store.picodeId,
           role: store.role,
           state: store.state,
           status: store.status,
@@ -38,13 +38,13 @@ export function registerIntrospectionTools(pi: ExtensionAPI, store: ThreadStore)
   });
 
   pi.registerTool({
-    name: "thread_list",
-    label: "Thread List",
+    name: "picode_list",
+    label: "Picode List",
     description:
-      "List all known threads sharing this workspace and their last known state. Use this to find a valid `to` id before calling thread_send.",
+      "List all known threads sharing this workspace and their last known state. Use this to find a valid `to` id before calling picode_send.",
     parameters: Type.Object({}),
     async execute() {
-      const threads = await store.listThreads();
+      const threads = await store.listPcodes();
       const lines = threads.map(formatThreadLine);
       return {
         content: [
@@ -59,13 +59,13 @@ export function registerIntrospectionTools(pi: ExtensionAPI, store: ThreadStore)
   });
 
   pi.registerTool({
-    name: "thread_journal",
-    label: "Thread Journal",
+    name: "picode_journal",
+    label: "Picode Journal",
     description:
-      "Read another thread's journal (or your own) without messaging it — the self-written status trail visible via thread_status, but for anyone. Use to check what a teammate has been doing before deciding whether to interrupt them.",
+      "Read another picode's journal (or your own) without messaging it — the self-written status trail visible via picode_status, but for anyone. Use to check what a teammate has been doing before deciding whether to interrupt them.",
     parameters: Type.Object({
       id: Type.String({
-        description: "Thread id to read (see thread_list). Use your own id for your own journal.",
+        description: "Picode id to read (see picode_list). Use your own id for your own journal.",
       }),
       tail: Type.Optional(
         Type.Number({
@@ -85,7 +85,7 @@ export function registerIntrospectionTools(pi: ExtensionAPI, store: ThreadStore)
         return err("This storage backend has no journal channel (optional extension, §5).");
       }
       if (!(await store.threadExists(params.id))) {
-        return err(`No thread "${params.id}" found. Call thread_list to see known ids.`);
+        return err(`No picode "${params.id}" found. Call picode_list to see known ids.`);
       }
       let journal = (await store.readJournal(params.id)) ?? "(no journal entries yet)";
       if ((params.tail || params.lookbackMinutes) && journal) {

@@ -1,5 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { ThreadStore, Envelope, Urgency } from "./core/types";
+import type { PicodeStore, Envelope, Urgency } from "./core/types";
 import { STALE_MS } from "./core/types";
 import { mintEnvelopeId } from "./core/ids";
 import { nowIso } from "./core/time";
@@ -15,7 +15,7 @@ export const INJECTION_GRACE_MS = 3_000;
  *  event was swallowed (compaction failures emit no extension event). */
 export const COMPACTION_HOLD_MAX_MS = 180_000;
 
-/** One unit of text bound for this thread's own session. */
+/** One unit of text bound for this picode's own session. */
 export interface Injection {
   text: string;
   urgency: Urgency;
@@ -51,7 +51,7 @@ export interface Inbox {
     body: string,
     opts?: SendOptions,
   ): Promise<(SendResult & { to: string })[]>;
-  /** Expand a `to` spec — "*", "role:<role>", or comma-separated ids — into thread ids. */
+  /** Expand a `to` spec — "*", "role:<role>", or comma-separated ids — into picode ids. */
   resolveTargets(to: string): Promise<string[]>;
   /** Which of these ids have never run in this workspace (likely typos). */
   findMissingTargets(targets: string[]): Promise<string[]>;
@@ -87,7 +87,7 @@ export interface Inbox {
   onInject?: (parts: Injection[], ctx: ExtensionContext) => void;
 }
 
-export function createInbox(store: ThreadStore, pi: ExtensionAPI): Inbox {
+export function createInbox(store: PicodeStore, pi: ExtensionAPI): Inbox {
   // --- injection gate ----------------------------------------------------
   // pi.sendUserMessage during a run queues safely (pi drains its queues at
   // turn boundaries and after agent_end handlers). While idle it starts a
@@ -138,14 +138,14 @@ export function createInbox(store: ThreadStore, pi: ExtensionAPI): Inbox {
   }
 
   async function isTargetLive(to: string): Promise<boolean> {
-    const s = await store.adapter.loadState(to);
+    const s = await store.adapter.loadPicodeState(to);
     if (!s) return false;
     return s.status === "running" && Date.now() - new Date(s.lastSeen).getTime() < STALE_MS;
   }
 
   async function resolveTargets(to: string): Promise<string[]> {
     if (to !== "*" && !to.startsWith("role:") && !to.includes(",")) return [to];
-    const all = (await store.listThreads()).filter(t => t.id !== store.threadId);
+    const all = (await store.listPcodes()).filter(t => t.id !== store.picodeId);
     if (to === "*") return all.map(t => t.id);
     if (to.startsWith("role:")) {
       const role = to.slice(5);
@@ -154,7 +154,7 @@ export function createInbox(store: ThreadStore, pi: ExtensionAPI): Inbox {
     return to
       .split(",")
       .map(s => s.trim())
-      .filter(s => s && s !== store.threadId);
+      .filter(s => s && s !== store.picodeId);
   }
 
   async function sendEnvelope(
@@ -162,15 +162,15 @@ export function createInbox(store: ThreadStore, pi: ExtensionAPI): Inbox {
     body: string,
     opts: SendOptions = {},
   ): Promise<SendResult> {
-    if (!store.threadId || !store.threadsRootDir) {
+    if (!store.picodeId || !store.picodesRootDir) {
       // Without an identity the message would land at a cwd-relative path
       // nothing ever drains (observed in the wild as <cwd>/<to>/inbox/).
-      throw new Error("Thread system not initialized yet — cannot send.");
+      throw new Error("Picode system not initialized yet — cannot send.");
     }
-    const id = mintEnvelopeId(store.threadId);
+    const id = mintEnvelopeId(store.picodeId);
     const msg: Envelope = {
       id,
-      from: store.threadId,
+      from: store.picodeId,
       to,
       body,
       sentAt: nowIso(),
@@ -188,11 +188,11 @@ export function createInbox(store: ThreadStore, pi: ExtensionAPI): Inbox {
     if (opts.re) {
       // Sending the reply settles the durable owed-reply record made when the
       // expects envelope was delivered (see deliver()) — but ONLY when it
-      // actually reaches the thread the debt is owed to (§9.1, Errata 1). A
+      // actually reaches the picode the debt is owed to (§9.1, Errata 1). A
       // misdirected or stale reply whose `re` merely collides with an
       // unrelated owed entry must not discharge it: the owed record stays put
-      // so thread_status and the owed-reply nudge keep surfacing it.
-      // (thread_send layers a soft warning on top; this is the real gate.)
+      // so picode_status and the owed-reply nudge keep surfacing it.
+      // (picode_send layers a soft warning on top; this is the real gate.)
       const owedMatch = store.owed.find(o => o.id === opts.re);
       if (owedMatch && owedMatch.from === to) {
         store.owed = store.owed.filter(o => o.id !== opts.re);
@@ -273,7 +273,7 @@ export function createInbox(store: ThreadStore, pi: ExtensionAPI): Inbox {
     const reTag = msg.re ? ` re #${msg.re}` : "";
     const header = `[${kind} from ${msg.from} #${msg.id}${reTag}]`;
     const hint = msg.expects
-      ? `\n(this expects a reply — send it with: thread_send to="${msg.from}" re="${msg.id}")`
+      ? `\n(this expects a reply — send it with: picode_send to="${msg.from}" re="${msg.id}")`
       : "";
     return `${header}\n${msg.body}${hint}`;
   }
@@ -285,7 +285,7 @@ export function createInbox(store: ThreadStore, pi: ExtensionAPI): Inbox {
     if (msg.re) {
       // A reply discharges the sender-side debt keyed by `re` (§9) — but the
       // Errata 1 gate applies to this ledger too: only a reply from the
-      // thread the debt was recorded against may clear it (or resolve the
+      // picode the debt was recorded against may clear it (or resolve the
       // barriers armed over it, §12.1). A misdirected reply whose `re`
       // merely collides with someone else's obligation renders as a plain
       // note and leaves the ledger and barriers untouched.
@@ -299,9 +299,9 @@ export function createInbox(store: ThreadStore, pi: ExtensionAPI): Inbox {
     }
 
     if (msg.expects) {
-      // Record the reply this thread now owes, durably: the envelope (and
+      // Record the reply this picode now owes, durably: the envelope (and
       // its id, which the eventual reply must echo) exists only in the
-      // receiving session's context — without this record, a thread revived
+      // receiving session's context — without this record, a picode revived
       // after a restart has no protocol-level way to recover the id.
       if (!store.owed.some(o => o.id === msg.id)) {
         store.owed.push({
@@ -334,7 +334,7 @@ export function createInbox(store: ThreadStore, pi: ExtensionAPI): Inbox {
     // this same tick — while the gate is closed everything stays durable on
     // disk; watcher/turn-end/heartbeat retry.
     if (!canInject()) return;
-    const messages = await store.adapter.drainInbox(store.threadId);
+    const messages = await store.adapter.drainInbox(store.picodeId);
     if (messages.length === 0) return;
     const parts: Injection[] = [];
     for (const msg of messages) {
@@ -345,7 +345,7 @@ export function createInbox(store: ThreadStore, pi: ExtensionAPI): Inbox {
     // before this returns), so finalize here. Collect path: the heartbeat
     // caller finalizes after its own inject() — committing now would
     // archive messages that haven't been injected yet.
-    if (!collect) await store.adapter.finalizeDrain(store.threadId);
+    if (!collect) await store.adapter.finalizeDrain(store.picodeId);
   }
 
   async function checkDeadlines(ctx: ExtensionContext, collect?: Injection[]): Promise<void> {
@@ -364,7 +364,7 @@ export function createInbox(store: ThreadStore, pi: ExtensionAPI): Inbox {
       if (!b.deadline || b.nudged || new Date(b.deadline).getTime() > now) continue;
       b.nudged = true;
       parts.push({
-        text: `[barrier overdue "${b.id}"]: still waiting on ${b.mode} of ${b.pending.length} repl${b.pending.length === 1 ? "y" : "ies"} (${b.pending.join(", ")}) — none arrived by the deadline. Check in with the target thread(s), or the barrier will keep waiting silently.`,
+        text: `[barrier overdue "${b.id}"]: still waiting on ${b.mode} of ${b.pending.length} repl${b.pending.length === 1 ? "y" : "ies"} (${b.pending.join(", ")}) — none arrived by the deadline. Check in with the target picode(s), or the barrier will keep waiting silently.`,
         urgency: "high",
       });
     }
@@ -384,7 +384,7 @@ export function createInbox(store: ThreadStore, pi: ExtensionAPI): Inbox {
     checkDeadlines,
     /** Commit staged messages to processed/ — call after the heartbeat's
      *  inject() or any path that used a collect array. */
-    finalizeDrain: () => store.adapter.finalizeDrain(store.threadId),
+    finalizeDrain: () => store.adapter.finalizeDrain(store.picodeId),
     inject,
     canInject,
     noteCompactionStart,

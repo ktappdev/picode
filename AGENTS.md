@@ -2,12 +2,12 @@
 
 ## Project Overview
 
-**Picode** is a cross-thread communication extension for the [pi coding agent](https://github.com/earendil-works/pi-coding-agent). It enables independent threads that coordinate work, share state, and converse — without losing context or forking their history.
+**Picode** is a cross-picode communication extension for the [pi coding agent](https://github.com/earendil-works/pi-coding-agent). It enables independent threads that coordinate work, share state, and converse — without losing context or forking their history.
 
 **Key Features:**
 
-- Thread-based multi-agent coordination (coordinator + worker roles)
-- Durable per-thread mailboxes with envelope message model
+- Picode-based multi-agent coordination (coordinator + worker roles)
+- Durable per-picode mailboxes with envelope message model
 - Auto-journaling with compaction
 - Read-only coordinator mode with auto-spawned workers
 - Pluggable storage backends (local filesystem, Restate)
@@ -25,16 +25,16 @@ picode/
 │   ├── adapter/          # Storage backends (local-fs.ts, restate)
 │   ├── core/             # System prompt loader, types, roles, time utilities
 │   ├── prompts/          # Role prompts as markdown files (coordinator, builder, reviewer, etc.)
-│   ├── tools/            # Thread tools (send, wait, status, list, journal, suspend, resume, purge, spawn, cleanup-panes)
+│   ├── tools/            # Picode tools (send, wait, status, list, journal, suspend, resume, purge, spawn, cleanup-panes)
 │   ├── restate/          # Restate backend adapter + service
-│   ├── commands.ts       # Slash commands (/thread-status, /thread-journal, etc.)
+│   ├── commands.ts       # Slash commands (/picode-status, /picode-journal, etc.)
 │   ├── inbox.ts          # Envelope delivery, barriers, obligations, injection gate
 │   ├── index.ts          # Extension entry point (registers all tools/commands)
 │   ├── journal.ts        # Auto-journaling with compaction (turn/agent modes)
-│   ├── lifecycle.ts      # Thread lifecycle (startup, footer, widget, state machine, auto-purge)
-│   └── state.ts          # Thread state management, heartbeats, watcher
+│   ├── lifecycle.ts      # Picode lifecycle (startup, footer, widget, state machine, auto-purge)
+│   └── state.ts          # Picode state management, heartbeats, watcher
 ├── bin/
-│   ├── thread-cli.mjs    # Human monitoring CLI (list, status, watch, tail, send)
+│   ├── picode-cli.mjs    # Human monitoring CLI (list, status, watch, tail, send)
 │   └── postbox-mcp.mjs  # MCP server for external agents (Claude Code, Codex)
 ├── themes/               # Bundled TUI themes (7 themes)
 ├── skills/               # Bundled skills (herdr, cleanup-panes)
@@ -60,10 +60,10 @@ picode/
 | Component                   | Purpose                                                                          |
 | --------------------------- | -------------------------------------------------------------------------------- |
 | `src/prompts/*.md`          | Role prompts as markdown files — **edit these to change agent behavior**         |
-| `src/core/system-prompt.ts` | Prompt loader — reads from `src/prompts/`, adds dynamic context (threadId, role) |
+| `src/core/system-prompt.ts` | Prompt loader — reads from `src/prompts/`, adds dynamic context (picodeId, role) |
 | `src/inbox.ts`              | Envelope delivery, barrier resolution, obligation tracking                       |
-| `src/lifecycle.ts`          | Thread startup, state machine, footer rendering, widget injection                |
-| `src/state.ts`              | Thread state persistence, heartbeats, journal storage                            |
+| `src/lifecycle.ts`          | Picode startup, state machine, footer rendering, widget injection                |
+| `src/state.ts`              | Picode state persistence, heartbeats, journal storage                            |
 | `src/commands.ts`           | Slash command handlers                                                           |
 | `src/journal.ts`            | Auto-journaling, compaction logic                                                |
 | `src/adapter/local-fs.ts`   | Local filesystem storage backend                                                 |
@@ -140,7 +140,7 @@ npm run mcp                   # Start MCP server
 - **Files:** kebab-case for multi-word (`local-fs.ts`, `system-prompt.ts`)
 - **Functions:** camelCase (`loadPromptOverride`, `checkDeadlines`)
 - **Constants:** UPPER_SNAKE_CASE (`MAX_BODY_BYTES`, `JOURNAL_COMPACT_THRESHOLD`)
-- **Types/Interfaces:** PascalCase (`StorageAdapter`, `Envelope`, `ThreadState`)
+- **Types/Interfaces:** PascalCase (`StorageAdapter`, `Envelope`, `PicodeState`)
 - **Role constants:** SCREAMING_SNAKE with `_RULES` suffix (`BUILDER_RULES`, `COORDINATOR_RULES`)
 
 ### Code Style
@@ -155,8 +155,8 @@ npm run mcp                   # Start MCP server
 
 - Prompts live in `src/prompts/*.md` as plain markdown — no escaping needed
 - Edit markdown files directly; `system-prompt.ts` loads them at module init
-- Dynamic context (threadId, parent, role) is added by the wrapper in `system-prompt.ts`
-- Per-project overrides (`.thread/prompts/<role>.md`) still replace the entire bundled prompt
+- Dynamic context (picodeId, parent, role) is added by the wrapper in `system-prompt.ts`
+- Per-project overrides (`.picode/prompts/<role>.md`) still replace the entire bundled prompt
 
 ## Key Files
 
@@ -169,13 +169,13 @@ npm run mcp                   # Start MCP server
 | `src/prompts/<role>.md`      | Role-specific prompts (builder, reviewer, explorer, tester, designer, bug-hunter, scout, planner)                                                               |
 | `src/core/system-prompt.ts`  | Prompt loader — reads markdown files, adds dynamic context, handles overrides                                                                                   |
 | `src/inbox.ts`               | Envelope delivery, barrier resolution, obligation tracking, dead-letter handling. **Injection gate blocks during compaction**                                   |
-| `src/lifecycle.ts`           | Thread startup, state machine, footer rendering, widget injection. **Auto-purges stale threads on coordinator startup. Footer shows model, ctx usage, io, t/s** |
-| `src/state.ts`               | Thread state persistence, heartbeats, journal storage. **Heartbeat re-attempts inbox drain**                                                                    |
+| `src/lifecycle.ts`           | Picode startup, state machine, footer rendering, widget injection. **Auto-purges stale threads on coordinator startup. Footer shows model, ctx usage, io, t/s** |
+| `src/state.ts`               | Picode state persistence, heartbeats, journal storage. **Heartbeat re-attempts inbox drain**                                                                    |
 | `src/commands.ts`            | Slash command handlers (status, journal, send, models, suspend, resume)                                                                                         |
 | `src/journal.ts`             | Auto-journaling, compaction logic, duplicate suppression. **Fires at turn_end or agent_end depending on mode**                                                  |
 | `src/tools/spawn.ts`         | spawn_worker tool — splits pane, launches pi, waits for idle. **Reuses dead panes, validates role**                                                             |
 | `src/tools/cleanup-panes.ts` | cleanup_panes tool — closes stale herdr worker panes. **dry_run option available**                                                                              |
-| `src/tools/purge.ts`         | thread_purge tool + `purgeStaleThreads()` helper. **Called on coordinator startup**                                                                             |
+| `src/tools/purge.ts`         | picode_purge tool + `purgeStalePcodes()` helper. **Called on coordinator startup**                                                                              |
 
 ### Storage & Backend
 
@@ -184,13 +184,13 @@ npm run mcp                   # Start MCP server
 | `src/adapter/local-fs.ts` | Local filesystem storage (default backend)        |
 | `src/adapter/types.ts`    | StorageAdapter interface                          |
 | `src/restate/adapter.ts`  | Restate virtual object adapter                    |
-| `src/restate/service.ts`  | Restate companion service (Thread/ThreadRegistry) |
+| `src/restate/service.ts`  | Restate companion service (Picode/PicodeRegistry) |
 
 ### CLI & Integration
 
 | File                   | Responsibility                           |
 | ---------------------- | ---------------------------------------- |
-| `bin/thread-cli.mjs`   | Human monitoring CLI (zero dependencies) |
+| `bin/picode-cli.mjs`   | Human monitoring CLI (zero dependencies) |
 | `bin/postbox-mcp.mjs`  | MCP server for external agents           |
 | `bin/postbox-hook.mjs` | Claude Code hook integration             |
 
@@ -199,9 +199,9 @@ npm run mcp                   # Start MCP server
 ### What NOT to Change
 
 1. **Envelope format** — `Envelope` interface in `src/core/types.ts` is the wire format; changes break compatibility
-2. **State file layout** — `.thread/threads/<id>/state.json` structure; other tools depend on it
-3. **Tool names** — `thread_send`, `thread_wait`, `thread_status`, `thread_list`, `thread_journal`, `thread_suspend`, `thread_resume`
-4. **Slash command names** — `/thread-status`, `/thread-journal`, `/thread-list`, `/thread-send`, `/thread-suspend`, `/thread-resume`, `/thread-models`
+2. **State file layout** — `.picode/threads/<id>/state.json` structure; other tools depend on it
+3. **Tool names** — `picode_send`, `picode_wait`, `picode_status`, `picode_list`, `picode_journal`, `picode_suspend`, `picode_resume`
+4. **Slash command names** — `/picode-status`, `/picode-journal`, `/picode-list`, `/picode-send`, `/picode-suspend`, `/picode-resume`, `/picode-models`
 5. **Role names** — `coordinator`, `builder`, `reviewer`, `explorer`/`scout`, `tester`, `designer`, `bug-hunter`, `planner`
 6. **Message model** — Envelope shape with `expects`, `re`, `urgency`, `deliverAfterSeconds` fields
 
@@ -210,16 +210,16 @@ npm run mcp                   # Start MCP server
 - **`src/prompts/*.md`** — Prompt changes affect all agents; test thoroughly with real model calls
 - **`src/core/system-prompt.ts`** — Prompt loader; changes affect how prompts are assembled
 - **`src/inbox.ts`** — Obligation/barrier logic; bugs cause silent message drops
-- **`src/lifecycle.ts`** — State machine transitions; bugs cause thread death or stuck states
+- **`src/lifecycle.ts`** — State machine transitions; bugs cause picode death or stuck states
 - **`src/adapter/local-fs.ts`** — File operations must be atomic (rename for enqueue)
-- **`src/state.ts`** — Heartbeat and state persistence; corruption = thread identity loss
+- **`src/state.ts`** — Heartbeat and state persistence; corruption = picode identity loss
 
 ### Security Considerations
 
 - **No secrets in prompts** — system-prompt.ts is user-facing
 - **No shell injection** — sanitize any user input passed to bash commands
 - **No file writes in coordinator mode** — coordinator tools are read-only by design
-- **Thread IDs are user-controlled** — validate format, prevent directory traversal
+- **Picode IDs are user-controlled** — validate format, prevent directory traversal
 
 ## Extension Points
 
@@ -227,7 +227,7 @@ npm run mcp                   # Start MCP server
 
 1. Create `themes/<name>.json` with the pi theme schema
 2. Add to `package.json` `pi.themes` array if external, or place in `themes/` directory
-3. Reference in `.thread/models.json` or spawn with `--theme <name>`
+3. Reference in `.picode/models.json` or spawn with `--theme <name>`
 
 **Bundled themes:** tokyo-night, matrix, nord, dracula, gruvbox-dark, catppuccin-mocha, rose-pine
 
@@ -241,7 +241,7 @@ npm run mcp                   # Start MCP server
 
 ### Adding Prompt Overrides
 
-1. Create `.thread/prompts/<role>.md` in your project root
+1. Create `.picode/prompts/<role>.md` in your project root
 2. The file replaces the bundled role prompt entirely (no merging)
 3. Supported roles: `coordinator`, `builder`, `reviewer`, `scout`, `explorer`, `designer`, `tester`, `bug-hunter`, `planner`, `worker`
 4. Empty files are ignored; unknown roles fall back to `worker.md`
@@ -253,7 +253,7 @@ npm run mcp                   # Start MCP server
 2. Register in the `registerCommands` function
 3. Add to system prompt if model needs to know about it
 
-### Adding Thread Tools
+### Adding Picode Tools
 
 1. Create tool file in `src/tools/<name>.ts`
 2. Register in `src/tools/index.ts`
@@ -322,7 +322,7 @@ chore: update dependencies
 2. Add role to `WorkerSubtype` type and `SUBTYPE_PROMPTS` map in `src/core/system-prompt.ts`
 3. Add role detection in `src/core/roles.ts`
 4. Add role emoji in `ROLE_EMOJI` map
-5. Update `.thread/prompts/` documentation
+5. Update `.picode/prompts/` documentation
 6. Add to coordinator prompt spawn command if needed
 
 ### Fixing a Bug
@@ -354,11 +354,11 @@ npm run format  # Auto-fix
 npm run format:check  # Verify
 ```
 
-### Thread Issues
+### Picode Issues
 
 ```bash
-node bin/thread-cli.mjs list  # See all threads
-node bin/thread-cli.mjs status <id>  # Check specific thread
+node bin/picode-cli.mjs list  # See all threads
+node bin/picode-cli.mjs status <id>  # Check specific picode
 ```
 
 ## Additional Resources

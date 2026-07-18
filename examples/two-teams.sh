@@ -2,17 +2,17 @@
 # two-teams.sh — launch a two-team org of pi threads in one tmux session.
 #
 #   Team A: a-lead + a-dev-1..3     Team B: b-lead + b-dev-1..2
-#   Leads escalate to "hq" — a pseudo-thread whose mailbox you drain with
-#   thread-cli (window 0 runs the live board).
+#   Leads escalate to "hq" — a pseudo-picode whose mailbox you drain with
+#   picode-cli (window 0 runs the live board).
 #
 # Usage: examples/two-teams.sh [project-dir]
-#   project-dir  where the teams work (shared .thread/ store); default: cwd
+#   project-dir  where the teams work (shared .picode/ store); default: cwd
 set -euo pipefail
 
 PROJECT_DIR="$(cd "${1:-$PWD}" && pwd)"
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 EXT="$REPO_DIR/src/index.ts"
-CLI="$REPO_DIR/bin/thread-cli.mjs"
+CLI="$REPO_DIR/bin/picode-cli.mjs"
 BRIEFS="$REPO_DIR/examples/briefs"
 SESSION="teams"
 
@@ -26,14 +26,14 @@ if tmux has-session -t "$SESSION" 2>/dev/null; then
   exit 1
 fi
 
-# launch <window> <thread-id> <role> <parent> <model> <brief-file> <roster-line>
+# launch <window> <picode-id> <role> <parent> <model> <brief-file> <roster-line>
 launch() {
   local window="$1" id="$2" role="$3" parent="$4" model="$5" brief="$6" roster="$7"
   tmux new-window -t "$SESSION" -n "$window" -c "$PROJECT_DIR" -- \
     pi --provider openrouter --model "$model" \
     --extension "$EXT" \
-    --thread-id "$id" --thread-role "$role" --thread-parent "$parent" \
-    --thread-journal-model "$JOURNAL_MODEL" \
+    --picode-id "$id" --picode-role "$role" --picode-parent "$parent" \
+    --picode-journal-model "$JOURNAL_MODEL" \
     --append-system-prompt "$brief" \
     --append-system-prompt "$roster"
 }

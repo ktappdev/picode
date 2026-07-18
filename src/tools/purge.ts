@@ -46,13 +46,13 @@ function effectiveStatus(s: StateFile): string {
   return s.status || "unknown";
 }
 
-/** Purge stale thread data directories. Returns { purged, skipped, count }. */
-export function purgeStaleThreads(
+/** Purge stale picode data directories. Returns { purged, skipped, count }. */
+export function purgeStalePcodes(
   root: string,
   currentThreadId: string | undefined,
   force: boolean,
 ): { purged: string[]; skipped: { id: string; reason: string }[]; count: number } {
-  const threadsDir = join(root, ".thread", "threads");
+  const threadsDir = join(root, ".picode", "picodes");
 
   if (!existsSync(threadsDir)) {
     return { purged: [], skipped: [], count: 0 };
@@ -78,7 +78,7 @@ export function purgeStaleThreads(
     }
 
     if (currentThreadId && id === currentThreadId) {
-      skipped.push({ id, reason: "current thread" });
+      skipped.push({ id, reason: "current picode" });
       continue;
     }
 
@@ -109,10 +109,10 @@ export function purgeStaleThreads(
 
 export function registerPurgeTool(pi: ExtensionAPI) {
   pi.registerTool({
-    name: "thread_purge",
-    label: "Thread Purge",
+    name: "picode_purge",
+    label: "Picode Purge",
     description:
-      "Delete stale/dead thread data directories. Only removes threads with status 'stopped' or stale lastSeen (>60s) and no pending debts. Safe to run at end of session.",
+      "Delete stale/dead picode data directories. Only removes threads with status 'stopped' or stale lastSeen (>60s) and no pending debts. Safe to run at end of session.",
     parameters: Type.Object({
       force: Type.Optional(
         Type.Boolean({
@@ -122,9 +122,9 @@ export function registerPurgeTool(pi: ExtensionAPI) {
       ),
     }),
     async execute(_id, params, _signal, _onUpdate, _ctx) {
-      const currentThreadId = pi.getFlag("thread-id") as string | undefined;
+      const currentThreadId = pi.getFlag("picode-id") as string | undefined;
       const root = findProjectRoot();
-      const result = purgeStaleThreads(root, currentThreadId, params.force ?? false);
+      const result = purgeStalePcodes(root, currentThreadId, params.force ?? false);
 
       return {
         content: [

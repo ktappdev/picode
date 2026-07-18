@@ -53,7 +53,7 @@ or only on what happens after some tool gets called with some params?**
   to the parent), that's the one thing only a live model call can prove →
   **E2E**, and keep it.
 
-A prompt that spells out the exact tool call (`Call thread_send with
+A prompt that spells out the exact tool call (`Call picode_send with
 to="alice", expects=true, body="task A"`) pays E2E cost for unit content —
 there's no ambiguity left for the model to resolve. New tests for
 deterministic follow-through (does a matching reply clear the obligation,
@@ -95,7 +95,7 @@ changing behavior, it's testing the wrong thing.
 ## Negative paths aren't optional
 
 Every unit test added for a happy path should prompt the question: what's
-the adjacent error path? Malformed inbox JSON, `thread_send` to an unknown
+the adjacent error path? Malformed inbox JSON, `picode_send` to an unknown
 id, replying to the same envelope id twice, arming two barriers on the same
 id — these are cheap to add once `makeHarness()` exists for a given
 function and are currently under-covered. Don't wait for a production

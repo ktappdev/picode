@@ -17,7 +17,7 @@ All notable changes to picode are documented here. Format follows [Keep a Change
 
 ### Added
 
-- **Current-task widget** — workers now show the first line of their most recent incoming `thread_send` request above the input box (🎯 prefix), via `ctx.ui.setWidget("current-task", ...)`. Updates on new task arrival, workers only (coordinator excluded). `extractFirstLine` helper strips markdown headers/bold and truncates to 80 chars. 8 unit tests. `src/lifecycle.ts`.
+- **Current-task widget** — workers now show the first line of their most recent incoming `picode_send` request above the input box (🎯 prefix), via `ctx.ui.setWidget("current-task", ...)`. Updates on new task arrival, workers only (coordinator excluded). `extractFirstLine` helper strips markdown headers/bold and truncates to 80 chars. 8 unit tests. `src/lifecycle.ts`.
 
 ### Fixed
 
@@ -32,37 +32,37 @@ All notable changes to picode are documented here. Format follows [Keep a Change
 
 ### Fixed
 
-- **Slash command error handling** — 5 commands (`/thread-status`, `/thread-journal`, `/thread-list`, `/thread-suspend`, `/thread-resume`) now wrap their handler bodies in try/catch with `ctx.ui.notify` on error, matching the pattern from `/thread-send` and `/thread-models`. Previously, errors propagated to pi's command wrapper silently.
+- **Slash command error handling** — 5 commands (`/picode-status`, `/picode-journal`, `/picode-list`, `/picode-suspend`, `/picode-resume`) now wrap their handler bodies in try/catch with `ctx.ui.notify` on error, matching the pattern from `/picode-send` and `/picode-models`. Previously, errors propagated to pi's command wrapper silently.
 
 ### Added
 
-- **4 missing unit tests** — `/thread-list` and `/thread-models` had zero test coverage. Both now have tests. Added `cwd` to test harness ctx (was `undefined`, caused `/thread-models` handler to crash in tests).
+- **4 missing unit tests** — `/picode-list` and `/picode-models` had zero test coverage. Both now have tests. Added `cwd` to test harness ctx (was `undefined`, caused `/picode-models` handler to crash in tests).
 
 ## [0.5.16] — 2026-07-17
 
 ### Changed
 
-- **Example prompts refreshed** — `examples/prompts/worker.md` now includes the Communication contract block (`thread_send` mandate, plain-text warning) that the bundled `WORKER_BASE_RULES` ships with since v0.5.13. `examples/prompts/coordinator.md` now includes bug-hunter delegation + the four coordinator rules (bug-investigation, parallelize, always-be-working, silent-recovery). `examples/prompts/builder.md` is unchanged in behavior (minor genericization only).
+- **Example prompts refreshed** — `examples/prompts/worker.md` now includes the Communication contract block (`picode_send` mandate, plain-text warning) that the bundled `WORKER_BASE_RULES` ships with since v0.5.13. `examples/prompts/coordinator.md` now includes bug-hunter delegation + the four coordinator rules (bug-investigation, parallelize, always-be-working, silent-recovery). `examples/prompts/builder.md` is unchanged in behavior (minor genericization only).
 
 ## [0.5.15] — 2026-07-17
 
 ### Fixed
 
-- **`/thread-send` body-size guard gap** — the slash command previously called `inbox.sendToMany` directly, bypassing the 256KB body-size guard added to `thread_send` in v0.5.14. An operator could `/thread-send alice <5MB blob>` and overflow the inbox dir. Now the command applies the same `checkBodySize` guard before queuing, with the same error message format. `src/commands.ts:150-156`.
+- **`/picode-send` body-size guard gap** — the slash command previously called `inbox.sendToMany` directly, bypassing the 256KB body-size guard added to `picode_send` in v0.5.14. An operator could `/picode-send alice <5MB blob>` and overflow the inbox dir. Now the command applies the same `checkBodySize` guard before queuing, with the same error message format. `src/commands.ts:150-156`.
 
 ## [0.5.14] — 2026-07-17
 
 ### Added
 
-- **`thread_send` body-size guard** — `src/tools/messaging.ts:8` exports `MAX_BODY_BYTES = 256 * 1024` (256 KB) and a `checkBodySize(body)` helper that returns an error string when the UTF-8 byte length of the body exceeds the limit. The `thread_send` executor (`src/tools/messaging.ts:117-120`) calls the guard before any inbox work, so oversize payloads never touch the disk. `sendToMany` is transitively covered since it calls `send`. Error message includes the actual size, the limit, and a recovery hint ("split into multiple sends, or use file refs for large content"). 5 new unit tests covering boundary, UTF-8 multibyte, empty body, and sendToMany.
+- **`picode_send` body-size guard** — `src/tools/messaging.ts:8` exports `MAX_BODY_BYTES = 256 * 1024` (256 KB) and a `checkBodySize(body)` helper that returns an error string when the UTF-8 byte length of the body exceeds the limit. The `picode_send` executor (`src/tools/messaging.ts:117-120`) calls the guard before any inbox work, so oversize payloads never touch the disk. `sendToMany` is transitively covered since it calls `send`. Error message includes the actual size, the limit, and a recovery hint ("split into multiple sends, or use file refs for large content"). 5 new unit tests covering boundary, UTF-8 multibyte, empty body, and sendToMany.
 
 ## [0.5.13] — 2026-07-17
 
 ### Added
 
-- **Strict-reply contract for all worker subtypes** — `WORKER_BASE_RULES` in `src/core/system-prompt.ts` now leads with a "Communication contract" block reminding every worker (builder, reviewer, scout, explorer, designer, tester, bug-hunter) that they must reply via `thread_send` with `re=<id>`. Plain text output in a worker's pane reaches only the human user, not the coordinator.
+- **Strict-reply contract for all worker subtypes** — `WORKER_BASE_RULES` in `src/core/system-prompt.ts` now leads with a "Communication contract" block reminding every worker (builder, reviewer, scout, explorer, designer, tester, bug-hunter) that they must reply via `picode_send` with `re=<id>`. Plain text output in a worker's pane reaches only the human user, not the coordinator.
 
-- **Silent-recovery coordinator rule** — COORDINATOR_RULES now includes "Worker silent? Check their pane": if a worker hasn't sent a `thread_send` reply within 5–10 minutes, the coordinator should read the worker's pane output (visible to the human user) to find any plain-text reply, then either accept it or resend the request explicitly reminding the worker to use `thread_send`.
+- **Silent-recovery coordinator rule** — COORDINATOR_RULES now includes "Worker silent? Check their pane": if a worker hasn't sent a `picode_send` reply within 5–10 minutes, the coordinator should read the worker's pane output (visible to the human user) to find any plain-text reply, then either accept it or resend the request explicitly reminding the worker to use `picode_send`.
 
 ## [0.5.12] — 2026-07-17
 
@@ -83,7 +83,7 @@ All notable changes to picode are documented here. Format follows [Keep a Change
 
 ### Added
 
-- **`bug-hunter` worker subtype** — read-only bug-finding specialist. Reports root cause with `file:line` refs and suggested fix (one paragraph); does NOT implement. Auto-detected from `bug-hunter` or `bug-hunter-*` thread-id. Emoji: 🐛. Model: `deepseek/deepseek-v4-pro`.
+- **`bug-hunter` worker subtype** — read-only bug-finding specialist. Reports root cause with `file:line` refs and suggested fix (one paragraph); does NOT implement. Auto-detected from `bug-hunter` or `bug-hunter-*` picode-id. Emoji: 🐛. Model: `deepseek/deepseek-v4-pro`.
 - **"Use explorer or bug-hunter for bug investigations" coordinator rule** — coordinator delegates bug investigations, never spelunks code itself.
 - **"Parallelize unrelated new tasks" coordinator rule** — spawn new workers in parallel instead of queuing on busy ones.
 

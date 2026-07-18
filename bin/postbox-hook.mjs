@@ -12,7 +12,7 @@
 // a silent no-op, mirroring the extension's opt-in gate). POSTBOX_DIR
 // overrides the workspace root (default: the hook's cwd). Claims are
 // exclusive with any concurrently running postbox-mcp server for the same
-// thread: both claim by rename into processed/, and rename wins only once.
+// picode: both claim by rename into processed/, and rename wins only once.
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
@@ -26,7 +26,7 @@ const event = input.hook_event_name;
 const WORKSPACE = process.env.POSTBOX_DIR
   ? path.resolve(process.env.POSTBOX_DIR)
   : (input.cwd ?? process.cwd());
-const THREAD_DIR = path.join(WORKSPACE, ".thread", "threads", THREAD_ID);
+const THREAD_DIR = path.join(WORKSPACE, ".picode", "picodes", THREAD_ID);
 const INBOX = path.join(THREAD_DIR, "inbox");
 const PROCESSED = path.join(INBOX, "processed");
 const STATE = path.join(THREAD_DIR, "state.json");
@@ -114,7 +114,7 @@ function updateLedger(messages) {
   state.owed ??= [];
   for (const msg of messages) {
     if (msg.re) {
-      // Errata 1 gate, obligation side: only a reply from the thread the
+      // Errata 1 gate, obligation side: only a reply from the picode the
       // debt was recorded against clears it.
       const obMatch = state.obligations.find(o => o.id === msg.re);
       if (obMatch && obMatch.to === msg.from) {
@@ -142,7 +142,7 @@ function renderEnvelope(msg) {
   const kind =
     msg.expects && msg.re ? "reply+request" : msg.expects ? "request" : msg.re ? "reply" : "note";
   const reTag = msg.re ? ` re #${msg.re}` : "";
-  const hint = msg.expects ? `\nreply with thread_send re=${msg.id}` : "";
+  const hint = msg.expects ? `\nreply with picode_send re=${msg.id}` : "";
   return `[${kind} from ${msg.from} #${msg.id}${reTag}]\n${msg.body}${hint}`;
 }
 
@@ -190,7 +190,7 @@ switch (event) {
           reason:
             render(messages) +
             "\n\nHandle these messages before finishing: settle any reply debts " +
-            "(thread_send with re=<id>), then stop when nothing is owed.",
+            "(picode_send with re=<id>), then stop when nothing is owed.",
         }),
       );
     }

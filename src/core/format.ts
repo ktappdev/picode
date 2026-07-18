@@ -1,8 +1,8 @@
-import type { Barrier, Obligation, OwedReply, ThreadSummary } from "./types";
+import type { Barrier, Obligation, OwedReply, PicodeSummary } from "./types";
 
-/** One thread per line — shared by thread_list and /thread-list. Coordination
+/** One picode per line — shared by picode_list and /picode-list. Coordination
  *  counts appear only when non-zero, so idle threads stay one short line. */
-export function formatThreadLine(t: ThreadSummary): string {
+export function formatThreadLine(t: PicodeSummary): string {
   const load = [
     t.obligations ? `obligations=${t.obligations}` : "",
     t.owed ? `owed=${t.owed}` : "",

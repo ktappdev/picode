@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Quick demo: starts pi in interactive mode with the thread extension loaded.
-# Usage: ./live.sh -t <thread-id> [other pi flags...]
+# Quick demo: starts pi in interactive mode with the picode extension loaded.
+# Usage: ./live.sh -t <picode-id> [other pi flags...]
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -21,11 +21,11 @@ fi
 echo "Workspace:    $WORK_DIR"
 echo ""
 
-# Translate -t <id> → --thread-id <id>
+# Translate -t <id> → --picode-id <id>
 args=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -t) args+=("--thread-id" "$2"); shift 2 ;;
+    -t) args+=("--picode-id" "$2"); shift 2 ;;
     *)  args+=("$1"); shift ;;
   esac
 done

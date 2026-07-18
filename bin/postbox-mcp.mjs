@@ -2,7 +2,7 @@
 // postbox-mcp.mjs — zero-dependency MCP stdio server: makes any MCP-capable
 // coding agent (Claude Code, Codex CLI, ...) a citizen of Postbox
 // (PROTOCOL-FORMALISM.md) by speaking the local-fs binding (Appendix B)
-// directly — the same binding bin/thread-cli.mjs and
+// directly — the same binding bin/picode-cli.mjs and
 // src/adapter/local-fs.ts speak. This process is a C2 correlating client
 // (§2.2): it tracks the obligation/owed ledger (§9), but runs no waits or
 // state machine beyond "running"/"stopped" — that's C3, the pi extension's
@@ -23,7 +23,7 @@ const DEFAULT_OBLIGATION_DEADLINE_MS = 15 * 60_000; // §9.2 fallback
 const THREAD_ID = process.env.POSTBOX_THREAD_ID;
 if (!THREAD_ID) {
   process.stderr.write(
-    "postbox-mcp: POSTBOX_THREAD_ID is required — set it to this thread's identity (e.g. POSTBOX_THREAD_ID=cc-1)\n",
+    "postbox-mcp: POSTBOX_THREAD_ID is required — set it to this picode's identity (e.g. POSTBOX_THREAD_ID=cc-1)\n",
   );
   process.exit(1);
 }
@@ -31,7 +31,7 @@ const WORKSPACE = process.env.POSTBOX_DIR ? path.resolve(process.env.POSTBOX_DIR
 const ROLE = process.env.POSTBOX_ROLE || null;
 const PARENT = process.env.POSTBOX_PARENT || null;
 
-const THREADS_ROOT = path.join(WORKSPACE, ".thread", "threads");
+const THREADS_ROOT = path.join(WORKSPACE, ".picode", "picodes");
 const THREAD_DIR = path.join(THREADS_ROOT, THREAD_ID);
 
 function nowIso() {
@@ -69,7 +69,7 @@ function ulid(now = Date.now()) {
 
 // --- fs helpers (Appendix B: state.json write-temp+rename, inbox.tmp
 // staging, processed/ after claim) --------------------------------------
-function threadDirOf(id) {
+function picodeDirOf(id) {
   return path.join(THREADS_ROOT, id);
 }
 function statePathOf(dir) {
@@ -102,7 +102,7 @@ function saveStateSync() {
 /** Enqueue: write to inbox.tmp/ staging, rename into inbox/ — atomic on
  *  POSIX, so a reader never sees a partial envelope (Appendix B). */
 function writeMessageAtomic(targetId, message) {
-  const targetDir = threadDirOf(targetId);
+  const targetDir = picodeDirOf(targetId);
   const dir = path.join(targetDir, "inbox");
   const staging = path.join(targetDir, "inbox.tmp");
   fs.mkdirSync(dir, { recursive: true });
@@ -125,7 +125,7 @@ function effectiveStatus(s) {
 }
 
 // --- own state.json: obligations/owed/barriers are durable (§13.2),
-// restored from an existing file if this thread has run before ----------
+// restored from an existing file if this picode has run before ----------
 fs.mkdirSync(THREAD_DIR, { recursive: true });
 const existing = readJsonSafe(statePathOf(THREAD_DIR));
 const state = {
@@ -145,7 +145,7 @@ const state = {
   lastSeen: nowIso(),
   updatedAt: nowIso(),
   // Advisory capability tokens (Rev 10 §8.1): this server delivers pull-only
-  // (thread_inbox/thread_wait), so it honors the store-level features it
+  // (picode_inbox/picode_wait), so it honors the store-level features it
   // drains by, and nothing turn-level (no barriers, no mid-turn urgency).
   capabilities: ["deliverAfter", "expiresAt"],
   ...(process.env.POSTBOX_WAKE ? { wake: process.env.POSTBOX_WAKE } : {}),
@@ -179,14 +179,14 @@ process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
 
 // --- envelope render (matches src/inbox.ts renderEnvelope, MCP-flavored
-// reply hint since the receiver here has no thread_send affordance name
+// reply hint since the receiver here has no picode_send affordance name
 // baked into a system prompt) ---------------------------------------------
 function renderEnvelope(msg) {
   const kind =
     msg.expects && msg.re ? "reply+request" : msg.expects ? "request" : msg.re ? "reply" : "note";
   const reTag = msg.re ? ` re #${msg.re}` : "";
   const header = `[${kind} from ${msg.from} #${msg.id}${reTag}]`;
-  const hint = msg.expects ? `\nreply with thread_send re=${msg.id}` : "";
+  const hint = msg.expects ? `\nreply with picode_send re=${msg.id}` : "";
   return `${header}\n${msg.body}${hint}`;
 }
 
@@ -195,7 +195,7 @@ function isDue(msg, now) {
 }
 
 /** True if the inbox has at least one envelope claimable right now — used
- *  by thread_wait's poll loop without actually claiming anything. */
+ *  by picode_wait's poll loop without actually claiming anything. */
 function hasDueMessage() {
   let files;
   try {
@@ -211,7 +211,7 @@ function hasDueMessage() {
   return false;
 }
 
-/** Shared drain-and-render used by thread_inbox and thread_wait (Appendix
+/** Shared drain-and-render used by picode_inbox and picode_wait (Appendix
  *  B: sorted readdir, skip malformed/not-yet-due, rename claimed into
  *  processed/, then update the ledger). */
 function drainAndRender() {
@@ -251,7 +251,7 @@ function drainAndRender() {
   const rendered = [];
   for (const msg of claimed) {
     if (msg.re) {
-      // Errata 1 gate, obligation side: only a reply from the thread the
+      // Errata 1 gate, obligation side: only a reply from the picode the
       // debt was recorded against clears it — a colliding `re` from anyone
       // else renders as a plain note and leaves the ledger untouched.
       const obMatch = state.obligations.find(o => o.id === msg.re);
@@ -288,16 +288,16 @@ function textResult(text) {
 
 // --- tools ----------------------------------------------------------------
 
-function toolThreadSend(params) {
+function toolPicodeSend(params) {
   const { to, body, re, expects, urgency, deliverAfterSeconds, expiresAfterSeconds } = params ?? {};
   if (!to || typeof to !== "string") {
-    return errorResult('thread_send: "to" is required (a thread id, or "*" to fan out)');
+    return errorResult('picode_send: "to" is required (a picode id, or "*" to fan out)');
   }
   if (!body || typeof body !== "string") {
-    return errorResult('thread_send: "body" is required');
+    return errorResult('picode_send: "body" is required');
   }
   if (urgency !== undefined && urgency !== "high" && urgency !== "low") {
-    return errorResult(`thread_send: unknown urgency "${urgency}" — use "high" or "low"`);
+    return errorResult(`picode_send: unknown urgency "${urgency}" — use "high" or "low"`);
   }
 
   const sentAt = nowIso();
@@ -322,7 +322,7 @@ function toolThreadSend(params) {
       entries = [];
     }
     targets = entries.filter(id => id !== THREAD_ID);
-    if (targets.length === 0) return textResult("No target threads found for fan-out.");
+    if (targets.length === 0) return textResult("No target picodes found for fan-out.");
   } else {
     targets = [to];
   }
@@ -355,7 +355,7 @@ function toolThreadSend(params) {
         stateChanged = true;
       } else if (state.owed.some(o => o.id === re)) {
         warnings.push(
-          `warning: re="${re}" is owed to a different thread than "${targetId}" — owed record left untouched`,
+          `warning: re="${re}" is owed to a different picode than "${targetId}" — owed record left untouched`,
         );
       } else {
         warnings.push(`warning: re="${re}" does not match any owed reply — nothing to settle`);
@@ -382,13 +382,13 @@ function toolThreadSend(params) {
   return textResult([...lines, ...warnings].join("\n"));
 }
 
-function toolThreadInbox() {
+function toolPicodeInbox() {
   const rendered = drainAndRender();
   if (rendered.length === 0) return textResult("(no messages)");
   return textResult(rendered.join("\n\n"));
 }
 
-async function toolThreadWait(params) {
+async function toolPicodeWait(params) {
   let timeoutSeconds = params?.timeoutSeconds;
   if (!Number.isFinite(timeoutSeconds)) timeoutSeconds = 60;
   timeoutSeconds = Math.min(Math.max(timeoutSeconds, 0), 300);
@@ -404,7 +404,7 @@ async function toolThreadWait(params) {
   return textResult(`(no messages after ${timeoutSeconds}s)`);
 }
 
-function toolThreadStatus() {
+function toolPicodeStatus() {
   const lines = [];
   lines.push(
     `Id: ${state.id}  Role: ${state.role ?? "-"}  Parent: ${state.parent ?? "-"}  State: ${state.state}  Status: ${effectiveStatus(state)}`,
@@ -433,7 +433,7 @@ function toolThreadStatus() {
   return textResult(lines.join("\n"));
 }
 
-function toolThreadList() {
+function toolPicodeList() {
   let ids = [];
   try {
     ids = fs
@@ -446,22 +446,22 @@ function toolThreadList() {
   }
   const lines = [];
   for (const id of ids) {
-    const s = id === THREAD_ID ? state : readJsonSafe(statePathOf(threadDirOf(id)));
+    const s = id === THREAD_ID ? state : readJsonSafe(statePathOf(picodeDirOf(id)));
     if (!s || typeof s !== "object") continue;
     lines.push(
       `${id}  state=${s.state ?? "unknown"} status=${effectiveStatus(s)} role=${s.role ?? "-"} parent=${s.parent ?? "-"} obligations=${(s.obligations ?? []).length} owed=${(s.owed ?? []).length}`,
     );
   }
-  if (lines.length === 0) return textResult("(no threads)");
+  if (lines.length === 0) return textResult("(no picodes)");
   return textResult(lines.join("\n"));
 }
 
-function toolThreadJournal(params) {
+function toolPicodeJournal(params) {
   const id = params?.id;
-  if (!id || typeof id !== "string") return errorResult('thread_journal: "id" is required');
-  const dir = threadDirOf(id);
+  if (!id || typeof id !== "string") return errorResult('picode_journal: "id" is required');
+  const dir = picodeDirOf(id);
   if (!fs.existsSync(statePathOf(dir)))
-    return errorResult(`thread_journal: unknown thread "${id}"`);
+    return errorResult(`picode_journal: unknown picode "${id}"`);
   let content = "";
   try {
     content = fs.readFileSync(path.join(dir, "journal.md"), "utf8").trim();
@@ -474,20 +474,20 @@ function toolThreadJournal(params) {
 
 const TOOLS = [
   {
-    name: "thread_send",
+    name: "picode_send",
     description:
-      'Send a message into another thread\'s mailbox (Postbox §6). Use to="*" to fan out to every ' +
-      "other thread in the workspace. Set expects=true when you need a reply — this records a " +
-      'tracked debt (visible via thread_status) that the recipient now owes you. Set re="<id>" ' +
+      'Send a message into another picode\'s mailbox (Postbox §6). Use to="*" to fan out to every ' +
+      "other picode in the workspace. Set expects=true when you need a reply — this records a " +
+      'tracked debt (visible via picode_status) that the recipient now owes you. Set re="<id>" ' +
       "when replying to a message you received — this settles the debt that message created (it " +
-      "only discharges if addressed to the thread the debt is owed to; a mismatch is left alone " +
+      "only discharges if addressed to the picode the debt is owed to; a mismatch is left alone " +
       "and a warning comes back). Setting both re and expects is a reply that also asks a follow-up.",
     inputSchema: {
       type: "object",
       properties: {
         to: {
           type: "string",
-          description: 'Target thread id, or "*" to fan out to every other thread.',
+          description: 'Target picode id, or "*" to fan out to every other picode.',
         },
         body: { type: "string", description: "Message text." },
         re: {
@@ -517,19 +517,19 @@ const TOOLS = [
     },
   },
   {
-    name: "thread_inbox",
+    name: "picode_inbox",
     description:
-      "Drain this thread's pending mailbox (destructive claim-and-remove, Postbox §7.2) and return " +
+      "Drain this picode's pending mailbox (destructive claim-and-remove, Postbox §7.2) and return " +
       'every message due for delivery. A message rendered as "request" or "reply+request" ' +
-      "expects a reply — the response includes the id to echo back as re in thread_send. Draining " +
-      "such a message records that you now owe a reply (see thread_status).",
+      "expects a reply — the response includes the id to echo back as re in picode_send. Draining " +
+      "such a message records that you now owe a reply (see picode_status).",
     inputSchema: { type: "object", properties: {} },
   },
   {
-    name: "thread_wait",
+    name: "picode_wait",
     description:
       "Block until at least one message becomes due, or timeoutSeconds elapses, then drain and " +
-      "return exactly like thread_inbox. Use this instead of polling thread_inbox in a loop.",
+      "return exactly like picode_inbox. Use this instead of polling picode_inbox in a loop.",
     inputSchema: {
       type: "object",
       properties: {
@@ -541,29 +541,29 @@ const TOOLS = [
     },
   },
   {
-    name: "thread_status",
+    name: "picode_status",
     description:
-      "This thread's own coordination state: obligations (messages you sent that expect a reply, " +
+      "This picode's own coordination state: obligations (messages you sent that expect a reply, " +
       "still open), owed replies (messages sent to you that expect a reply, not yet answered), and " +
       "the last journal entry if one exists.",
     inputSchema: { type: "object", properties: {} },
   },
   {
-    name: "thread_list",
+    name: "picode_list",
     description:
-      "List every thread known in this workspace with its liveness (a thread whose heartbeat is " +
+      "List every picode known in this workspace with its liveness (a picode whose heartbeat is " +
       "older than 60 seconds reads as stopped regardless of its stored status, Postbox §8.2) and " +
       "coordination-load counts.",
     inputSchema: { type: "object", properties: {} },
   },
   {
-    name: "thread_journal",
+    name: "picode_journal",
     description:
-      "Read a thread's journal — an append-only history stream it writes about itself. Works on " +
-      "any thread id, including your own.",
+      "Read a picode's journal — an append-only history stream it writes about itself. Works on " +
+      "any picode id, including your own.",
     inputSchema: {
       type: "object",
-      properties: { id: { type: "string", description: "Thread id whose journal to read." } },
+      properties: { id: { type: "string", description: "Picode id whose journal to read." } },
       required: ["id"],
     },
   },
@@ -571,18 +571,18 @@ const TOOLS = [
 
 async function callTool(name, args) {
   switch (name) {
-    case "thread_send":
-      return toolThreadSend(args ?? {});
-    case "thread_inbox":
-      return toolThreadInbox();
-    case "thread_wait":
-      return await toolThreadWait(args ?? {});
-    case "thread_status":
-      return toolThreadStatus();
-    case "thread_list":
-      return toolThreadList();
-    case "thread_journal":
-      return toolThreadJournal(args ?? {});
+    case "picode_send":
+      return toolPicodeSend(args ?? {});
+    case "picode_inbox":
+      return toolPicodeInbox();
+    case "picode_wait":
+      return await toolPicodeWait(args ?? {});
+    case "picode_status":
+      return toolPicodeStatus();
+    case "picode_list":
+      return toolPicodeList();
+    case "picode_journal":
+      return toolPicodeJournal(args ?? {});
     default:
       return errorResult(`unknown tool "${name}"`);
   }

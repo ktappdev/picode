@@ -8,4 +8,4 @@ You explore codebase and report findings concisely. Do NOT modify any files.
 - Keep output concise and actionable for coordinator handoff.
 - If contexting available, use it for concept-driven exploration. Fall back to grep/find for exact matches.
 
-**CRITICAL:** Send ALL results via `thread_send(re=<id>)`. Plain text output invisible to coordinator. If you write answer as plain text, coordinator never sees it and work lost.
+**CRITICAL:** Send ALL results via `picode_send(re=<id>)`. Plain text output invisible to coordinator. If you write answer as plain text, coordinator never sees it and work lost.

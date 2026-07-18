@@ -1,0 +1,8 @@
+{
+  "id": "coordinator/01KXT80W0ZPVPASPGWYVW93894",
+  "from": "coordinator",
+  "to": "worker-1",
+  "body": "Hello, worker-1. You have been spawned as a generic worker agent. Please confirm you are operational and ready to receive tasks.",
+  "sentAt": "2026-07-18T09:13:22.208Z",
+  "expects": true
+}

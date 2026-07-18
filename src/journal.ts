@@ -3,12 +3,12 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { spawn } from "node:child_process";
-import type { ThreadStore } from "./core/types";
+import type { PicodeStore } from "./core/types";
 
 /** Everything journal: the fork prompt, entry parsing, duplicate detection,
  *  and the cadence policy deciding which moments deserve a forked entry. */
 
-const JOURNAL_PROMPT = `You are this thread's journal keeper. Based on the conversation above, write a brief status update in exactly this format:
+const JOURNAL_PROMPT = `You are this picode's journal keeper. Based on the conversation above, write a brief status update in exactly this format:
 
 Working on: <the main task in one line>
 Done: <what was completed this turn>
@@ -18,7 +18,7 @@ Blockers: <blockers or "none">
 
 No preamble. No extra text. Just the five lines.`;
 
-const COMPACTION_PROMPT = `You are summarizing old journal entries from a long-running thread. Produce a compact block (5-10 lines max) preserving: key tasks completed, key decisions made, current state at the time, ongoing obligations. Drop: routine tool turns, restated waits, anything that doesn't carry news. Format: a single paragraph OR short bulleted list. No headers. No preamble. Just the summary text.
+const COMPACTION_PROMPT = `You are summarizing old journal entries from a long-running picode. Produce a compact block (5-10 lines max) preserving: key tasks completed, key decisions made, current state at the time, ongoing obligations. Drop: routine tool turns, restated waits, anything that doesn't carry news. Format: a single paragraph OR short bulleted list. No headers. No preamble. Just the summary text.
 
 Entries to summarize:
 ---
@@ -76,14 +76,14 @@ export function isDuplicateOfLastEntry(journalContent: string | undefined, entry
 }
 
 export function journalMode(pi: ExtensionAPI): "turn" | "done" | "off" {
-  const v = pi.getFlag("thread-journal");
+  const v = pi.getFlag("picode-journal");
   return v === "done" || v === "off" ? v : "turn";
 }
 
 /** Fingerprint of everything a journal entry could newly report. Unchanged
  *  since the last journal write + no tool call this turn means the turn was
  *  a pure "still waiting" restatement — not worth a forked LLM call. */
-export function journalSignature(store: ThreadStore): string {
+export function journalSignature(store: PicodeStore): string {
   return [
     store.state,
     store.obligations
@@ -110,7 +110,7 @@ export function journalSignature(store: ThreadStore): string {
  *                anything happened.
  */
 export function shouldJournal(
-  store: ThreadStore,
+  store: PicodeStore,
   toolUsedThisTurn: boolean,
   phase: "turn" | "run-end" | "done" = "turn",
 ): boolean {
@@ -159,11 +159,11 @@ export function piSelfCommand(
  *
  *  `--no-extensions` is load-bearing: when picode is installed via
  *  extension discovery, a fork without it loads the extension too — and
- *  having no --thread-id, it mints a fresh identity, writes a ghost
- *  .thread/threads/thread-<uuid>/ into the shared workspace, and at its own
+ *  having no --picode-id, it mints a fresh identity, writes a ghost
+ *  .picode/picodes/picode-<uuid>/ into the shared workspace, and at its own
  *  turn_end forks yet another journal pi, chaining forever. The fork's only
  *  job is to summarize the session it was forked from; it must never become
- *  a thread.
+ *  a picode.
  *
  *  No `--model` unless one is explicitly configured: the fork then inherits
  *  the forked session's own model, which resolves on any machine by
@@ -187,8 +187,8 @@ export function journalForkArgs(sessionFile: string, sessionDir: string, model?:
 
 /** Fork the session into a throwaway run that writes one journal entry.
  *  Fire-and-forget: runs in the background after turn_end/agent_end, the
- *  main thread never pauses on it. */
-export function forkJournalEntry(store: ThreadStore, sessionFile: string, model?: string): void {
+ *  main picode never pauses on it. */
+export function forkJournalEntry(store: PicodeStore, sessionFile: string, model?: string): void {
   // The journal channel is an optional backend extension (PROTOCOL-FORMALISM
   // §5) — on a backend without it there is nowhere to append, so don't pay
   // for the forked model call either.
@@ -201,7 +201,7 @@ export function forkJournalEntry(store: ThreadStore, sessionFile: string, model?
     stdio: ["ignore", "pipe", "pipe"],
   });
   proc.on("error", err => {
-    console.error("[thread] journal fork failed to spawn:", err);
+    console.error("[picode] journal fork failed to spawn:", err);
     fs.rmSync(tmpSes, { recursive: true, force: true });
   });
   proc.stdout!.on("data", (d: Buffer) => {
@@ -219,14 +219,14 @@ export function forkJournalEntry(store: ThreadStore, sessionFile: string, model?
         // is exactly how a misconfigured journal model reads as "journal.md
         // just never appears".
         console.error(
-          `[thread] journal fork produced no entry (exit ${code})${errOut.trim() ? `: ${errOut.trim().slice(0, 300)}` : ""}`,
+          `[picode] journal fork produced no entry (exit ${code})${errOut.trim() ? `: ${errOut.trim().slice(0, 300)}` : ""}`,
         );
         return;
       }
-      const existing = await store.adapter.readJournal?.(store.threadId);
+      const existing = await store.adapter.readJournal?.(store.picodeId);
       if (isDuplicateOfLastEntry(existing, entry)) return;
       const ts = new Date().toISOString().slice(0, 16).replace("T", " ");
-      await store.adapter.appendJournal?.(store.threadId, `\n<!-- ${ts} -->\n${entry}\n`);
+      await store.adapter.appendJournal?.(store.picodeId, `\n<!-- ${ts} -->\n${entry}\n`);
     })();
   });
 }
@@ -258,10 +258,10 @@ export function decideCompaction(
 /** If journal exceeds threshold, summarize oldest entries into one block.
  *  Fire-and-forget. Re-reads journal under lock before write so any
  *  appends that landed during the summarizer fork are preserved. */
-export function compactJournal(store: ThreadStore, sessionFile: string, model?: string): void {
+export function compactJournal(store: PicodeStore, sessionFile: string, model?: string): void {
   if (!store.adapter.appendJournal || !store.adapter.readJournal) return;
   void (async () => {
-    const existing = await store.adapter.readJournal!(store.threadId);
+    const existing = await store.adapter.readJournal!(store.picodeId);
     if (!existing) return;
     const plan = decideCompaction(existing);
     if (!plan) return;
@@ -275,7 +275,7 @@ export function compactJournal(store: ThreadStore, sessionFile: string, model?: 
     let errOut = "";
     const proc = spawn(launch.cmd, launch.args, { stdio: ["ignore", "pipe", "pipe"] });
     proc.on("error", err => {
-      console.error("[thread] journal compaction fork failed to spawn:", err);
+      console.error("[picode] journal compaction fork failed to spawn:", err);
       fs.rmSync(tmpSes, { recursive: true, force: true });
     });
     proc.stdout!.on("data", (d: Buffer) => {
@@ -289,15 +289,15 @@ export function compactJournal(store: ThreadStore, sessionFile: string, model?: 
       const summary = out.trim();
       if (!summary) {
         console.error(
-          `[thread] journal compaction produced no summary (exit ${code})${errOut.trim() ? `: ${errOut.trim().slice(0, 300)}` : ""}`,
+          `[picode] journal compaction produced no summary (exit ${code})${errOut.trim() ? `: ${errOut.trim().slice(0, 300)}` : ""}`,
         );
         return;
       }
       void (async () => {
         // Re-read under lock to catch any appends that landed during fork.
-        await store.adapter.acquireJournalLock?.(store.threadId);
+        await store.adapter.acquireJournalLock?.(store.picodeId);
         try {
-          const fresh = (await store.adapter.readJournal!(store.threadId)) ?? "";
+          const fresh = (await store.adapter.readJournal!(store.picodeId)) ?? "";
           const freshEntries = splitJournalEntries(fresh);
           // Keep the last JOURNAL_COMPACT_KEEP_RECENT of the fresh data so
           // any appends during the fork are preserved.
@@ -305,12 +305,12 @@ export function compactJournal(store: ThreadStore, sessionFile: string, model?: 
           const ts = new Date().toISOString().slice(0, 16).replace("T", " ");
           const compactionEntry = `<!-- COMPACTION ${ts} -->\n${summary}\n`;
           const newContent = compactionEntry + "\n" + keepFromFresh.join("\n") + "\n";
-          await store.adapter.setJournal!(store.threadId, newContent);
+          await store.adapter.setJournal!(store.picodeId, newContent);
           console.log(
-            `[thread] journal compacted: ${freshEntries.length} → ${keepFromFresh.length + 1} entries`,
+            `[picode] journal compacted: ${freshEntries.length} → ${keepFromFresh.length + 1} entries`,
           );
         } finally {
-          await store.adapter.releaseJournalLock?.(store.threadId);
+          await store.adapter.releaseJournalLock?.(store.picodeId);
         }
       })();
     });

@@ -1,5 +1,5 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { ThreadStore } from "./types";
+import type { PicodeStore } from "./types";
 
 /** State transitions that always travel as a group — shared by the tools,
  *  the slash commands, and lifecycle so no call site can leave a hold
@@ -7,7 +7,7 @@ import type { ThreadStore } from "./types";
  *  is a barrier plus client policy, PROTOCOL-FORMALISM.md §10/§12.) */
 
 export async function suspendThread(
-  store: ThreadStore,
+  store: PicodeStore,
   reason: string | null,
   ctx?: ExtensionContext,
 ): Promise<void> {
@@ -15,9 +15,9 @@ export async function suspendThread(
   await store.transition("on-hold", ctx);
 }
 
-/** Returns false when the thread wasn't on hold (nothing to resume). */
+/** Returns false when the picode wasn't on hold (nothing to resume). */
 export async function resumeThread(
-  store: ThreadStore,
+  store: PicodeStore,
   drain: () => Promise<void>,
   ctx?: ExtensionContext,
 ): Promise<boolean> {

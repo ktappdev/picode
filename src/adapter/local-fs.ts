@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { StateFile, Envelope, ThreadSummary } from "../core/types";
+import type { StateFile, Envelope, PicodeSummary } from "../core/types";
 import { PROCESSED_TTL_MS, toSummary } from "../core/types";
 import { ulid } from "../core/ids";
 import type { StorageAdapter, JournalAdapter } from "./types";
@@ -36,7 +36,7 @@ function envelopeFileName(id: string): string {
 
 /** The local-fs binding (PROTOCOL-FORMALISM.md Appendix B):
  *
- *  .thread/threads/<threadId>/
+ *  .picode/picodes/<picodeId>/
  *    state.json        presence + client state
  *    journal.md        journal stream (JournalAdapter extension)
  *    inbox/            one envelope per file, filename = sortable id
@@ -46,7 +46,7 @@ function envelopeFileName(id: string): string {
  *  sees a partial envelope. Drain is sorted readdir → filter due → rename to
  *  processed/ → return. No internal awaits: every method runs its fs calls
  *  synchronously before returning. */
-/** How often drainInbox re-runs the processed/ GC per thread. A one-shot
+/** How often drainInbox re-runs the processed/ GC per picode. A one-shot
  *  flag would let a long-lived process outgrow PROCESSED_TTL_MS forever. */
 const PRUNE_INTERVAL_MS = 60 * 60 * 1000;
 
@@ -75,7 +75,7 @@ export function createLocalFsAdapter(): StorageAdapter & JournalAdapter {
 
   return {
     async configure(baseDir: string) {
-      root = path.join(baseDir, ".thread", "threads");
+      root = path.join(baseDir, ".picode", "picodes");
       fs.mkdirSync(root, { recursive: true });
       // Recover claimed/ messages left by a crashed process (§7.6 at-most-once):
       // move them back to inbox so the next drain re-claims them.
@@ -97,65 +97,65 @@ export function createLocalFsAdapter(): StorageAdapter & JournalAdapter {
       }
     },
 
-    async loadState(threadId: string): Promise<StateFile | undefined> {
-      const f = statePath(threadId);
+    async loadPicodeState(picodeId: string): Promise<StateFile | undefined> {
+      const f = statePath(picodeId);
       if (!fs.existsSync(f)) return undefined;
       try {
         return JSON.parse(fs.readFileSync(f, "utf8")) as StateFile;
       } catch (err) {
-        console.error("[thread] failed to read state.json:", err);
+        console.error("[picode] failed to read state.json:", err);
         return undefined;
       }
     },
 
-    async saveState(threadId: string, state: StateFile) {
-      fs.mkdirSync(threadDir(threadId), { recursive: true });
+    async savePicodeState(picodeId: string, state: StateFile) {
+      fs.mkdirSync(threadDir(picodeId), { recursive: true });
       // Write-temp + rename: presence readers (§8.1) never see a torn file.
-      const tmp = statePath(threadId) + ".tmp";
+      const tmp = statePath(picodeId) + ".tmp";
       fs.writeFileSync(tmp, JSON.stringify(state, null, 2));
-      fs.renameSync(tmp, statePath(threadId));
+      fs.renameSync(tmp, statePath(picodeId));
     },
 
-    async appendJournal(threadId: string, entry: string) {
-      fs.mkdirSync(threadDir(threadId), { recursive: true });
-      await this.acquireJournalLock(threadId);
+    async appendJournal(picodeId: string, entry: string) {
+      fs.mkdirSync(threadDir(picodeId), { recursive: true });
+      await this.acquireJournalLock(picodeId);
       try {
-        fs.appendFileSync(journalPath(threadId), entry);
+        fs.appendFileSync(journalPath(picodeId), entry);
       } finally {
-        await this.releaseJournalLock(threadId);
+        await this.releaseJournalLock(picodeId);
       }
     },
 
-    async setJournal(threadId: string, content: string) {
-      fs.mkdirSync(threadDir(threadId), { recursive: true });
-      await this.acquireJournalLock(threadId);
+    async setJournal(picodeId: string, content: string) {
+      fs.mkdirSync(threadDir(picodeId), { recursive: true });
+      await this.acquireJournalLock(picodeId);
       try {
-        const target = journalPath(threadId);
+        const target = journalPath(picodeId);
         const tmp = target + ".tmp";
         fs.writeFileSync(tmp, content);
         fs.renameSync(tmp, target);
       } finally {
-        await this.releaseJournalLock(threadId);
+        await this.releaseJournalLock(picodeId);
       }
     },
 
-    async deleteJournal(threadId: string) {
-      fs.mkdirSync(threadDir(threadId), { recursive: true });
-      await this.acquireJournalLock(threadId);
+    async deleteJournal(picodeId: string) {
+      fs.mkdirSync(threadDir(picodeId), { recursive: true });
+      await this.acquireJournalLock(picodeId);
       try {
         try {
-          fs.unlinkSync(journalPath(threadId));
+          fs.unlinkSync(journalPath(picodeId));
         } catch {
           // Already gone — fine.
         }
       } finally {
-        await this.releaseJournalLock(threadId);
+        await this.releaseJournalLock(picodeId);
       }
     },
 
-    async acquireJournalLock(threadId: string) {
-      const lockPath = journalLockPath(threadId);
-      fs.mkdirSync(threadDir(threadId), { recursive: true });
+    async acquireJournalLock(picodeId: string) {
+      const lockPath = journalLockPath(picodeId);
+      fs.mkdirSync(threadDir(picodeId), { recursive: true });
       const STALE_MS = 10_000;
       const MAX_RETRIES = 40; // ~2s at 50ms each
       for (let i = 0; i < MAX_RETRIES; i++) {
@@ -190,12 +190,12 @@ export function createLocalFsAdapter(): StorageAdapter & JournalAdapter {
         }
       }
       throw new Error(
-        `Failed to acquire journal lock for thread "${threadId}" after ${MAX_RETRIES} retries.`,
+        `Failed to acquire journal lock for picode "${picodeId}" after ${MAX_RETRIES} retries.`,
       );
     },
 
-    async releaseJournalLock(threadId: string) {
-      const lockPath = journalLockPath(threadId);
+    async releaseJournalLock(picodeId: string) {
+      const lockPath = journalLockPath(picodeId);
       try {
         fs.unlinkSync(lockPath);
       } catch {
@@ -203,20 +203,20 @@ export function createLocalFsAdapter(): StorageAdapter & JournalAdapter {
       }
     },
 
-    async readJournal(threadId: string): Promise<string | undefined> {
-      const f = journalPath(threadId);
+    async readJournal(picodeId: string): Promise<string | undefined> {
+      const f = journalPath(picodeId);
       if (!fs.existsSync(f)) return undefined;
       const content = fs.readFileSync(f, "utf8").trim();
       return content || undefined;
     },
 
-    async listThreads(): Promise<ThreadSummary[]> {
+    async listPcodes(): Promise<PicodeSummary[]> {
       if (!fs.existsSync(root)) return [];
       const ids = fs
         .readdirSync(root, { withFileTypes: true })
         .filter(d => d.isDirectory())
         .map(d => d.name);
-      const out: ThreadSummary[] = [];
+      const out: PicodeSummary[] = [];
       for (const id of ids) {
         const f = statePath(id);
         if (!fs.existsSync(f)) continue;
@@ -230,8 +230,8 @@ export function createLocalFsAdapter(): StorageAdapter & JournalAdapter {
       return out;
     },
 
-    async threadExists(threadId: string): Promise<boolean> {
-      return fs.existsSync(statePath(threadId));
+    async threadExists(picodeId: string): Promise<boolean> {
+      return fs.existsSync(statePath(picodeId));
     },
 
     async enqueueMessage(message: Envelope) {
@@ -248,8 +248,8 @@ export function createLocalFsAdapter(): StorageAdapter & JournalAdapter {
       fs.renameSync(tmp, path.join(dir, fname));
     },
 
-    async drainInbox(threadId: string): Promise<Envelope[]> {
-      const dir = inboxDir(threadId);
+    async drainInbox(picodeId: string): Promise<Envelope[]> {
+      const dir = inboxDir(picodeId);
       const claimedDir = path.join(dir, "claimed");
       const processedDir = path.join(dir, "processed");
       let files: string[];
@@ -264,11 +264,11 @@ export function createLocalFsAdapter(): StorageAdapter & JournalAdapter {
       fs.mkdirSync(claimedDir, { recursive: true });
       fs.mkdirSync(processedDir, { recursive: true });
       // Best-effort GC of the expired backlog, at most once per
-      // PRUNE_INTERVAL_MS per thread, done *before* anything from this
+      // PRUNE_INTERVAL_MS per picode, done *before* anything from this
       // drain is moved in.
-      const last = lastPruned.get(threadId) ?? 0;
+      const last = lastPruned.get(picodeId) ?? 0;
       if (Date.now() - last >= PRUNE_INTERVAL_MS) {
-        lastPruned.set(threadId, Date.now());
+        lastPruned.set(picodeId, Date.now());
         pruneProcessed(processedDir);
       }
       const now = Date.now();
@@ -306,8 +306,8 @@ export function createLocalFsAdapter(): StorageAdapter & JournalAdapter {
       return claimed;
     },
 
-    async finalizeDrain(threadId: string) {
-      const dir = inboxDir(threadId);
+    async finalizeDrain(picodeId: string) {
+      const dir = inboxDir(picodeId);
       const claimedDir = path.join(dir, "claimed");
       const processedDir = path.join(dir, "processed");
       if (!fs.existsSync(claimedDir)) return;
@@ -322,17 +322,17 @@ export function createLocalFsAdapter(): StorageAdapter & JournalAdapter {
       }
     },
 
-    watchInbox(threadId: string, cb: () => void): () => void {
+    watchInbox(picodeId: string, cb: () => void): () => void {
       try {
-        // A thread that has never received a message has no inbox/ dir yet —
+        // A picode that has never received a message has no inbox/ dir yet —
         // fs.watch throws ENOENT on a path that doesn't exist, so create it
-        // first rather than leaving this thread with a silently no-op watch
+        // first rather than leaving this picode with a silently no-op watch
         // (the returned disposer) until its next process restart.
-        fs.mkdirSync(inboxDir(threadId), { recursive: true });
-        const watcher = fs.watch(inboxDir(threadId), cb);
+        fs.mkdirSync(inboxDir(picodeId), { recursive: true });
+        const watcher = fs.watch(inboxDir(picodeId), cb);
         return () => watcher.close();
       } catch (err) {
-        console.error("[thread] failed to watch inbox:", err);
+        console.error("[picode] failed to watch inbox:", err);
         return () => {};
       }
     },

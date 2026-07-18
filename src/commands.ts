@@ -1,38 +1,38 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import type { ThreadStore } from "./core/types";
+import type { PicodeStore } from "./core/types";
 import { formatThreadLine } from "./core/format";
-import { resumeThread, suspendThread } from "./core/thread-ops";
+import { resumeThread, suspendThread } from "./core/picode-ops";
 import type { Inbox } from "./inbox";
 import { checkBodySize } from "./tools/messaging";
 import { existsSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 
 /** Slash commands: the human operator's view of the same operations the
- *  thread_* tools give the model. */
+ *  picode_* tools give the model. */
 
 const NOT_ACTIVE =
-  "This session hasn't opted into picode — restart pi with --thread-id <id> to activate.";
+  "This session hasn't opted into picode — restart pi with --picode-id <id> to activate.";
 
-/** store.threadId is only ever set by state.ts's init(), which lifecycle.ts
+/** store.picodeId is only ever set by state.ts's init(), which lifecycle.ts
  *  skips entirely when the opt-in gate is closed — so an empty id means this
  *  session never activated, not just "hasn't picked a name yet". */
-function checkActive(store: ThreadStore, ctx: ExtensionCommandContext): boolean {
-  if (store.threadId) return true;
+function checkActive(store: PicodeStore, ctx: ExtensionCommandContext): boolean {
+  if (store.picodeId) return true;
   ctx.ui.notify(NOT_ACTIVE, "warning");
   return false;
 }
 
-export function registerCommands(pi: ExtensionAPI, store: ThreadStore, inbox: Inbox) {
-  pi.registerCommand("/thread-status", {
-    description: "Show this thread's own state and latest journal entry",
+export function registerCommands(pi: ExtensionAPI, store: PicodeStore, inbox: Inbox) {
+  pi.registerCommand("/picode-status", {
+    description: "Show this picode's own state and latest journal entry",
     async handler(_args, ctx) {
       if (!checkActive(store, ctx)) return;
       try {
         await ctx.waitForIdle();
-        const journal = await store.readJournal(store.threadId);
+        const journal = await store.readJournal(store.picodeId);
         const lines = journal ? journal.split("\n").slice(-12).join("\n") : "(no journal yet)";
         ctx.ui.notify(
-          `Id: ${store.threadId} | State: ${store.state} | Status: ${store.status} | Obligations: ${store.obligations.length} | Owed: ${store.owed.length} | Barriers: ${store.barriers.length}\n\n${lines}`,
+          `Id: ${store.picodeId} | State: ${store.state} | Status: ${store.status} | Obligations: ${store.obligations.length} | Owed: ${store.owed.length} | Barriers: ${store.barriers.length}\n\n${lines}`,
           "info",
         );
       } catch (e) {
@@ -41,9 +41,9 @@ export function registerCommands(pi: ExtensionAPI, store: ThreadStore, inbox: In
     },
   });
 
-  pi.registerCommand("/thread-journal", {
+  pi.registerCommand("/picode-journal", {
     description:
-      "View, trim, clear, or compact the journal: /thread-journal [status|tail N|trim N|clear|compact]",
+      "View, trim, clear, or compact the journal: /picode-journal [status|tail N|trim N|clear|compact]",
     async handler(args, ctx) {
       if (!checkActive(store, ctx)) return;
       try {
@@ -51,7 +51,7 @@ export function registerCommands(pi: ExtensionAPI, store: ThreadStore, inbox: In
         const trimmed = args.trim();
         const subcommand = trimmed.split(/\s+/)[0] ?? "";
 
-        const journal = await store.readJournal(store.threadId);
+        const journal = await store.readJournal(store.picodeId);
         const entries = journal ? journal.split(/\n(?=<!--)/).filter(Boolean) : [];
 
         // No args → last 12 entries
@@ -76,7 +76,7 @@ export function registerCommands(pi: ExtensionAPI, store: ThreadStore, inbox: In
         if (subcommand === "tail") {
           const n = parseInt(trimmed.split(/\s+/)[1] ?? "12", 10);
           if (!Number.isFinite(n) || n < 1) {
-            ctx.ui.notify("Usage: /thread-journal tail N", "warning");
+            ctx.ui.notify("Usage: /picode-journal tail N", "warning");
             return;
           }
           const lines = entries.slice(-n).join("\n") || "(no journal yet)";
@@ -87,7 +87,7 @@ export function registerCommands(pi: ExtensionAPI, store: ThreadStore, inbox: In
         if (subcommand === "trim") {
           const n = parseInt(trimmed.split(/\s+/)[1] ?? "100", 10);
           if (!Number.isFinite(n) || n < 1) {
-            ctx.ui.notify("Usage: /thread-journal trim N", "warning");
+            ctx.ui.notify("Usage: /picode-journal trim N", "warning");
             return;
           }
           if (entries.length <= n) {
@@ -97,14 +97,14 @@ export function registerCommands(pi: ExtensionAPI, store: ThreadStore, inbox: In
           const kept = entries.slice(-n);
           const newContent = kept.join("\n") + "\n";
           // setJournal acquires its own lock internally — no double-acquire.
-          await store.adapter.setJournal?.(store.threadId, newContent);
+          await store.adapter.setJournal?.(store.picodeId, newContent);
           ctx.ui.notify(`Trimmed: ${entries.length} → ${kept.length} entries.`, "info");
           return;
         }
 
         if (subcommand === "clear") {
           // deleteJournal acquires its own lock internally.
-          await store.adapter.deleteJournal?.(store.threadId);
+          await store.adapter.deleteJournal?.(store.picodeId);
           ctx.ui.notify("Journal deleted.", "info");
           return;
         }
@@ -120,19 +120,19 @@ export function registerCommands(pi: ExtensionAPI, store: ThreadStore, inbox: In
           return;
         }
 
-        ctx.ui.notify("Usage: /thread-journal [status|tail N|trim N|clear|compact]", "warning");
+        ctx.ui.notify("Usage: /picode-journal [status|tail N|trim N|clear|compact]", "warning");
       } catch (e) {
         ctx.ui.notify(e instanceof Error ? e.message : String(e), "error");
       }
     },
   });
 
-  pi.registerCommand("/thread-list", {
+  pi.registerCommand("/picode-list", {
     description: "List all known threads sharing this workspace",
     async handler(_args, ctx) {
       if (!checkActive(store, ctx)) return;
       try {
-        const threads = await store.listThreads();
+        const threads = await store.listPcodes();
         if (!threads.length) {
           ctx.ui.notify("(no other threads found)", "info");
           return;
@@ -144,22 +144,22 @@ export function registerCommands(pi: ExtensionAPI, store: ThreadStore, inbox: In
     },
   });
 
-  pi.registerCommand("/thread-send", {
-    description: "Send a note to another thread: /thread-send <to> <body...>",
+  pi.registerCommand("/picode-send", {
+    description: "Send a note to another picode: /picode-send <to> <body...>",
     async handler(args, ctx) {
       if (!checkActive(store, ctx)) return;
       const parts = args.trim().split(/\s+/);
       const [to, ...bodyParts] = parts;
       const body = bodyParts.join(" ");
       if (!to || !body) {
-        ctx.ui.notify("Usage: /thread-send <to> <body...>", "warning");
+        ctx.ui.notify("Usage: /picode-send <to> <body...>", "warning");
         return;
       }
-      if (to === store.threadId) {
+      if (to === store.picodeId) {
         ctx.ui.notify("Cannot send to self.", "warning");
         return;
       }
-      // Same body-size guard as the thread_send tool: /thread-send is the
+      // Same body-size guard as the picode_send tool: /picode-send is the
       // human-equivalent entry point and must not bypass the 256KB cap
       // that protects the inbox dir from runaway writes.
       const sizeError = checkBodySize(body);
@@ -168,19 +168,19 @@ export function registerCommands(pi: ExtensionAPI, store: ThreadStore, inbox: In
         return;
       }
       try {
-        const targets = (await inbox.resolveTargets(to)).filter(t => t !== store.threadId);
+        const targets = (await inbox.resolveTargets(to)).filter(t => t !== store.picodeId);
         if (!targets.length) {
           ctx.ui.notify(`No matching targets for "${to}".`, "warning");
           return;
         }
         const missing = new Set(await inbox.findMissingTargets(targets));
-        // Operator sends are urgent by default — a human steering a thread
+        // Operator sends are urgent by default — a human steering a picode
         // wants it seen at the next opening, not when the target goes idle.
         const sent = await inbox.sendToMany(targets, body, { urgency: "high" });
         for (const s of sent) {
           const unseen = missing.has(s.to);
           ctx.ui.notify(
-            `Sent to ${s.to}. id=${s.id} (${s.delivered}).${unseen ? ` Warning: "${s.to}" has never been seen in this workspace — delivers only if a thread with that id starts.` : ""}`,
+            `Sent to ${s.to}. id=${s.id} (${s.delivered}).${unseen ? ` Warning: "${s.to}" has never been seen in this workspace — delivers only if a picode with that id starts.` : ""}`,
             unseen ? "warning" : "info",
           );
         }
@@ -190,14 +190,14 @@ export function registerCommands(pi: ExtensionAPI, store: ThreadStore, inbox: In
     },
   });
 
-  pi.registerCommand("/thread-suspend", {
-    description: "Mark this thread On Hold: /thread-suspend [reason]",
+  pi.registerCommand("/picode-suspend", {
+    description: "Mark this picode On Hold: /picode-suspend [reason]",
     async handler(args, ctx) {
       if (!checkActive(store, ctx)) return;
       try {
         await suspendThread(store, args.trim() || null, ctx);
         ctx.ui.notify(
-          `Thread suspended (On Hold)${store.holdReason ? `: ${store.holdReason}` : ""}. Inbox queues until resume.`,
+          `Picode suspended (On Hold)${store.holdReason ? `: ${store.holdReason}` : ""}. Inbox queues until resume.`,
           "info",
         );
       } catch (e) {
@@ -206,8 +206,8 @@ export function registerCommands(pi: ExtensionAPI, store: ThreadStore, inbox: In
     },
   });
 
-  pi.registerCommand("/thread-resume", {
-    description: "Resume this thread from On Hold back to Open",
+  pi.registerCommand("/picode-resume", {
+    description: "Resume this picode from On Hold back to Open",
     async handler(_args, ctx) {
       if (!checkActive(store, ctx)) return;
       try {
@@ -215,14 +215,14 @@ export function registerCommands(pi: ExtensionAPI, store: ThreadStore, inbox: In
           ctx.ui.notify(`Not on hold (state is ${store.state}).`, "warning");
           return;
         }
-        ctx.ui.notify("Thread resumed (Open). Queued inbox drained.", "info");
+        ctx.ui.notify("Picode resumed (Open). Queued inbox drained.", "info");
       } catch (e) {
         ctx.ui.notify(e instanceof Error ? e.message : String(e), "error");
       }
     },
   });
 
-  pi.registerCommand("/thread-reset", {
+  pi.registerCommand("/picode-reset", {
     description:
       "Clear all obligations, owed replies, and barriers across all threads. Use before shutdown for a clean slate.",
     async handler(args, ctx) {
@@ -230,20 +230,20 @@ export function registerCommands(pi: ExtensionAPI, store: ThreadStore, inbox: In
       try {
         await ctx.waitForIdle();
         const force = args.trim() === "--force";
-        const threads = await store.listThreads();
+        const threads = await store.listPcodes();
         const cleared: string[] = [];
         const skipped: { id: string; reason: string }[] = [];
 
-        for (const thread of threads) {
-          // Never reset the current thread unless --force is passed
-          if (thread.id === store.threadId && !force) {
-            skipped.push({ id: thread.id, reason: "current thread (use --force to include)" });
+        for (const picode of threads) {
+          // Never reset the current picode unless --force is passed
+          if (picode.id === store.picodeId && !force) {
+            skipped.push({ id: picode.id, reason: "current picode (use --force to include)" });
             continue;
           }
 
-          const state = await store.adapter.loadState(thread.id);
+          const state = await store.adapter.loadPicodeState(picode.id);
           if (!state) {
-            skipped.push({ id: thread.id, reason: "no state.json" });
+            skipped.push({ id: picode.id, reason: "no state.json" });
             continue;
           }
 
@@ -252,7 +252,7 @@ export function registerCommands(pi: ExtensionAPI, store: ThreadStore, inbox: In
           const barriers = state.barriers?.length ?? 0;
 
           if (obligations === 0 && owed === 0 && barriers === 0) {
-            skipped.push({ id: thread.id, reason: "no debts to clear" });
+            skipped.push({ id: picode.id, reason: "no debts to clear" });
             continue;
           }
 
@@ -262,19 +262,19 @@ export function registerCommands(pi: ExtensionAPI, store: ThreadStore, inbox: In
           state.barriers = [];
           state.updatedAt = new Date().toISOString();
 
-          await store.adapter.saveState(thread.id, state);
+          await store.adapter.savePicodeState(picode.id, state);
           cleared.push(
-            `${thread.id} (obligations: ${obligations}, owed: ${owed}, barriers: ${barriers})`,
+            `${picode.id} (obligations: ${obligations}, owed: ${owed}, barriers: ${barriers})`,
           );
         }
 
         const lines = [];
         if (cleared.length > 0) {
-          lines.push(`Cleared ${cleared.length} thread(s):`);
+          lines.push(`Cleared ${cleared.length} picode(s):`);
           lines.push(...cleared.map(id => `  ${id}`));
         }
         if (skipped.length > 0) {
-          lines.push(`Skipped ${skipped.length} thread(s):`);
+          lines.push(`Skipped ${skipped.length} picode(s):`);
           lines.push(...skipped.map(s => `  ${s.id}: ${s.reason}`));
         }
         if (lines.length === 0) {
@@ -288,11 +288,11 @@ export function registerCommands(pi: ExtensionAPI, store: ThreadStore, inbox: In
     },
   });
 
-  pi.registerCommand("/thread-models", {
-    description: "Show or set worker models: /thread-models [role model] (--reset to clear)",
+  pi.registerCommand("/picode-models", {
+    description: "Show or set worker models: /picode-models [role model] (--reset to clear)",
     async handler(args, ctx) {
       if (!checkActive(store, ctx)) return;
-      const modelsPath = join(ctx.cwd, ".thread", "models.json");
+      const modelsPath = join(ctx.cwd, ".picode", "models.json");
       const trimmed = args.trim();
 
       // --reset: delete file, notify defaults
@@ -300,7 +300,7 @@ export function registerCommands(pi: ExtensionAPI, store: ThreadStore, inbox: In
         if (existsSync(modelsPath)) {
           unlinkSync(modelsPath);
         }
-        ctx.ui.notify("Cleared .thread/models.json — defaults restored.", "info");
+        ctx.ui.notify("Cleared .picode/models.json — defaults restored.", "info");
         return;
       }
 
@@ -311,13 +311,13 @@ export function registerCommands(pi: ExtensionAPI, store: ThreadStore, inbox: In
           try {
             models = JSON.parse(readFileSync(modelsPath, "utf8")) as Record<string, string>;
           } catch {
-            ctx.ui.notify(`.thread/models.json exists but is invalid JSON.`, "error");
+            ctx.ui.notify(`.picode/models.json exists but is invalid JSON.`, "error");
             return;
           }
         }
         const entries = Object.entries(models);
         if (!entries.length) {
-          ctx.ui.notify("No models configured (.thread/models.json absent or empty).", "info");
+          ctx.ui.notify("No models configured (.picode/models.json absent or empty).", "info");
           return;
         }
         const lines = entries.map(([role, model]) => `  ${role}: ${model}`).join("\n");
@@ -328,7 +328,7 @@ export function registerCommands(pi: ExtensionAPI, store: ThreadStore, inbox: In
       // role + model → set and persist
       const parts = trimmed.split(/\s+/);
       if (parts.length < 2) {
-        ctx.ui.notify("Usage: /thread-models [role model] (--reset to clear)", "warning");
+        ctx.ui.notify("Usage: /picode-models [role model] (--reset to clear)", "warning");
         return;
       }
       const [role, model] = parts;
@@ -338,7 +338,7 @@ export function registerCommands(pi: ExtensionAPI, store: ThreadStore, inbox: In
           models = JSON.parse(readFileSync(modelsPath, "utf8")) as Record<string, string>;
         } catch {
           ctx.ui.notify(
-            `.thread/models.json exists but is invalid JSON — not overwriting.`,
+            `.picode/models.json exists but is invalid JSON — not overwriting.`,
             "error",
           );
           return;
@@ -347,7 +347,7 @@ export function registerCommands(pi: ExtensionAPI, store: ThreadStore, inbox: In
       models[role] = model;
       try {
         writeFileSync(modelsPath, JSON.stringify(models, null, 2));
-        ctx.ui.notify(`Set ${role} → ${model} in .thread/models.json.`, "info");
+        ctx.ui.notify(`Set ${role} → ${model} in .picode/models.json.`, "info");
       } catch (e) {
         ctx.ui.notify(e instanceof Error ? e.message : String(e), "error");
       }

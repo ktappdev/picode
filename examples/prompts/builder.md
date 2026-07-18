@@ -1,4 +1,4 @@
-# Copy to .thread/prompts/builder.md in your project to override
+# Copy to .picode/prompts/builder.md in your project to override
 
 ### Subtype: Builder
 

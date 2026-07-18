@@ -1,18 +1,18 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import type { ThreadStore } from "../core/types";
-import { resumeThread, suspendThread } from "../core/thread-ops";
+import type { PicodeStore } from "../core/types";
+import { resumeThread, suspendThread } from "../core/picode-ops";
 import type { Inbox } from "../inbox";
 
 /** Self-control: pausing (On Hold) and resuming. Client-local (Layer 2) —
  *  not protocol surface (§14/A.5). Scheduled wakes are ordinary sends with
  *  deliverAfterSeconds (§12.2), not a control tool. */
-export function registerControlTools(pi: ExtensionAPI, store: ThreadStore, inbox: Inbox) {
+export function registerControlTools(pi: ExtensionAPI, store: PicodeStore, inbox: Inbox) {
   pi.registerTool({
-    name: "thread_suspend",
-    label: "Thread Suspend",
+    name: "picode_suspend",
+    label: "Picode Suspend",
     description:
-      "Mark this thread On Hold. Cooperative — does not stop the process, just records suspended state for a human/harness to act on. Inbox messages queue until resume.",
+      "Mark this picode On Hold. Cooperative — does not stop the process, just records suspended state for a human/harness to act on. Inbox messages queue until resume.",
     parameters: Type.Object({
       reason: Type.Optional(Type.String()),
     }),
@@ -22,7 +22,7 @@ export function registerControlTools(pi: ExtensionAPI, store: ThreadStore, inbox
         content: [
           {
             type: "text" as const,
-            text: `Thread suspended (On Hold)${params.reason ? `: ${params.reason}` : ""}. Inbox messages queue until resume.`,
+            text: `Picode suspended (On Hold)${params.reason ? `: ${params.reason}` : ""}. Inbox messages queue until resume.`,
           },
         ],
         details: { ok: true, reason: params.reason ?? null },
@@ -31,9 +31,9 @@ export function registerControlTools(pi: ExtensionAPI, store: ThreadStore, inbox
   });
 
   pi.registerTool({
-    name: "thread_resume",
-    label: "Thread Resume",
-    description: "Resume this thread from On Hold back to Open.",
+    name: "picode_resume",
+    label: "Picode Resume",
+    description: "Resume this picode from On Hold back to Open.",
     parameters: Type.Object({}),
     async execute(_id, _params, _signal, _onUpdate, ctx) {
       if (!(await resumeThread(store, () => inbox.drainInbox(ctx), ctx))) {
@@ -48,7 +48,7 @@ export function registerControlTools(pi: ExtensionAPI, store: ThreadStore, inbox
         };
       }
       return {
-        content: [{ type: "text" as const, text: "Thread resumed (Open). Queued inbox drained." }],
+        content: [{ type: "text" as const, text: "Picode resumed (Open). Queued inbox drained." }],
         details: { ok: true },
       };
     },

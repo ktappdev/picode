@@ -7,7 +7,7 @@
     {
       "name": "postbox",
       "source": "./claude",
-      "description": "Postbox thread membership for Claude Code: MCP tools + push-delivery hooks over the shared .thread/ store."
+      "description": "Postbox picode membership for Claude Code: MCP tools + push-delivery hooks over the shared .picode/ store."
     }
   ]
 }

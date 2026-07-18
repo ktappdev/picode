@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// thread-cli.mjs — zero-dependency CLI to monitor and steer a multi-agent thread system.
+// picode-cli.mjs — zero-dependency CLI to monitor and steer a multi-agent picode system.
 // A C1 postbox actor (PROTOCOL-FORMALISM.md §2.2): speaks the local-fs
 // binding (Appendix B) directly — no extension required on either side.
 import fs from "node:fs";
@@ -11,20 +11,20 @@ import { setTimeout } from "node:timers";
 const STALE_MS = 60000;
 
 function usage() {
-  return `thread-cli.mjs — monitor and steer a multi-agent thread system
+  return `picode-cli.mjs — monitor and steer a multi-agent picode system
 
 Usage:
-  thread-cli.mjs <command> [args] [--dir <path>]
+  picode-cli.mjs <command> [args] [--dir <path>]
 
 Commands:
-  list                       Show a table of all threads in the workspace
+  list                       Show a table of all picodes in the workspace
     --json                     Print raw JSON array instead of a table
 
-  status <id>                Full coordination state of one thread: obligations,
+  status <id>                Full coordination state of one picode: obligations,
                              owed replies, barriers, pending inbox, last journal entry
     --json                     Print raw state.json + pending inbox as JSON
 
-  send <to> <body...>        Send an envelope into a thread's inbox
+  send <to> <body...>        Send an envelope into a picode's inbox
     --from <id>                 Sender id (default: "user")
     --re <envelopeId>           Reply correlation: settles the debt on that id
     --expects                   Ask for a reply (the receiver records an owed reply)
@@ -32,36 +32,36 @@ Commands:
                                 should be seen at the target's next opening)
     --deliver-after <seconds>   Hold the envelope for N seconds before delivery
     --expires-in <seconds>      Discard undelivered after N seconds (time-sensitive notes)
-    Use "<to>" = "*" to fan out to every thread except --from.
+    Use "<to>" = "*" to fan out to every picode except --from.
 
-  inbox <id>                 Show pending and recent processed messages for a thread
+  inbox <id>                 Show pending and recent processed messages for a picode
 
-  tail <id>                  Follow a thread's state/journal/inbox changes live (Ctrl-C to stop)
+  tail <id>                  Follow a picode's state/journal/inbox changes live (Ctrl-C to stop)
 
-  watch                      Live coordination board: thread table, obligations,
+  watch                      Live coordination board: picode table, obligations,
                              owed replies, barriers, queued inbox (Ctrl-C to stop)
 
-  delete <id...>             Delete one or more threads (removes .thread/threads/<id>)
-    --all                       Delete every thread (requires --yes)
-    --stale                     Delete only threads reported stopped/stale
-    --force                     Also delete threads that look live (status=running)
-    --yes                       Required to confirm deleting more than one thread
+  delete <id...>             Delete one or more picodes (removes .picode/picodes/<id>)
+    --all                       Delete every picode (requires --yes)
+    --stale                     Delete only picodes reported stopped/stale
+    --force                     Also delete picodes that look live (status=running)
+    --yes                       Required to confirm deleting more than one picode
 
 Global flags:
   --dir <path>               Workspace root (default: current directory)
   --help, -h                 Show this help
 
 Examples:
-  thread-cli.mjs list --dir /path/to/workspace
-  thread-cli.mjs status link
-  thread-cli.mjs send link "please pause" --from user
-  thread-cli.mjs send link "what's your ETA?" --expects
-  thread-cli.mjs send link "here you go" --re link/01ABC...
-  thread-cli.mjs inbox link
-  thread-cli.mjs tail link
-  thread-cli.mjs watch
-  thread-cli.mjs delete link
-  thread-cli.mjs delete --stale --yes
+  picode-cli.mjs list --dir /path/to/workspace
+  picode-cli.mjs status link
+  picode-cli.mjs send link "please pause" --from user
+  picode-cli.mjs send link "what's your ETA?" --expects
+  picode-cli.mjs send link "here you go" --re link/01ABC...
+  picode-cli.mjs inbox link
+  picode-cli.mjs tail link
+  picode-cli.mjs watch
+  picode-cli.mjs delete link
+  picode-cli.mjs delete --stale --yes
 `;
 }
 
@@ -102,8 +102,8 @@ function parseArgs(argv) {
   return args;
 }
 
-function threadsDir(dir) {
-  return path.join(dir, ".thread", "threads");
+function picodesDir(dir) {
+  return path.join(dir, ".picode", "picodes");
 }
 
 function warn(msg) {
@@ -121,8 +121,8 @@ function readJsonSafe(file) {
   }
 }
 
-function listThreadIds(dir) {
-  const base = threadsDir(dir);
+function listPicodeIds(dir) {
+  const base = picodesDir(dir);
   let entries;
   try {
     entries = fs.readdirSync(base, { withFileTypes: true });
@@ -136,8 +136,8 @@ function listThreadIds(dir) {
     .sort();
 }
 
-function loadThreadState(dir, id) {
-  const stateFile = path.join(threadsDir(dir), id, "state.json");
+function loadPicodeState(dir, id) {
+  const stateFile = path.join(picodesDir(dir), id, "state.json");
   const state = readJsonSafe(stateFile);
   if (state === undefined) return null;
   if (state === null) return null;
@@ -145,7 +145,7 @@ function loadThreadState(dir, id) {
 }
 
 function countInboxPending(dir, id) {
-  const inboxDir = path.join(threadsDir(dir), id, "inbox");
+  const inboxDir = path.join(picodesDir(dir), id, "inbox");
   try {
     return fs.readdirSync(inboxDir).filter(f => f.endsWith(".json")).length;
   } catch {
@@ -189,13 +189,13 @@ function truncate(str, n) {
   return str.length > n ? str.slice(0, n) : str;
 }
 
-function collectThreads(dir) {
-  const ids = listThreadIds(dir);
+function collectPicodes(dir) {
+  const ids = listPicodeIds(dir);
   const rows = [];
   for (const id of ids) {
-    const state = loadThreadState(dir, id);
+    const state = loadPicodeState(dir, id);
     if (!state) {
-      warn(`skipping thread "${id}": missing or corrupt state.json`);
+      warn(`skipping picode "${id}": missing or corrupt state.json`);
       continue;
     }
     rows.push({
@@ -256,7 +256,7 @@ function renderTable(rows) {
 }
 
 function cmdList(args) {
-  const rows = collectThreads(args.dir);
+  const rows = collectPicodes(args.dir);
   if (args.json) {
     process.stdout.write(
       JSON.stringify(
@@ -268,7 +268,7 @@ function cmdList(args) {
     return 0;
   }
   if (rows.length === 0) {
-    process.stdout.write("No threads found.\n");
+    process.stdout.write("No picodes found.\n");
     return 0;
   }
   process.stdout.write(renderTable(rows));
@@ -278,15 +278,15 @@ function cmdList(args) {
 function cmdStatus(args) {
   const [id] = args._;
   if (!id) {
-    process.stderr.write("usage: thread-cli.mjs status <id>\n");
+    process.stderr.write("usage: picode-cli.mjs status <id>\n");
     return 1;
   }
-  const state = loadThreadState(args.dir, id);
+  const state = loadPicodeState(args.dir, id);
   if (!state) {
-    process.stderr.write(`error: thread "${id}" not found\n`);
+    process.stderr.write(`error: picode "${id}" not found\n`);
     return 2;
   }
-  const pending = readInboxMessages(path.join(threadsDir(args.dir), id, "inbox"));
+  const pending = readInboxMessages(path.join(picodesDir(args.dir), id, "inbox"));
   if (args.json) {
     process.stdout.write(JSON.stringify({ ...state, inboxPending: pending }, null, 2) + "\n");
     return 0;
@@ -306,13 +306,13 @@ function cmdStatus(args) {
     for (const it of items) lines.push("  " + render(it));
   };
   section(
-    "Obligations (replies owed TO this thread)",
+    "Obligations (replies owed TO this picode)",
     state.obligations ?? [],
     o =>
       `request to ${o.to} #${o.id} "${o.summary ?? ""}" (${relTime(o.sentAt)}${o.deadline ? `, due ${dueIn(o.deadline)}` : ""}${o.nudged ? ", reminded" : ""})`,
   );
   section(
-    "Owed replies (this thread OWES)",
+    "Owed replies (this picode OWES)",
     state.owed ?? [],
     o => `reply to ${o.from} for #${o.id} "${o.summary ?? ""}" (${relTime(o.receivedAt)})`,
   );
@@ -326,7 +326,7 @@ function cmdStatus(args) {
 
   try {
     const journal = fs
-      .readFileSync(path.join(threadsDir(args.dir), id, "journal.md"), "utf8")
+      .readFileSync(path.join(picodesDir(args.dir), id, "journal.md"), "utf8")
       .trim();
     const entries = journal.split(/\n(?=<!--)/).filter(Boolean);
     const last = entries[entries.length - 1];
@@ -358,9 +358,9 @@ function ulid(now = Date.now()) {
 
 /** Appendix B enqueue: write to inbox.tmp/ staging, rename into inbox/ —
  *  atomic on POSIX, so a reader never sees a partial envelope. */
-function writeMessageAtomic(threadDir, message) {
-  const inboxDir = path.join(threadDir, "inbox");
-  const staging = path.join(threadDir, "inbox.tmp");
+function writeMessageAtomic(picodeDir, message) {
+  const inboxDir = path.join(picodeDir, "inbox");
+  const staging = path.join(picodeDir, "inbox.tmp");
   fs.mkdirSync(inboxDir, { recursive: true });
   fs.mkdirSync(staging, { recursive: true });
   const tail = message.id.includes("/")
@@ -377,7 +377,7 @@ function writeMessageAtomic(threadDir, message) {
 function cmdSend(args) {
   const [to, ...bodyParts] = args._;
   if (!to || bodyParts.length === 0) {
-    process.stderr.write("usage: thread-cli.mjs send <to> <body...>\n");
+    process.stderr.write("usage: picode-cli.mjs send <to> <body...>\n");
     return 1;
   }
   if (args.urgency && args.urgency !== "high" && args.urgency !== "low") {
@@ -387,7 +387,7 @@ function cmdSend(args) {
   const from = args.from ?? "user";
   const body = bodyParts.join(" ");
   const sentAt = new Date().toISOString();
-  // Operator sends default to high urgency: a human steering a thread wants
+  // Operator sends default to high urgency: a human steering a picode wants
   // it seen at the target's next opening, not when it goes idle.
   const urgency = args.urgency ?? "high";
   const deliverAfter =
@@ -399,7 +399,7 @@ function cmdSend(args) {
       ? new Date(Date.now() + args.expiresIn * 1000).toISOString()
       : undefined;
 
-  const base = threadsDir(args.dir);
+  const base = picodesDir(args.dir);
   let targets;
   if (to === "*") {
     let entries;
@@ -413,7 +413,7 @@ function cmdSend(args) {
     }
     targets = entries.filter(id => id !== from);
     if (targets.length === 0) {
-      process.stdout.write("No target threads found for fan-out.\n");
+      process.stdout.write("No target picodes found for fan-out.\n");
       return 0;
     }
   } else {
@@ -421,10 +421,10 @@ function cmdSend(args) {
   }
 
   for (const targetId of targets) {
-    const threadDir = path.join(base, targetId);
-    const stateFile = path.join(threadDir, "state.json");
+    const picodeDir = path.join(base, targetId);
+    const stateFile = path.join(picodeDir, "state.json");
     if (!fs.existsSync(stateFile)) {
-      warn(`thread "${targetId}" has no state.json (unknown thread), sending anyway`);
+      warn(`picode "${targetId}" has no state.json (unknown picode), sending anyway`);
     }
     const message = {
       id: `${from}/${ulid()}`,
@@ -438,7 +438,7 @@ function cmdSend(args) {
       ...(deliverAfter ? { deliverAfter } : {}),
       ...(expiresAt ? { expiresAt } : {}),
     };
-    const file = writeMessageAtomic(threadDir, message);
+    const file = writeMessageAtomic(picodeDir, message);
     process.stdout.write(
       `sent from ${from} to ${targetId} [#${message.id}]${args.re ? ` re #${args.re}` : ""}${args.expects ? " (expects reply)" : ""}${deliverAfter ? ` (holds until ${deliverAfter})` : ""} -> ${file}\n`,
     );
@@ -474,16 +474,16 @@ function formatMsgLine(m, bodyLen) {
 function cmdInbox(args) {
   const [id] = args._;
   if (!id) {
-    process.stderr.write("usage: thread-cli.mjs inbox <id>\n");
+    process.stderr.write("usage: picode-cli.mjs inbox <id>\n");
     return 1;
   }
-  const threadDir = path.join(threadsDir(args.dir), id);
-  if (!fs.existsSync(threadDir)) {
-    process.stderr.write(`error: thread "${id}" not found\n`);
+  const picodeDir = path.join(picodesDir(args.dir), id);
+  if (!fs.existsSync(picodeDir)) {
+    process.stderr.write(`error: picode "${id}" not found\n`);
     return 2;
   }
-  const pending = readInboxMessages(path.join(threadDir, "inbox"));
-  const processed = readInboxMessages(path.join(threadDir, "inbox", "processed"));
+  const pending = readInboxMessages(path.join(picodeDir, "inbox"));
+  const processed = readInboxMessages(path.join(picodeDir, "inbox", "processed"));
 
   process.stdout.write(`Pending (${pending.length}):\n`);
   if (pending.length === 0) process.stdout.write("  (none)\n");
@@ -510,12 +510,12 @@ function setupSigintExit() {
 async function cmdTail(args) {
   const [id] = args._;
   if (!id) {
-    process.stderr.write("usage: thread-cli.mjs tail <id>\n");
+    process.stderr.write("usage: picode-cli.mjs tail <id>\n");
     return 1;
   }
   setupSigintExit();
-  const threadDir = path.join(threadsDir(args.dir), id);
-  const journalFile = path.join(threadDir, "journal.md");
+  const picodeDir = path.join(picodesDir(args.dir), id);
+  const journalFile = path.join(picodeDir, "journal.md");
   let lastState = null;
   let lastJournalLen = -1;
   let seenInbox = new Set();
@@ -523,9 +523,9 @@ async function cmdTail(args) {
   let notedMissing = false;
 
   for (;;) {
-    if (!fs.existsSync(threadDir)) {
+    if (!fs.existsSync(picodeDir)) {
       if (!notedMissing) {
-        process.stdout.write(`waiting for thread "${id}" to appear...\n`);
+        process.stdout.write(`waiting for picode "${id}" to appear...\n`);
         notedMissing = true;
       }
       await sleep(1000);
@@ -533,7 +533,7 @@ async function cmdTail(args) {
     }
     notedMissing = false;
 
-    const state = loadThreadState(args.dir, id);
+    const state = loadPicodeState(args.dir, id);
     if (state) {
       if (lastState) {
         if (state.state !== lastState.state) {
@@ -571,7 +571,7 @@ async function cmdTail(args) {
     }
 
     for (const sub of ["inbox", path.join("inbox", "processed")]) {
-      const dirPath = path.join(threadDir, sub);
+      const dirPath = path.join(picodeDir, sub);
       let files;
       try {
         files = fs.readdirSync(dirPath).filter(f => f.endsWith(".json"));
@@ -593,7 +593,7 @@ async function cmdTail(args) {
 }
 
 function collectObligations(dir) {
-  const rows = collectThreads(dir);
+  const rows = collectPicodes(dir);
   const obligations = [];
   for (const r of rows) {
     const obs = Array.isArray(r.raw.obligations) ? r.raw.obligations : [];
@@ -607,9 +607,9 @@ function collectObligations(dir) {
 async function cmdWatch(args) {
   setupSigintExit();
   for (;;) {
-    const rows = collectThreads(args.dir);
+    const rows = collectPicodes(args.dir);
     let out = "\x1b[2J\x1b[H";
-    out += rows.length ? renderTable(rows) : "No threads found.\n";
+    out += rows.length ? renderTable(rows) : "No picodes found.\n";
 
     const owed = [];
     const barriers = [];
@@ -618,7 +618,7 @@ async function cmdWatch(args) {
       for (const o of r.raw.owed ?? []) owed.push({ owner: r.id, ...o });
       for (const b of r.raw.barriers ?? []) barriers.push({ owner: r.id, ...b });
       if (r.inbox > 0) {
-        for (const m of readInboxMessages(path.join(threadsDir(args.dir), r.id, "inbox"))) {
+        for (const m of readInboxMessages(path.join(picodesDir(args.dir), r.id, "inbox"))) {
           queued.push(m);
         }
       }
@@ -659,10 +659,10 @@ async function cmdWatch(args) {
 function cmdDelete(args) {
   const ids = args._;
   if (!args.all && !args.stale && ids.length === 0) {
-    process.stderr.write("usage: thread-cli.mjs delete <id...> | --all | --stale\n");
+    process.stderr.write("usage: picode-cli.mjs delete <id...> | --all | --stale\n");
     return 1;
   }
-  const rows = collectThreads(args.dir);
+  const rows = collectPicodes(args.dir);
   let targets;
   if (args.all) {
     targets = rows.map(r => r.id);
@@ -672,17 +672,17 @@ function cmdDelete(args) {
     const known = new Set(rows.map(r => r.id));
     targets = ids.filter(id => {
       if (known.has(id)) return true;
-      warn(`skipping "${id}": no such thread`);
+      warn(`skipping "${id}": no such picode`);
       return false;
     });
   }
   if (targets.length === 0) {
-    process.stdout.write("No matching threads to delete.\n");
+    process.stdout.write("No matching picodes to delete.\n");
     return 0;
   }
   if ((args.all || targets.length > 1) && !args.yes) {
     process.stderr.write(
-      `refusing to delete ${targets.length} thread(s) without --yes: ${targets.join(", ")}\n`,
+      `refusing to delete ${targets.length} picode(s) without --yes: ${targets.join(", ")}\n`,
     );
     return 1;
   }
@@ -696,7 +696,7 @@ function cmdDelete(args) {
       );
       continue;
     }
-    fs.rmSync(path.join(threadsDir(args.dir), id), { recursive: true, force: true });
+    fs.rmSync(path.join(picodesDir(args.dir), id), { recursive: true, force: true });
     process.stdout.write(`deleted ${id}\n`);
     deleted++;
   }

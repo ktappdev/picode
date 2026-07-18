@@ -5,7 +5,7 @@ import { readFileSync, existsSync, statSync } from "fs";
 import { join } from "path";
 import { err, extractRole } from "./shared";
 
-/** Module-level cache for .thread/models.json */
+/** Module-level cache for .picode/models.json */
 let modelsJson: Record<string, string> | null = null;
 let modelsJsonMtime: number | null = null;
 
@@ -42,7 +42,7 @@ function loadModelsJson(): Record<string, string> {
     } catch {
       root = process.cwd();
     }
-    const path = join(root, ".thread", "models.json");
+    const path = join(root, ".picode", "models.json");
     if (existsSync(path)) {
       const mtime = statSync(path).mtimeMs;
       if (!modelsJson || mtime !== modelsJsonMtime) {
@@ -110,9 +110,9 @@ function getSplitDirection(paneId: string): "right" | "down" {
   }
 }
 
-/** Check if a thread-id already exists in the workspace.
- *  Returns true if a pane with that exact thread-id label exists. */
-function threadIdExists(workspaceId: string, threadId: string): boolean {
+/** Check if a picode-id already exists in the workspace.
+ *  Returns true if a pane with that exact picode-id label exists. */
+function threadIdExists(workspaceId: string, picodeId: string): boolean {
   try {
     const result = herdrJson(`pane list --workspace ${workspaceId}`);
     const panes =
@@ -122,7 +122,7 @@ function threadIdExists(workspaceId: string, threadId: string): boolean {
     for (const pane of panes) {
       const label = (pane.label as string) || "";
       const paneRole = extractRole(label);
-      if (paneRole.toLowerCase() === threadId.toLowerCase()) return true;
+      if (paneRole.toLowerCase() === picodeId.toLowerCase()) return true;
     }
   } catch {
     // Ignore list errors
@@ -130,8 +130,8 @@ function threadIdExists(workspaceId: string, threadId: string): boolean {
   return false;
 }
 
-/** Generate a unique thread-id by suffixing -1, -2, etc. if needed. */
-function uniqueThreadId(role: string, workspaceId: string): string {
+/** Generate a unique picode-id by suffixing -1, -2, etc. if needed. */
+function uniquePicodeId(role: string, workspaceId: string): string {
   if (!threadIdExists(workspaceId, role)) return role;
 
   let suffix = 1;
@@ -184,7 +184,7 @@ export function registerSpawnTool(pi: ExtensionAPI) {
       "Spawn a new worker pane in one call: splits the current pane, names it, launches pi with the right model/theme, and waits for it to be ready.",
     parameters: Type.Object({
       role: Type.String({
-        description: "Worker role / thread-id (e.g. 'builder', 'explorer', 'worker-1')",
+        description: "Worker role / picode-id (e.g. 'builder', 'explorer', 'worker-1')",
       }),
       direction: Type.Optional(
         Type.Union([Type.Literal("right"), Type.Literal("down")], {
@@ -193,12 +193,12 @@ export function registerSpawnTool(pi: ExtensionAPI) {
       ),
       model: Type.Optional(
         Type.String({
-          description: "Override model (provider/model). Omit to read from .thread/models.json",
+          description: "Override model (provider/model). Omit to read from .picode/models.json",
         }),
       ),
       theme: Type.Optional(
         Type.String({
-          description: "Override theme name or path. Omit to read from .thread/models.json",
+          description: "Override theme name or path. Omit to read from .picode/models.json",
         }),
       ),
       reuse: Type.Optional(
@@ -264,9 +264,9 @@ export function registerSpawnTool(pi: ExtensionAPI) {
           }
         }
 
-        // 3. Generate unique thread-id (auto-suffix if role already exists)
-        // When reusing, use the role name directly (existing pane's thread ID).
-        const uniqueId = reused ? params.role : uniqueThreadId(params.role, workspaceId);
+        // 3. Generate unique picode-id (auto-suffix if role already exists)
+        // When reusing, use the role name directly (existing pane's picode ID).
+        const uniqueId = reused ? params.role : uniquePicodeId(params.role, workspaceId);
 
         let newPaneId: string;
         let direction: string | undefined;
@@ -311,7 +311,7 @@ export function registerSpawnTool(pi: ExtensionAPI) {
         const parts = ["pi"];
         if (model) parts.push(`--model ${model}`);
         if (theme) parts.push(`--theme ${theme}`);
-        parts.push(`--thread-id ${uniqueId}`);
+        parts.push(`--picode-id ${uniqueId}`);
         const launchCmd = parts.join(" ");
 
         // 9. Run launch command in new pane

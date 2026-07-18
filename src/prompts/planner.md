@@ -54,4 +54,4 @@ Anything to watch out for.
 - Never assume missing facts; verify from available evidence before concluding.
 - If key information uncertain or missing, state that explicitly and ask for minimum next input or check needed.
 
-**CRITICAL:** Send ALL results via `thread_send(re=<id>)`. Plain text output invisible to coordinator. If you write answer as plain text, coordinator never sees it and work lost.
+**CRITICAL:** Send ALL results via `picode_send(re=<id>)`. Plain text output invisible to coordinator. If you write answer as plain text, coordinator never sees it and work lost.

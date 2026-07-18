@@ -1,12 +1,12 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { ThreadAdapter } from "../adapter/types";
+import type { PicodeAdapter } from "../adapter/types";
 
 /** The domain model per PROTOCOL-FORMALISM.md Rev 8: the wire envelope
  *  (Layer 1), the durable Layer-2 records (obligations, owed replies,
- *  barriers) and the two shared views of a thread — its own StateFile
- *  (presence source) and the ThreadSummary others see. */
+ *  barriers) and the two shared views of a picode — its own StateFile
+ *  (presence source) and the PicodeSummary others see. */
 
-export type ThreadState = "idle" | "thinking" | "working" | "open" | "on-hold" | "stopped" | "done";
+export type PicodeState = "idle" | "thinking" | "working" | "open" | "on-hold" | "stopped" | "done";
 
 /** Wire urgency level (§6). Deliberately abstract: this client maps `high`
  *  to a steering injection and `low` (the default when absent) to delivery
@@ -55,7 +55,7 @@ export const PROCESSED_TTL_MS = 7 * 24 * 60 * 60 * 1000;
  *  before a human has to notice it. */
 export const DEFAULT_OBLIGATION_DEADLINE_MS = 15 * 60_000;
 
-/** Sender-side debt record: an `expects` envelope this thread sent, keyed
+/** Sender-side debt record: an `expects` envelope this picode sent, keyed
  *  by that envelope's id (§9). Cleared when a reply with re = id arrives. */
 export interface Obligation {
   id: string;
@@ -69,7 +69,7 @@ export interface Obligation {
 /** The receiving side of an Obligation: recorded when an `expects` envelope
  *  is delivered, cleared when the matching reply is sent. Durable — the
  *  envelope id the reply must echo otherwise lives only in the session that
- *  received it, so a revived thread would have no way to reply. */
+ *  received it, so a revived picode would have no way to reply. */
 export interface OwedReply {
   id: string;
   from: string;
@@ -109,7 +109,7 @@ export interface StateFile {
   parent: string | null;
   role: string;
   sessionFile: string | null;
-  state: ThreadState;
+  state: PicodeState;
   status: "running" | "stopped";
   holdReason: string | null;
   obligations: Obligation[];
@@ -121,21 +121,21 @@ export interface StateFile {
   /** Advisory capability tokens (Rev 10 §8.1); absent = claim nothing. */
   capabilities?: string[];
   /** Advisory revive recipe (Rev 10 §8.1): a shell command any actor MAY
-   *  run to wake this thread. Trust caveat: only act on it in stores where
+   *  run to wake this picode. Trust caveat: only act on it in stores where
    *  every writer is already trusted (running it is code execution). */
   wake?: string;
 }
 
-export interface ThreadSummary {
+export interface PicodeSummary {
   id: string;
   pid: number;
-  state: ThreadState;
+  state: PicodeState;
   status: "running" | "stopped";
   parent: string | null;
   role: string;
   lastSeen: string;
   /** Coordination load, so observers can see who is waiting on what without
-   *  reading each thread's full state: sent-side debts... */
+   *  reading each picode's full state: sent-side debts... */
   obligations: number;
   /** ...received-side debts... */
   owed: number;
@@ -143,10 +143,10 @@ export interface ThreadSummary {
   barriers: number;
 }
 
-/** How every reader classifies another thread: a stale lastSeen overrides the
+/** How every reader classifies another picode: a stale lastSeen overrides the
  *  stored status, so hard-killed processes (no session_shutdown) read as
  *  stopped (§8.2 — the one presence rule normative for every reader). */
-export function toSummary(s: StateFile): ThreadSummary {
+export function toSummary(s: StateFile): PicodeSummary {
   const stale = Date.now() - new Date(s.lastSeen).getTime() > STALE_MS;
   return {
     id: s.id,
@@ -162,17 +162,17 @@ export function toSummary(s: StateFile): ThreadSummary {
   };
 }
 
-export interface ThreadStore extends ThreadData {
-  adapter: ThreadAdapter;
-  transition: (next: ThreadState, ctx?: ExtensionContext) => Promise<void>;
+export interface PicodeStore extends PicodeData {
+  adapter: PicodeAdapter;
+  transition: (next: PicodeState, ctx?: ExtensionContext) => Promise<void>;
   /** Persist the current in-memory state through the storage adapter. */
   persist: () => Promise<void>;
   init: (cwd: string, ctx: ExtensionContext) => Promise<void>;
   shutdown: (reason: string) => Promise<void>;
-  listThreads: () => Promise<ThreadSummary[]>;
+  listPcodes: () => Promise<PicodeSummary[]>;
   /** Undefined on backends without the JournalAdapter extension. */
-  readJournal: (threadId: string) => Promise<string | undefined>;
-  threadExists: (threadId: string) => Promise<boolean>;
+  readJournal: (picodeId: string) => Promise<string | undefined>;
+  threadExists: (picodeId: string) => Promise<boolean>;
   forkJournal: (sessionFile: string) => void;
   /** Fire-and-forget: if journal exceeds threshold, summarize oldest into one block. */
   compactJournal: (sessionFile: string) => void;
@@ -183,15 +183,15 @@ export interface ThreadStore extends ThreadData {
 }
 
 /** Mutable data that multiple modules read and write. */
-export interface ThreadData {
-  threadId: string;
-  threadDir: string;
-  threadsRootDir: string;
+export interface PicodeData {
+  picodeId: string;
+  picodeDir: string;
+  picodesRootDir: string;
   parent: string | null;
   role: string;
   sessionFile: string | null;
   startedAt: string;
-  state: ThreadState;
+  state: PicodeState;
   status: "running" | "stopped";
   holdReason: string | null;
   obligations: Obligation[];
@@ -200,7 +200,7 @@ export interface ThreadData {
   /** In-memory only: true once a reminder about the current unaddressed owed
    *  replies has been queued, so consecutive silent+owed turns within one run
    *  don't each queue another stale copy. Re-armed at agent_end so a
-   *  persistently silent thread gets one fresh nudge per run instead of
+   *  persistently silent picode gets one fresh nudge per run instead of
    *  exactly one for its entire life. */
   owedNudgePending: boolean;
   /** In-memory only: consecutive silent turns with owed replies outstanding,

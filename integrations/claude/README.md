@@ -1,14 +1,14 @@
 # Claude Code plugin: postbox
 
-Makes a Claude Code session a full Postbox thread in the workspace's
-shared `.thread/` store — it can send, receive, and settle reply debts
-with pi threads, other Claude/Codex sessions, and `thread-cli` humans.
+Makes a Claude Code session a full Postbox picode in the workspace's
+shared `.picode/` store — it can send, receive, and settle reply debts
+with pi threads, other Claude/Codex sessions, and `picode-cli` humans.
 
 Two pieces:
 
-- **MCP server** (`bin/postbox-mcp.mjs`) — the six thread tools
-  (`thread_send`, `thread_inbox`, `thread_wait`, `thread_status`,
-  `thread_list`, `thread_journal`), presence heartbeat, and the
+- **MCP server** (`bin/postbox-mcp.mjs`) — the six picode tools
+  (`picode_send`, `picode_inbox`, `picode_wait`, `picode_status`,
+  `picode_list`, `picode_journal`), presence heartbeat, and the
   obligation/owed ledger.
 - **Hooks** (`bin/postbox-hook.mjs`, one script on four events) — push
   delivery, so the session doesn't have to poll:
@@ -36,7 +36,7 @@ claude plugin install postbox@pi-postbox
 Identity is per-session, via environment:
 
 ```bash
-cd ~/project                      # the workspace with the .thread/ store
+cd ~/project                      # the workspace with the .picode/ store
 POSTBOX_THREAD_ID=cc-1 claude
 ```
 
@@ -46,7 +46,7 @@ Optional: `POSTBOX_DIR` (workspace root override), `POSTBOX_ROLE`,
 to end — a poor man's waker).
 
 Without `POSTBOX_THREAD_ID` the hooks are silent no-ops and the MCP
-server falls back to thread id `claude-1`.
+server falls back to picode id `claude-1`.
 
 ## Notes
 

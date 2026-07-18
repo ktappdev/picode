@@ -2,15 +2,15 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { ThreadStore, ThreadState, ThreadSummary, StateFile } from "./core/types";
+import type { PicodeStore, PicodeState, PicodeSummary, StateFile } from "./core/types";
 import { HEARTBEAT_MS, CLIENT_CAPABILITIES } from "./core/types";
 import { nowIso } from "./core/time";
 import { forkJournalEntry, compactJournal as compactJournalFn } from "./journal";
 import { roleEmoji } from "./core/roles";
-import type { ThreadAdapter } from "./adapter/types";
+import type { PicodeAdapter } from "./adapter/types";
 import { createLocalFsAdapter } from "./adapter/local-fs";
 
-/** The ThreadStore: this thread's identity and mutable coordination state,
+/** The PicodeStore: this picode's identity and mutable coordination state,
  *  restored from the storage adapter at init, persisted on every change, kept
  *  fresh by the heartbeat, and live-drained by the inbox watcher. */
 
@@ -32,7 +32,7 @@ function isPidAlive(pid: number): boolean {
   }
 }
 
-const KNOWN_STATES: readonly ThreadState[] = [
+const KNOWN_STATES: readonly PicodeState[] = [
   "idle",
   "thinking",
   "working",
@@ -42,19 +42,19 @@ const KNOWN_STATES: readonly ThreadState[] = [
   "done",
 ];
 
-export function createThreadStore(
+export function createPicodeStore(
   pi: ExtensionAPI,
-  adapter: ThreadAdapter = createLocalFsAdapter(),
-): ThreadStore {
+  adapter: PicodeAdapter = createLocalFsAdapter(),
+): PicodeStore {
   let heartbeat: ReturnType<typeof setInterval> | null = null;
   let stopWatching: (() => void) | null = null;
 
-  const store: ThreadStore = {
+  const store: PicodeStore = {
     // --- mutable data ---
     adapter,
-    threadId: "",
-    threadDir: "",
-    threadsRootDir: "",
+    picodeId: "",
+    picodeDir: "",
+    picodesRootDir: "",
     parent: null,
     role: "worker",
     sessionFile: null,
@@ -73,19 +73,19 @@ export function createThreadStore(
 
     // --- operations ---
 
-    async transition(next: ThreadState, ctx?: ExtensionContext) {
+    async transition(next: PicodeState, ctx?: ExtensionContext) {
       store.state = next;
       await store.persist();
       ctx?.ui.setStatus(
-        "thread",
+        "picode",
         `${roleEmoji(store.role)} ${store.role ?? "worker"}: ${store.state}`,
       );
     },
 
     async persist() {
-      if (!store.threadId) return; // init() hasn't resolved an identity yet
+      if (!store.picodeId) return; // init() hasn't resolved an identity yet
       const payload: StateFile = {
-        id: store.threadId,
+        id: store.picodeId,
         pid: process.pid,
         cwd: process.cwd(),
         parent: store.parent,
@@ -106,23 +106,23 @@ export function createThreadStore(
         // incantation across machines and process managers.
         ...(process.env.PI_THREAD_WAKE ? { wake: process.env.PI_THREAD_WAKE } : {}),
       };
-      await store.adapter.saveState(store.threadId, payload);
+      await store.adapter.savePicodeState(store.picodeId, payload);
     },
 
     async init(cwd: string, ctx: ExtensionContext) {
       await store.adapter.configure(cwd);
-      store.threadsRootDir = path.join(cwd, ".thread", "threads");
+      store.picodesRootDir = path.join(cwd, ".picode", "picodes");
 
-      // Resolve thread identity.
-      const flagId = pi.getFlag("thread-id");
+      // Resolve picode identity.
+      const flagId = pi.getFlag("picode-id");
       if (typeof flagId === "string" && flagId) {
-        store.threadId = flagId;
+        store.picodeId = flagId;
       } else {
         let existingId: string | undefined;
         try {
           const entries = ctx.sessionManager.getEntries();
           for (const e of entries) {
-            if (e.type === "custom" && e.customType === "thread-identity") {
+            if (e.type === "custom" && e.customType === "picode-identity") {
               const entry = e as { data?: { id?: string } };
               if (entry.data?.id) existingId = entry.data.id;
             }
@@ -130,24 +130,24 @@ export function createThreadStore(
         } catch {
           // --no-session or unreadable session — generate a new id.
         }
-        store.threadId = existingId ?? `thread-${crypto.randomUUID().slice(0, 8)}`;
-        if (!existingId) pi.appendEntry("thread-identity", { id: store.threadId });
+        store.picodeId = existingId ?? `picode-${crypto.randomUUID().slice(0, 8)}`;
+        if (!existingId) pi.appendEntry("picode-identity", { id: store.picodeId });
       }
 
-      const flagParent = pi.getFlag("thread-parent");
+      const flagParent = pi.getFlag("picode-parent");
       store.parent =
         typeof flagParent === "string" && flagParent
           ? flagParent
-          : store.threadId !== "coordinator"
+          : store.picodeId !== "coordinator"
             ? "coordinator"
             : null;
-      const flagRole = pi.getFlag("thread-role");
+      const flagRole = pi.getFlag("picode-role");
       if (typeof flagRole === "string" && flagRole) {
         store.role = flagRole;
-      } else if (store.threadId === "coordinator") {
+      } else if (store.picodeId === "coordinator") {
         store.role = "coordinator";
       } else {
-        // Auto-detect worker subtype from thread-id if it matches a known role
+        // Auto-detect worker subtype from picode-id if it matches a known role
         const KNOWN_ROLES = [
           "builder",
           "reviewer",
@@ -159,17 +159,17 @@ export function createThreadStore(
         ];
         const prefix = KNOWN_ROLES.find(
           r =>
-            store.threadId === r ||
-            store.threadId.startsWith(r + "-") ||
-            store.threadId.startsWith(r + "_") ||
-            store.threadId.startsWith(r + "."),
+            store.picodeId === r ||
+            store.picodeId.startsWith(r + "-") ||
+            store.picodeId.startsWith(r + "_") ||
+            store.picodeId.startsWith(r + "."),
         );
         store.role = prefix ?? "worker";
       }
 
       // Auto-create default models config for coordinator
       if (store.role === "coordinator") {
-        const modelsPath = path.join(cwd, ".thread", "models.json");
+        const modelsPath = path.join(cwd, ".picode", "models.json");
         if (!fs.existsSync(modelsPath)) {
           const defaultModels = {
             builder: "deepseek/deepseek-v4-pro",
@@ -182,11 +182,11 @@ export function createThreadStore(
             default: "deepseek/deepseek-v4-flash",
           };
           fs.writeFileSync(modelsPath, JSON.stringify(defaultModels, null, 2) + "\n");
-          console.log(`[thread] Default models written to ${modelsPath}`);
+          console.log(`[picode] Default models written to ${modelsPath}`);
         }
       }
 
-      store.threadDir = path.join(store.threadsRootDir, store.threadId);
+      store.picodeDir = path.join(store.picodesRootDir, store.picodeId);
 
       // Restore previous state if present. Debts and barriers are durable
       // waits — restored unconditionally (§13.2): a reply may arrive while
@@ -194,7 +194,7 @@ export function createThreadStore(
       // that received the envelope. No state encodes a wait anymore (§11.2),
       // so the only boot repair is done/stopped → idle; states this revision
       // no longer knows (old files) settle to open.
-      const s = await store.adapter.loadState(store.threadId);
+      const s = await store.adapter.loadPicodeState(store.picodeId);
       if (s) {
         store.obligations = s.obligations ?? [];
         store.owed = s.owed ?? [];
@@ -214,8 +214,8 @@ export function createThreadStore(
       // checking and persisting. We write our PID into the lock file so a
       // later process can detect a stale lock (process killed mid-init) and
       // recover instead of leaving the workspace bricked.
-      fs.mkdirSync(store.threadDir, { recursive: true });
-      const lockPath = path.join(store.threadDir, "init.lock");
+      fs.mkdirSync(store.picodeDir, { recursive: true });
+      const lockPath = path.join(store.picodeDir, "init.lock");
       let lockFd: number | null = null;
       try {
         lockFd = fs.openSync(lockPath, "wx");
@@ -246,26 +246,26 @@ export function createThreadStore(
             fs.writeSync(lockFd, String(process.pid));
           } else {
             throw new Error(
-              `Thread "${store.threadId}" is already starting (init.lock held). ` +
-                `Wait a moment and retry, or use a different --thread-id.`,
+              `Picode "${store.picodeId}" is already starting (init.lock held). ` +
+                `Wait a moment and retry, or use a different --picode-id.`,
             );
           }
         } else {
           throw new Error(
-            `Failed to acquire init lock for thread "${store.threadId}": ${String(e)}`,
+            `Failed to acquire init lock for picode "${store.picodeId}": ${String(e)}`,
           );
         }
       }
 
       try {
-        // Duplicate thread ID enforcement: IDs must be unique across running threads.
-        // Check before first persist — if another thread with our ID is already running,
+        // Duplicate picode ID enforcement: IDs must be unique across running threads.
+        // Check before first persist — if another picode with our ID is already running,
         // block startup to prevent shared state file corruption.
         // BUT also verify the PID is actually alive: a crashed process left behind
         // "running" status in state.json is a stale artifact, not a real conflict.
         {
-          const all = await store.listThreads();
-          const dup = all.find(t => t.id === store.threadId && t.status === "running");
+          const all = await store.listPcodes();
+          const dup = all.find(t => t.id === store.picodeId && t.status === "running");
           if (dup) {
             // If state.json includes the PID (Rev 10+), verify it's still alive.
             // Dead PID + stale status → treat as dead, allow startup.
@@ -273,8 +273,8 @@ export function createThreadStore(
               // Stale — the previous instance crashed. Proceed.
             } else {
               throw new Error(
-                `Thread "${store.threadId}" already exists and is running. ` +
-                  `Use a unique --thread-id (e.g. --thread-id ${store.threadId}-2).`,
+                `Picode "${store.picodeId}" already exists and is running. ` +
+                  `Use a unique --picode-id (e.g. --picode-id ${store.picodeId}-2).`,
               );
             }
           }
@@ -282,9 +282,9 @@ export function createThreadStore(
 
         // Coordinator singleton enforcement: only one active coordinator per workspace
         if (store.role === "coordinator") {
-          const threads = await store.listThreads();
+          const threads = await store.listPcodes();
           const activeCoord = threads.find(
-            t => t.id !== store.threadId && t.role === "coordinator" && t.status === "running",
+            t => t.id !== store.picodeId && t.role === "coordinator" && t.status === "running",
           );
           if (activeCoord) {
             // Stale check: if the coordinator PID is dead, it's not really running.
@@ -293,7 +293,7 @@ export function createThreadStore(
             } else {
               throw new Error(
                 `Coordinator "${activeCoord.id}" already exists. Cannot start another coordinator. ` +
-                  `Use a different role (e.g. --thread-role worker).`,
+                  `Use a different role (e.g. --picode-role worker).`,
               );
             }
           }
@@ -308,7 +308,7 @@ export function createThreadStore(
         store.status = "running";
         await store.persist();
         ctx.ui.setStatus(
-          "thread",
+          "picode",
           `${roleEmoji(store.role)} ${store.role ?? "worker"}: ${store.state}`,
         );
       } finally {
@@ -342,28 +342,28 @@ export function createThreadStore(
       await store.persist();
     },
 
-    async listThreads(): Promise<ThreadSummary[]> {
-      return store.adapter.listThreads();
+    async listPcodes(): Promise<PicodeSummary[]> {
+      return store.adapter.listPcodes();
     },
 
-    async threadExists(threadId: string): Promise<boolean> {
-      return store.adapter.threadExists(threadId);
+    async threadExists(picodeId: string): Promise<boolean> {
+      return store.adapter.threadExists(picodeId);
     },
 
-    async readJournal(threadId: string): Promise<string | undefined> {
+    async readJournal(picodeId: string): Promise<string | undefined> {
       // The journal channel is an optional backend extension (§5) —
       // undefined on backends without it.
-      return store.adapter.readJournal?.(threadId);
+      return store.adapter.readJournal?.(picodeId);
     },
 
     forkJournal(sessionFile: string) {
-      const m = pi.getFlag("thread-journal-model");
+      const m = pi.getFlag("picode-journal-model");
       forkJournalEntry(store, sessionFile, typeof m === "string" && m ? m : undefined);
     },
 
     compactJournal(sessionFile: string) {
       if (!store.sessionFile) return;
-      const m = pi.getFlag("thread-journal-model");
+      const m = pi.getFlag("picode-journal-model");
       compactJournalFn(store, sessionFile, typeof m === "string" && m ? m : undefined);
     },
 
@@ -376,7 +376,7 @@ export function createThreadStore(
         void (async () => {
           await store.persist();
           await onTick?.();
-        })().catch(err => console.error("[thread] heartbeat tick failed:", err));
+        })().catch(err => console.error("[picode] heartbeat tick failed:", err));
       }, HEARTBEAT_MS);
     },
 
@@ -387,7 +387,7 @@ export function createThreadStore(
 
     startWatcher(drainInbox, ctx) {
       stopWatching?.();
-      stopWatching = store.adapter.watchInbox(store.threadId, () => drainInbox(ctx));
+      stopWatching = store.adapter.watchInbox(store.picodeId, () => drainInbox(ctx));
     },
 
     stopWatcher() {

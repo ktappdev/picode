@@ -1,0 +1,25 @@
+{
+  "id": "worker-1",
+  "pid": 97231,
+  "cwd": "/Users/kentaylor/developer/picode",
+  "parent": "coordinator",
+  "role": "worker",
+  "sessionFile": "/Users/kentaylor/.pi/agent/sessions/--Users-kentaylor-developer-picode--/2026-07-18T09-13-16-398Z_019f7480-596e-7218-a08d-dd11c3998aeb.jsonl",
+  "state": "done",
+  "status": "running",
+  "holdReason": null,
+  "obligations": [],
+  "owed": [],
+  "barriers": [],
+  "startedAt": "2026-07-18T09:13:20.915Z",
+  "lastSeen": "2026-07-18T09:28:40.942Z",
+  "updatedAt": "2026-07-18T14:24:05.907Z",
+  "capabilities": [
+    "urgency",
+    "barriers",
+    "deliverAfter",
+    "expiresAt",
+    "journal",
+    "canary"
+  ]
+}

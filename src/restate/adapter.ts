@@ -1,69 +1,69 @@
 import { connect } from "@restatedev/restate-sdk-clients";
-import type { StateFile, Envelope, ThreadSummary } from "../core/types";
+import type { StateFile, Envelope, PicodeSummary } from "../core/types";
 import { toSummary } from "../core/types";
 import type { StorageAdapter, JournalAdapter } from "../adapter/types";
-import type { ThreadObjectApi, ThreadRegistryApi } from "./service";
+import type { PicodeObjectApi, PicodeRegistryApi } from "./service";
 
-const ThreadObjectRef = { name: "Thread" } as ThreadObjectApi;
-const RegistryRef = { name: "ThreadRegistry" } as ThreadRegistryApi;
+const PicodeObjectRef = { name: "Picode" } as PicodeObjectApi;
+const RegistryRef = { name: "PicodeRegistry" } as PicodeRegistryApi;
 
 const POLL_MS = 2000;
 
 /** Client-side adapter — the `pi` process is a Restate *ingress client*, not
  *  a hosted handler. All storage/mailbox operations become RPCs into the
- *  `Thread`/`ThreadRegistry` virtual objects defined in ./service.ts (run
+ *  `Picode`/`PicodeRegistry` virtual objects defined in ./service.ts (run
  *  separately via `npm run restate:serve`, registered with a self-hosted
  *  `restate-server`). See README.md "Running with the Restate adapter".
  *
  *  deliverAfter needs no client-side machinery here: the service holds
  *  future envelopes out of drainInbox until due, and its own durable delayed
- *  self-invocation revives a stopped thread when one comes due. */
+ *  self-invocation revives a stopped picode when one comes due. */
 export function createRestateAdapter(opts: { url?: string }): StorageAdapter & JournalAdapter {
   const ingress = connect({ url: opts.url ?? "http://localhost:8080" });
-  const thread = (id: string) => ingress.objectClient(ThreadObjectRef, id);
+  const picode = (id: string) => ingress.objectClient(PicodeObjectRef, id);
 
   return {
     async configure() {
-      // No local root — each thread is addressed by id against the ingress
+      // No local root — each picode is addressed by id against the ingress
       // URL, not a cwd-scoped directory.
     },
 
-    async loadState(threadId: string): Promise<StateFile | undefined> {
-      return (await thread(threadId).loadState()) ?? undefined;
+    async loadPicodeState(picodeId: string): Promise<StateFile | undefined> {
+      return (await picode(picodeId).loadPicodeState()) ?? undefined;
     },
 
-    async saveState(threadId: string, state: StateFile) {
-      await thread(threadId).saveState(state);
+    async savePicodeState(picodeId: string, state: StateFile) {
+      await picode(picodeId).savePicodeState(state);
     },
 
-    async appendJournal(threadId: string, entry: string) {
-      await this.acquireJournalLock(threadId);
+    async appendJournal(picodeId: string, entry: string) {
+      await this.acquireJournalLock(picodeId);
       try {
-        await thread(threadId).appendJournal(entry);
+        await picode(picodeId).appendJournal(entry);
       } finally {
-        await this.releaseJournalLock(threadId);
+        await this.releaseJournalLock(picodeId);
       }
     },
 
-    async readJournal(threadId: string): Promise<string | undefined> {
-      return (await thread(threadId).readJournal()) ?? undefined;
+    async readJournal(picodeId: string): Promise<string | undefined> {
+      return (await picode(picodeId).readJournal()) ?? undefined;
     },
 
-    async setJournal(threadId: string, content: string) {
-      await this.acquireJournalLock(threadId);
+    async setJournal(picodeId: string, content: string) {
+      await this.acquireJournalLock(picodeId);
       try {
-        await thread(threadId).setJournal(content);
+        await picode(picodeId).setJournal(content);
       } finally {
-        await this.releaseJournalLock(threadId);
+        await this.releaseJournalLock(picodeId);
       }
     },
 
-    async deleteJournal(threadId: string) {
-      await this.acquireJournalLock(threadId);
+    async deleteJournal(picodeId: string) {
+      await this.acquireJournalLock(picodeId);
       try {
-        await thread(threadId).setJournal("");
+        await picode(picodeId).setJournal("");
       } finally {
-        await this.releaseJournalLock(threadId);
+        await this.releaseJournalLock(picodeId);
       }
     },
 
@@ -78,26 +78,26 @@ export function createRestateAdapter(opts: { url?: string }): StorageAdapter & J
       // no-op
     },
 
-    async listThreads(): Promise<ThreadSummary[]> {
+    async listPcodes(): Promise<PicodeSummary[]> {
       const ids = await ingress.objectClient(RegistryRef, "all").list();
-      const out: ThreadSummary[] = [];
+      const out: PicodeSummary[] = [];
       for (const id of ids) {
-        const s = await thread(id).loadState();
+        const s = await picode(id).loadPicodeState();
         if (s) out.push(toSummary(s));
       }
       return out;
     },
 
-    async threadExists(threadId: string): Promise<boolean> {
-      return (await thread(threadId).loadState()) != null;
+    async threadExists(picodeId: string): Promise<boolean> {
+      return (await picode(picodeId).loadPicodeState()) != null;
     },
 
     async enqueueMessage(message: Envelope) {
-      await thread(message.to).enqueueMessage(message);
+      await picode(message.to).enqueueMessage(message);
     },
 
-    async drainInbox(threadId: string): Promise<Envelope[]> {
-      return thread(threadId).drainInbox();
+    async drainInbox(picodeId: string): Promise<Envelope[]> {
+      return picode(picodeId).drainInbox();
     },
 
     // Restate is transactional: drainInbox atomically removes messages from

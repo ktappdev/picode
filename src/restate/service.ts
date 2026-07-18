@@ -6,13 +6,13 @@ import { STALE_MS } from "../core/types";
 import { buildWakeLaunch } from "./wake-launch";
 
 /**
- * Tracks known thread ids. Restate's per-key durable state has no "list all
- * keys of this object type" API, so a thread registering itself here is what
- * makes listThreads()/resolveTargets("*"|"role:x") possible against this
+ * Tracks known picode ids. Restate's per-key durable state has no "list all
+ * keys of this object type" API, so a picode registering itself here is what
+ * makes listPcodes()/resolveTargets("*"|"role:x") possible against this
  * backend — the local-fs backend gets this for free from a directory listing.
  */
-export const ThreadRegistry = restate.object({
-  name: "ThreadRegistry",
+export const PicodeRegistry = restate.object({
+  name: "PicodeRegistry",
   handlers: {
     register: async (ctx: ObjectContext, id: string) => {
       const ids = (await ctx.get<string[]>("ids")) ?? [];
@@ -28,28 +28,28 @@ export const ThreadRegistry = restate.object({
 });
 
 /**
- * One durable instance per thread id, holding that thread's state/journal/
+ * One durable instance per picode id, holding that picode's state/journal/
  * inbox in Restate's per-key state instead of files on disk. This is the
  * Restate binding of the Rev-8 store contract: the mailbox holds envelopes,
  * `deliverAfter` envelopes stay queued until due (drain filters them), and a
- * durable delayed self-invocation revives a stopped thread when one comes
+ * durable delayed self-invocation revives a stopped picode when one comes
  * due — the one thing the local-fs backend can never do.
  */
-export const ThreadObject = restate.object({
-  name: "Thread",
+export const PicodeObject = restate.object({
+  name: "Picode",
   handlers: {
-    loadState: restate.handlers.object.shared(async (ctx: ObjectSharedContext) => {
+    loadPicodeState: restate.handlers.object.shared(async (ctx: ObjectSharedContext) => {
       return (await ctx.get<StateFile>("state")) ?? null;
     }),
 
-    saveState: async (ctx: ObjectContext, state: StateFile) => {
+    savePicodeState: async (ctx: ObjectContext, state: StateFile) => {
       ctx.set("state", state);
       // First-time registration is awaited: a fire-and-forget send here races
-      // listThreads — a thread wouldn't be reliably listable (broadcastable)
-      // the moment its own saveState returns. The flag keeps every later
+      // listPcodes — a picode wouldn't be reliably listable (broadcastable)
+      // the moment its own savePicodeState returns. The flag keeps every later
       // save (one per heartbeat) from paying the registry round-trip.
       if (!(await ctx.get<boolean>("registered"))) {
-        await ctx.objectClient(ThreadRegistry, "all").register(state.id);
+        await ctx.objectClient(PicodeRegistry, "all").register(state.id);
         ctx.set("registered", true);
       }
     },
@@ -75,13 +75,13 @@ export const ThreadObject = restate.object({
       next.push(message);
       ctx.set("inbox", next);
       // A future-dated envelope arms a durable delayed self-check: when it
-      // comes due, deliverDue revives the thread if no live process would
+      // comes due, deliverDue revives the picode if no live process would
       // otherwise drain it.
       if (message.deliverAfter) {
         const delayMs = new Date(message.deliverAfter).getTime() - Date.now();
         if (delayMs > 0) {
           ctx
-            .objectSendClient(ThreadObject, ctx.key)
+            .objectSendClient(PicodeObject, ctx.key)
             .deliverDue(message.id, restate.rpc.sendOpts({ delay: delayMs }));
         }
       }
@@ -101,7 +101,7 @@ export const ThreadObject = restate.object({
 
     /**
      * Fired by the durable delayed send armed in enqueueMessage when a
-     * deliverAfter envelope comes due. If the thread is live, its own
+     * deliverAfter envelope comes due. If the picode is live, its own
      * heartbeat drain picks the envelope up — no-op. If it's stopped, spawn
      * `pi` to revive it; the revived process drains the due envelope at boot.
      */
@@ -115,8 +115,8 @@ export const ThreadObject = restate.object({
         state.status === "running" && Date.now() - new Date(state.lastSeen).getTime() < STALE_MS;
       if (isLive) return; // the running process's own heartbeat drain covers this
       await ctx.run("spawn pi to deliver due envelope", async () => {
-        // state.cwd is the workspace the thread ran in — reviving it anywhere
-        // else would put its work (and any .thread/ artifacts) in the wrong
+        // state.cwd is the workspace the picode ran in — reviving it anywhere
+        // else would put its work (and any .picode/ artifacts) in the wrong
         // place. stdio "ignore" attaches /dev/null, which `pi --print` needs:
         // it reads stdin to EOF and hangs forever on an open pipe.
         const launch = buildWakeLaunch(
@@ -135,13 +135,13 @@ export const ThreadObject = restate.object({
   },
 });
 
-export type ThreadObjectApi = typeof ThreadObject;
-export type ThreadRegistryApi = typeof ThreadRegistry;
+export type PicodeObjectApi = typeof PicodeObject;
+export type PicodeRegistryApi = typeof PicodeRegistry;
 
 const isMain = process.argv[1] && import.meta.url === `file://${process.argv[1]}`;
 if (isMain) {
   const port = Number(process.env.PORT) || 9080;
-  restate.serve({ services: [ThreadObject, ThreadRegistry], port }).then(
+  restate.serve({ services: [PicodeObject, PicodeRegistry], port }).then(
     boundPort => console.log(`[picode] Restate service listening on port ${boundPort}`),
     err => {
       console.error("[picode] Restate service failed to start:", err);
