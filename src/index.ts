@@ -14,6 +14,11 @@ export default function (pi: ExtensionAPI) {
     type: "string",
     description: "Stable id for this picode, used for cross-picode addressing (e.g. picode-b)",
   });
+  pi.registerFlag("picode", {
+    type: "boolean",
+    description:
+      "Shorthand for --picode-id coordinator. Use when you want the default coordinator role.",
+  });
   pi.registerFlag("picode-parent", {
     type: "string",
     description: "Parent picode id, for Blocker escalation",

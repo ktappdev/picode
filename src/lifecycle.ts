@@ -120,7 +120,15 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
     process.env.PICODE_THEMES_DIR = themesDir;
 
     const flagId = pi.getFlag("picode-id");
-    active = (typeof flagId === "string" && flagId.length > 0) || hasThreadIdentity(ctx);
+    const picodeShorthand = pi.getFlag("picode");
+    // --picode (boolean) defaults to coordinator when no --picode-id given
+    const resolvedId =
+      typeof flagId === "string" && flagId.length > 0
+        ? flagId
+        : picodeShorthand === true
+          ? "coordinator"
+          : undefined;
+    active = typeof resolvedId === "string" || hasThreadIdentity(ctx);
     if (!active) {
       // Keep the picode_* tools out of this session's active set entirely —
       // an unrelated session shouldn't see them offered, let alone have the

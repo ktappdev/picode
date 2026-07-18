@@ -115,8 +115,16 @@ export function createPicodeStore(
 
       // Resolve picode identity.
       const flagId = pi.getFlag("picode-id");
-      if (typeof flagId === "string" && flagId) {
-        store.picodeId = flagId;
+      const picodeShorthand = pi.getFlag("picode");
+      // --picode (boolean) defaults to coordinator when no --picode-id given
+      const resolvedId =
+        typeof flagId === "string" && flagId
+          ? flagId
+          : picodeShorthand === true
+            ? "coordinator"
+            : undefined;
+      if (typeof resolvedId === "string") {
+        store.picodeId = resolvedId;
       } else {
         let existingId: string | undefined;
         try {
