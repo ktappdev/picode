@@ -786,6 +786,44 @@ describe("tools: picode_status", () => {
     assert.match(r.content[0].text, /Obligations: none/);
     assert.match(r.content[0].text, /Barriers: none/);
   });
+
+  it("defaults tail to 50 entries for journal", async () => {
+    const h = makeHarness(tmpDir);
+    // Write 60 entries
+    const entries = Array.from({ length: 60 }, (_, i) =>
+      journalEntry(nowStamp(), `task ${i}`),
+    ).join("");
+    writeJournal(h, h.store.picodeId, entries);
+    const r = await callTool(h, "picode_status");
+    // Should only see last 50 (task 10 through task 59)
+    assert.doesNotMatch(r.content[0].text, /Working on: task 0/);
+    assert.doesNotMatch(r.content[0].text, /Working on: task 9/);
+    assert.match(r.content[0].text, /Working on: task 10/);
+    assert.match(r.content[0].text, /Working on: task 59/);
+  });
+
+  it("tail=0 returns full journal", async () => {
+    const h = makeHarness(tmpDir);
+    const entries = Array.from({ length: 10 }, (_, i) =>
+      journalEntry(nowStamp(), `task ${i}`),
+    ).join("");
+    writeJournal(h, h.store.picodeId, entries);
+    const r = await callTool(h, "picode_status", { tail: 0 });
+    assert.match(r.content[0].text, /Working on: task 0/);
+    assert.match(r.content[0].text, /Working on: task 9/);
+  });
+
+  it("explicit tail overrides default", async () => {
+    const h = makeHarness(tmpDir);
+    const entries = Array.from({ length: 20 }, (_, i) =>
+      journalEntry(nowStamp(), `task ${i}`),
+    ).join("");
+    writeJournal(h, h.store.picodeId, entries);
+    const r = await callTool(h, "picode_status", { tail: 5 });
+    assert.doesNotMatch(r.content[0].text, /Working on: task 14/);
+    assert.match(r.content[0].text, /Working on: task 15/);
+    assert.match(r.content[0].text, /Working on: task 19/);
+  });
 });
 
 describe("tools: picode_list", () => {

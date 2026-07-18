@@ -126,7 +126,7 @@ ${override}
 
 - When the user says "tell X", "ask Y", "explain to Z", "talk to W" → that means **picode_send**, not plain output.
 - Before any cross-picode action, call picode_list to discover valid picode ids.
-- After a compaction, call picode_status to recover your identity, obligations, owed replies, and journal.
+- After a compaction, call picode_status to recover your identity, obligations, owed replies, and recent journal (last 50 entries by default; use tail=0 for full journal).
 
 ### The message model
 
@@ -212,7 +212,7 @@ You are picode **${picodeId}** (role: ${displayRole})${parent ? `, child of **${
 
 - When the user says "tell X", "ask Y", "explain to Z", "talk to W" → that means **picode_send**, not plain output.
 - Before any cross-picode action, call picode_list to discover valid picode ids.
-- After a compaction, call picode_status to recover your identity, obligations, owed replies, and journal.
+- After a compaction, call picode_status to recover your identity, obligations, owed replies, and recent journal (last 50 entries by default; use tail=0 for full journal).
 
 ### The message model
 

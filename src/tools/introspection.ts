@@ -12,10 +12,39 @@ export function registerIntrospectionTools(pi: ExtensionAPI, store: PicodeStore)
     label: "Picode Status",
     description:
       "Read this picode's own state and journal. Use this to understand what you were doing before a compaction, and to recover the envelope ids you owe replies to.",
-    parameters: Type.Object({}),
-    async execute() {
-      const journal =
+    parameters: Type.Object({
+      tail: Type.Optional(
+        Type.Number({
+          description:
+            "Only return the last N journal entries. Default: 50. Set 0 for full journal.",
+        }),
+      ),
+      lookbackMinutes: Type.Optional(
+        Type.Number({
+          description:
+            "Only return entries timestamped within the last N minutes. Combine with tail to cap both age and count.",
+        }),
+      ),
+    }),
+    async execute(_id, params) {
+      let journal =
         (await store.readJournal(store.picodeId)) ?? "(no journal yet — this is the first turn)";
+      // Apply filters if specified, or default tail=50 for context recovery
+      const tail = params.tail !== undefined ? params.tail : 50;
+      if ((tail > 0 || params.lookbackMinutes) && journal) {
+        let entries = splitJournalEntries(journal);
+        if (params.lookbackMinutes) {
+          const cutoff = Date.now() - params.lookbackMinutes * 60_000;
+          entries = entries.filter(e => {
+            const m = /^<!--\s*(.+?)\s*-->/.exec(e);
+            if (!m) return true; // no timestamp — keep rather than silently drop
+            const ts = new Date(m[1].replace(" ", "T") + ":00Z").getTime();
+            return !Number.isFinite(ts) || ts >= cutoff;
+          });
+        }
+        if (tail > 0) entries = entries.slice(-tail);
+        journal = entries.join("\n") || "(no entries in range)";
+      }
       return {
         content: [
           {
