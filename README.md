@@ -1,266 +1,191 @@
 # picode
 
-Cross-picode communication extension for [pi coding agent](https://github.com/earendil-works/pi-coding-agent). Independent threads that coordinate work, share state, and converse — without losing context or forking their history.
+picode lets you run several [pi](https://github.com/earendil-works/pi-coding-agent) sessions at once and have them talk to each other. Each session becomes a "picode" with a stable name. One can be the coordinator that hands out work, and the rest are workers that build, review, explore, or test. They pass messages through durable mailboxes stored on disk, so nothing is lost when a picode restarts.
+
+The point is simple: split a big task across multiple AI threads without any of them losing context or forking their own history.
+
+## What you get
+
+- A coordinator that delegates work and reads results, without ever writing files itself.
+- Workers that self-label by name (builder-1, explorer-a) and know their role automatically.
+- A single message shape called an envelope, with replies tracked as durable "debts" so nothing falls through the cracks.
+- A live journal per picode, auto-summarized so it stays readable.
+- A human command line tool to watch, steer, and message any picode.
+- A pluggable storage backend: plain files by default, or Restate if you need to wake stopped picodes.
 
 ## Requirements
 
-### Required
+You need a few things installed first:
 
-- **[pi](https://github.com/earendil-works/pi-coding-agent)** — the coding agent this extension runs on
+- **[pi](https://github.com/earendil-works/pi-coding-agent)**, the coding agent this extension runs on:
   ```bash
   npm install -g @earendil-works/pi-coding-agent
   ```
-- **[Herdr](https://github.com/earendil-works/herdr)** — terminal multiplexer for coordinator mode (auto-spawns workers, manages panes)
+- **Node.js 20 or newer.**
+- **An LLM provider.** At minimum an [OpenRouter](https://openrouter.ai/) key works (free models are fine). Anthropic, OpenAI, Google, and local Ollama are also supported.
+  ```bash
+  export OPENROUTER_API_KEY=sk-or-...
+  ```
+- **[Herdr](https://github.com/earendil-works/herdr)**, a terminal multiplexer, if you want the coordinator to spawn and manage workers automatically.
   ```bash
   brew install earendil-works/tap/herdr   # macOS
   ```
-  Without Herdr the coordinator cannot auto-spawn or manage worker panes. Manual multi-process setups (`pi --picode-id builder` in separate terminals) still work.
-- **Node.js ≥ 20**
-- **An LLM provider** — at minimum an [OpenRouter](https://openrouter.ai/) API key (free tier models work). Other supported providers: Anthropic, OpenAI, Google, local Ollama, etc.
-  ```bash
-  export OPENROUTER_API_KEY=sk-or-...    # or set in pi config
-  ```
+  Without Herdr you can still run workers manually in separate terminals. The coordinator just can't auto-spawn panes.
+- **Docker** is only needed for the optional Restate backend.
 
-### Optional
+## A note on commands in this guide
 
-- **Docker** — needed only for the Restate storage backend (`npm run restate:serve`)
-- **[Restate](https://restate.dev/)** — pluggable durable backend (alternative to default local filesystem)
-- **Claude Code / Codex** — connect external agents via the MCP server (`bin/postbox-mcp.mjs`)
+The examples below use a shell alias called `picode` that expands to `pi --picode-id`. So:
 
-## Quick Start
+```bash
+picode coordinator
+```
 
-1. **Install** the extension:
-   ```bash
-   pi install git:github.com/ktappdev/picode@main
-   ```
-2. **Launch a worker** in a new terminal:
-   ```bash
-   pi --picode-id builder
-   ```
-3. **Launch the coordinator** in another terminal:
-   ```bash
-   pi --picode-id coordinator
-   ```
+is the same as:
 
-That's it — workers self-label by their picode-id and can `picode_send` each other or the coordinator. See [Coordinator Mode](#coordinator-mode) and [Worker Roles](#worker-roles) for details.
+```bash
+pi --picode-id coordinator
+```
 
-## Requirements
+Set up the alias once in your shell config if you like:
 
-### Required
+```bash
+alias picode='pi --picode-id'
+```
 
-- **[pi](https://github.com/earendil-works/pi-coding-agent)** — the coding agent
-  ```bash
-  npm i -g @earendil-works/pi-coding-agent
-  ```
-- **Node.js** ≥ 18
-- **Model access** — at least one provider configured in pi:
-  - [OpenRouter](https://openrouter.ai/) (free models available)
-  - Anthropic (`ANTHROPIC_API_KEY`)
-  - OpenAI (`OPENAI_API_KEY`)
-  - Ollama (local, free)
-
-### Required for Coordinator Mode
-
-- **[herdr](https://github.com/earendil-works/herdr)** — terminal multiplexer for auto-spawning and managing worker panes
-  ```bash
-  npm i -g @earendil-works/herdr
-  ```
-
-### Optional
-
-- **jq** — handy for inspecting JSON output from `picode-cli.mjs --json`
-- **[Restate](https://restate.dev/)** — distributed backend (default is local filesystem)
-
-## Features
-
-### Threading
-
-- **Stable Picode Identity** — Each `pi` process gets a durable id via `--picode-id <id>`, persisted across restarts.
-- **Auto-Detected Roles** — Role inferred from picode-id prefix (`builder-1` → `builder`, `explorer-a` → `explorer`).
-- **Hierarchical Parent/Child** — Parent defaults to `coordinator` for non-coordinator threads; escalation target.
-- **Opt-In Activation** — Extension does nothing without `--picode-id`; no `.picode/` dir, no tools, no prompt changes.
-- **Picode State Machine** — Six states (idle/thinking/working/open/on-hold/done/stopped) with cooperative transitions.
-- **Graceful Suspend/Resume** — On Hold queues inbox; resume drains; reason persisted and visible.
-
-### Communication
-
-- **Envelope Message Model** — Single shape: note, request (`expects=true`), reply (`re=<id>`), or reply+request.
-- **Urgency Levels** — `high` (interrupt at next Open) vs `low` (deliver when idle).
-- **Scheduled Delivery** — `deliverAfterSeconds` holds envelope until due; self-addressed = scheduled self-wake.
-- **Expiring Messages** — `expiresAfterSeconds` discards undelivered envelopes past TTL.
-- **Dual Debt Ledgers** — Obligations (sender-side) and owed replies (receiver-side), both durable and sender-gated.
-- **Deadline Enforcement** — Each request gets a deadline (default 15 min); one-time overdue reminder nudges.
-- **Barriers (Async Wait)** — Arm a barrier on one or many envelope ids; wake when all/any reply lands.
-- **Meeting Protocol** — Request "meet?" → ok/busy → high-urgency exchange → closing note; exclusivity advisory.
-- **Broadcast & Role Targeting** — Send to `*` (all), comma-separated list, or `role:<role>`.
-- **Fan-Out & Collect** — Send individually correlated requests to each target, then `picode_wait([ids])`.
-
-### Tools (Model-Facing)
-
-- **`picode_send`** — Send envelopes with expects/re/urgency/deliverAfter/deadline/wait.
-- **`picode_wait`** — Arm barrier over envelope ids; wake on all/any reply with optional resolution message.
-- **`picode_status`** — Read own id/role/state/obligations/owed/barriers/journal.
-- **`picode_list`** — List all known threads with state, role, parent, liveness.
-- **`picode_journal`** — Read any picode's journal with tail/lookbackMinutes filtering.
-- **`picode_suspend`** — Mark On Hold with reason; inbox queues until resume.
-- **`picode_resume`** — Return to Open and drain queued inbox.
-
-### Slash Commands (Human-Facing)
-
-- **`/picode-status`** — Show own state, obligations, owed replies, barriers, latest journal.
-- **`/picode-journal`** — View, tail, trim, clear, or compact the journal.
-- **`/picode-list`** — List all known threads in workspace.
-- **`/picode-send`** — Send high-urgency note to another picode.
-- **`/picode-suspend`** — Mark On Hold with optional reason.
-- **`/picode-resume`** — Return to Open.
-- **`/picode-models`** — Show, set, or reset per-role worker model config.
-
-### Coordinator features
-
-- **Read-Only Coordinator** — Write/edit tools disabled; coordinator reads, searches, delegates only.
-- **Auto-Spawn Workers** — Via herdr terminal multiplexer; discovers idle/done panes for reuse.
-- **Pane Layout** — Adaptive: workers split in the direction that halves the longer dimension (wide pane → right, tall pane → down), keeping new panes close to square. Coordinator stays at 50% left; worker area fills the right half.
-- **Worker Dispatch Format** — Structured task body: Objective, Context, Constraints, Action Steps, Deliverables, Prerequisites.
-- **Self-Improving Prompts** — Coordinator writes discovered gaps to `.picode/prompts/<role>.md` on the fly.
-- **Silent-Worker Recovery** — If a worker owes a reply that hasn't arrived in ~10 min, the worker may have answered in plain text (which the coordinator can't see). Coordinator reads the worker's pane output, finds the plain-text reply, and either accepts it or resends the request reminding the worker to use `picode_send`.
-
-### Worker role types
-
-- **Builder** — Implements code; write/edit files; runs type checks.
-- **Reviewer** — Reviews diffs for bugs/security/quality; read-only.
-- **Scout / Explorer** — Explores codebase; finds files; answers architecture questions; read-only. Explorers follow a **summarization contract**: never dump raw grep/file contents — return TL;DR + key findings with file:line refs + next steps.
-- **Bug Hunter** — Laser-focused bug finder: reads code, session entries, and picode journals; runs reproductions. Reports root cause with file:line references and a suggested fix (one paragraph). Does NOT implement the fix — the coordinator or builder does.
-- **Designer** — Produces UI specs for builder; read-only.
-- **Tester** — Writes and runs tests; reproduces bugs; test-first.
-- **Generic Worker** — Catch-all role for unknown picode-ids; base worker rules only.
-
-### Communication contract (v0.5.13+)
-
-Workers reply to the coordinator **only** via `picode_send` — plain text in a worker's pane reaches the human user, not the coordinator. If a worker answers in plain text, the coordinator never sees the reply and the human must relay it. This contract is baked into every worker template.
-
-If a worker has gone silent (no `picode_send` reply within ~10 minutes), the coordinator's recovery rule is: read the worker's pane output, find the plain-text reply, and either accept it or resend the request explicitly reminding the worker to use `picode_send`.
-
-### Journal features
-
-- **Auto-Journaling** — Forked model call after each turn summarizes state; non-interrupting, background.
-- **Cadence Control** — `--picode-journal turn|done|off`; rate-limited (max 1 per ~2 min) for same-task turns.
-- **Journal Compaction** — Auto-summarizes oldest entries past threshold (500); 24h cooldown.
-- **Duplicate Suppression** — Skips entry when Working on/Done lines match previous.
-- **Pinned Journal Model** — `--picode-journal-model <model>`; defaults to picode's own model.
-- **Journal CLI Management** — `/picode-journal tail N|trim N|clear|compact|status`.
-
-### Storage Backends
-
-- **Local Filesystem (Default)** — Zero-dependency: `.picode/threads/<id>/state.json`, `journal.md`, `inbox/` (atomic rename for enqueue; FIFO via ULID-sorted readdir).
-- **Restate Backend** — Durable virtual objects; wakes stopped threads on `deliverAfter` envelopes.
-- **Pluggable Adapter** — `StorageAdapter` interface; add backend via single factory registration.
-
-### Human Tooling
-
-- **`picode-cli.mjs`** — Zero-dep CLI: list, status, watch, tail, inbox, send (with expects/re/urgency), delete threads; human as full protocol citizen.
-- **`postbox-mcp.mjs`** — MCP stdio server; any MCP-capable agent (Claude Code, Codex) becomes a Postbox picode; exposes six protocol tools.
-- **`postbox-hook.mjs`** — Claude Code hook; push-style delivery: cold-start drain, turn-start, post-tool-use, stop-block.
-
-### Customization
-
-- **Per-Project Prompt Overrides** — `.picode/prompts/<role>.md` replaces bundled role prompt entirely; no code changes.
-- **Worker Model Config** — `.picode/models.json` maps role → model; prefix-matched; `"default"` fallback.
-- **Self-Improving Coordinator** — Writes discovered rule gaps to prompt override files; survives reinstalls.
-
-### Visual Identification
-
-- **Role Emoji in Pane Label** — Each pane's herdr label shows the role with an emoji: `🧭 coordinator`, `🔨 builder`, `🔍 explorer`, `🛡️ reviewer`, `🎨 designer`, `🧪 tester`, `🐛 bug-hunter`, `👷 worker`.
-- **Role in Terminal Title** — Terminal title (visible in tmux status, OS window list) shows `pi · <emoji> <role> · <cwd>`. Useful when not running inside herdr.
-- **Coordination with herdr** — Herdr's pane label and the terminal title carry the same role info, so identification is consistent across surfaces.
-
-### CLI Flags
-
-- **`--picode-id`** — Stable picode identity; the opt-in trigger.
-- **`--picode-role`** — Explicit role override (auto-detected from id otherwise).
-- **`--picode-parent`** — Parent picode id (defaults to `coordinator`).
-- **`--picode-journal`** — Journal cadence: `turn`, `done`, or `off`.
-- **`--picode-journal-model`** — Model for journal fork entries.
-- **`--picode-storage`** — Backend: `local` or `restate`.
-- **`--picode-storage-url`** — Backend connection URL (Restate ingress).
-
-## How it works
-
-Each `pi` process becomes a **picode** with a stable identity. Threads communicate through durable per-picode mailboxes — one picode writes an envelope, the target drains it on startup or via live updates. By default the mailbox is local files (no central broker, no external dependencies); a pluggable `StorageAdapter` means the same tools/commands also work against a durable backend (Restate) that can wake a stopped picode — see [Running with the Restate adapter](#running-with-the-restate-adapter).
-
-The extension is opt-in: it only activates for a session launched with `--picode-id <id>` (or resuming one that was). Without that flag, loading this extension has no effect at all — no `.picode/` directory, no `thread_*` tools, no system-prompt changes.
-
-The protocol is specified in [THREAD-MODEL.md](THREAD-MODEL.md) (Postbox — the Picode Messaging Protocol).
+If you would rather not, just type the full `pi --picode-id <name>` form everywhere you see `picode <name>`. Installing the extension itself still uses the `pi install` command.
 
 ## Install
 
 ```bash
-# From your private GitHub repo:
 pi install git:github.com/ktappdev/picode@main
+```
 
-# Or try it without installing:
+Or try it without installing:
+
+```bash
 pi -e git:github.com/ktappdev/picode@main --picode-id my-picode
 ```
 
-## Usage
+## Quick start
 
-Start any number of pi processes in the same working directory, each with a unique `--picode-id`:
-
-```bash
-# Coordinator (role auto-detected from id)
-pi --picode-id coordinator
-
-# Workers (role + parent auto-detected from id)
-pi --picode-id builder
-pi --picode-id explorer
-pi --picode-id tester
-
-# Prefix matching: builder-1 → role "builder"
-pi --picode-id builder-1
-pi --picode-id reviewer-a
-
-# Generic worker: any id not matching a known role
-pi --picode-id my-worker
-```
-
-`--picode-role` and `--picode-parent` are now optional. Role is auto-detected from `--picode-id` (exact match or prefix: `builder-1` → `builder`). Parent auto-defaults to `coordinator` for non-coordinator threads.
-
-Threads share state via `.picode/threads/<id>/` in the project directory. Each picode gets a journal, a state file, and an inbox for cross-picode envelopes.
-
-## Developing Picode
-
-If you're hacking on the picode extension itself, you have both a local checkout (`/Users/kentaylor/developer/picode/`) and a globally installed version (`~/.pi/agent/git/github.com/ktappdev/picode/`). Running `pi` inside the local checkout will **auto-load both extensions** and fail with a `Tool "X" conflicts` error.
-
-**Workaround:** spawn test workers in a non-picode directory:
+Open a few terminals. In each one, start a picode with a unique name:
 
 ```bash
-mkdir -p /tmp/picode-cwd
-cd /tmp/picode-cwd
-pi --picode-id builder-test
+# Terminal 1: the coordinator
+picode coordinator
+
+# Terminal 2: a builder
+picode builder
+
+# Terminal 3: an explorer
+picode explorer
 ```
 
-The worker has full access to picode tools (from the installed version) and can `cd /Users/kentaylor/developer/picode && <command>` to operate on the source tree. The local auto-load never fires because there's no `package.json` in `/tmp/picode-cwd`.
+That is the whole setup. Each picode figures out its role from its name. A name like `builder-1` or `reviewer-a` becomes the `builder` or `reviewer` role automatically. Any name that does not match a known role becomes a generic worker.
 
-For the coordinator, the same applies — keep it in `/tmp/picode-cwd` or another non-picode dir while developing.
+The extension does nothing unless you pass a name. Without `--picode-id` (or the `picode` alias), there is no `.picode/` directory, no tools, and no prompt changes. It stays completely out of your way.
 
-## Worker Roles
+All picodes in the same working directory share state through `.picode/picodes/<name>/`.
 
-Each picode has a role that shapes its system prompt. The role is auto-detected from `--picode-id`:
+## How it works
 
-| Role                 | Subtype | Description                                                                                                                                |
-| -------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `coordinator`        | —       | Directs workers, delegates tasks, maintains project context. Cannot write/edit files.                                                      |
-| `builder`            | Worker  | Implements code changes, edits files, runs type checks.                                                                                    |
-| `reviewer`           | Worker  | Reviews diffs, audits for bugs/security/quality. Read-only.                                                                                |
-| `scout` / `explorer` | Worker  | Explores codebase, finds files, answers architecture questions. Read-only. Summarizes findings — never dumps raw output.                   |
-| `bug-hunter`         | Worker  | Hunts bugs: reads code, session entries, journals, runs reproductions. Reports root cause + suggested fix — does NOT implement. Read-only. |
-| `tester`             | Worker  | Writes and runs tests, reproduces bugs, checks coverage.                                                                                   |
-| `designer`           | Worker  | Designs UI specs for builder implementation. Read-only.                                                                                    |
+Each pi process becomes a picode with a stable identity. Picodes talk through durable per-picode mailboxes. One picode writes an envelope, and the target drains it on startup or as new messages arrive.
 
-Prefix matching: `builder-1`, `builder-a`, `builder_foo`, `builder.task` all resolve to role `builder`. Any id that doesn't match a known role (or prefix) defaults to a generic `worker` role with base worker rules only.
+By default the mailbox is just files on disk. No central broker, no extra services. The storage layer is a pluggable adapter, so the exact same tools also work against Restate, a durable backend that can wake a stopped picode.
 
-## Worker Models
+The protocol (called Postbox) is fully specified in [THREAD-MODEL.md](THREAD-MODEL.md).
 
-Override which LLM model each worker role uses via `.picode/models.json`:
+## The message model
+
+There is only one message shape: the envelope. Two optional fields give it meaning.
+
+```
+Envelope {
+  id            its own identity, minted per send, looks like <from>/<ulid>
+  from, to      sender and target picode names
+  body          the content
+  sentAt        ISO-8601 timestamp
+  re?           reply correlation: settles the debt on that envelope id
+  expects?      true means the sender needs a reply, tracked until one arrives
+  urgency?      "high" interrupts at the next opening, "low" waits until idle
+  deliverAfter? not deliverable before this instant
+  expiresAt?    not deliverable after this instant
+}
+```
+
+Here is how it reads in practice:
+
+- `expects: true` makes a **request**. The receiver records an owed reply. The sender records an obligation with a deadline (15 minutes by default) and gets a one-time nudge if it is not answered in time.
+- `re: <id>` makes a **reply**. It settles the debt.
+- Both together is a reply that asks a follow-up, useful when you can't answer without more information.
+- Neither is a plain **note**.
+
+There are no message types on the wire and no locks. If a picode wants to block on a reply, it arms a barrier (with `wait=true` or `picode_wait`) and ends its turn. The reply wakes it. A scheduled self-wake is just an envelope to your own name with `deliverAfter`.
+
+Messages show up as `[<kind> from <sender> #<id>]`. The kind (request, reply, reply+request, or note) is derived from the fields, and requests carry the id you should echo back as `re`.
+
+## Tools the model can use
+
+| Tool | Purpose |
+| ---- | ------- |
+| `picode_send` | Send an envelope to one name, `a,b`, `*`, or `role:<role>`. Supports `expects`, `re`, `urgency`, `deliverAfterSeconds`, `wait=true` to arm a barrier inline. |
+| `picode_wait` | Wait for all or any of several outstanding replies (a barrier). Accepts `deadlineSeconds` and an optional `message` injected on resolution. |
+| `picode_status` | Read this picode's state, obligations, owed replies, barriers, and journal. |
+| `picode_list` | List all known threads in the workspace. |
+| `picode_journal` | Read another picode's journal, filtered by `tail` or `lookbackMinutes`. |
+| `picode_suspend` | Mark this picode On Hold. The inbox queues until resume. |
+| `picode_resume` | Resume from On Hold and drain queued messages. |
+
+## Slash commands for humans
+
+| Command | Purpose |
+| ------- | ------- |
+| `/picode-status` | Show state and the latest journal entry. |
+| `/picode-list` | List all known threads. |
+| `/picode-send <to> <body>` | Send a high-urgency note to another picode. |
+| `/picode-suspend` | Mark On Hold. |
+| `/picode-resume` | Resume from On Hold. |
+| `/picode-models` | Show, set, or reset per-role worker model config. |
+| `/picode-journal` | View, trim, clear, or compact the journal. |
+
+## Worker roles
+
+Each picode has a role that shapes its system prompt. The role is auto-detected from the name you give it.
+
+| Role | Subtype | Description |
+| ---- | ------- | ----------- |
+| `coordinator` | - | Directs workers, delegates tasks, keeps project context. Cannot write or edit files. |
+| `builder` | Worker | Implements code changes, edits files, runs type checks. |
+| `reviewer` | Worker | Reviews diffs, audits for bugs, security, and quality. Read-only. |
+| `scout` / `explorer` | Worker | Explores the codebase, finds files, answers architecture questions. Read-only. Summarizes findings instead of dumping raw output. |
+| `bug-hunter` | Worker | Hunts bugs by reading code, session entries, and journals. Reports root cause and a suggested fix but does not implement it. Read-only. |
+| `tester` | Worker | Writes and runs tests, reproduces bugs, checks coverage. |
+| `designer` | Worker | Designs UI specs for the builder to implement. Read-only. |
+
+Prefix matching means `builder-1`, `builder-a`, `builder_foo`, and `builder.task` all resolve to the `builder` role. Any name that does not match a known role (or prefix) becomes a generic `worker` with base worker rules only.
+
+### The communication contract
+
+Workers reply to the coordinator only through `picode_send`. Plain text typed in a worker's pane reaches the human user, not the coordinator. If a worker answers in plain text, the coordinator never sees it and the human has to relay it. This contract is built into every worker prompt.
+
+If a worker goes silent (no `picode_send` reply within about 10 minutes), the coordinator's recovery rule kicks in: read the worker's pane output, find the plain-text reply, and either accept it or resend the request while reminding the worker to use `picode_send`.
+
+## Coordinator mode
+
+When a picode has the `coordinator` role (auto-detected from the name `coordinator`):
+
+- **Write and edit tools are disabled.** The coordinator reads, searches, and delegates only.
+- **Bash is read-only.** Allowed commands are things like `ls`, `grep`, `find`, and `cat`, plus `herdr` commands for pane management.
+- **Auto-spawns workers via [herdr](https://github.com/earendil-works/herdr).** A terminal multiplexer that manages panes and tabs.
+- **Reuses panes.** It checks existing panes first and reuses idle or done workers instead of spawning duplicates.
+- **Adaptive layout.** Workers split in the direction that keeps new panes close to square. The coordinator stays at 50 percent on the left and the worker area fills the right half.
+- **Structured dispatch.** Tasks go out as Objective, Context, Constraints, Action Steps, Deliverables, and Prerequisites.
+- **Self-improving.** When the coordinator finds a gap in its own rules, it writes the fix to a per-project prompt override file.
+
+## Worker models
+
+You can pick which LLM model each worker role uses with `.picode/models.json`:
 
 ```json
 {
@@ -271,34 +196,22 @@ Override which LLM model each worker role uses via `.picode/models.json`:
 }
 ```
 
-- Roles match by prefix (e.g., `builder` key matches `builder-1`, `builder-a`)
-- Falls back to `"default"` key, then to pi's default model
-- Coordinator reads this file on startup and passes the model to each worker spawn command
-- Human operator can manage via slash command:
+- Roles match by prefix, so a `builder` key matches `builder-1` and `builder-a`.
+- It falls back to the `default` key, then to pi's default model.
+- The coordinator reads this file on startup and passes the model to each spawned worker.
+- You can also manage it through the slash command:
 
-| Command                                            | Effect                        |
-| -------------------------------------------------- | ----------------------------- |
-| `/picode-models`                                   | Show current config           |
-| `/picode-models builder anthropic/claude-sonnet-4` | Set model for a role          |
-| `/picode-models --reset`                           | Delete file, restore defaults |
+| Command | Effect |
+| ------- | ------ |
+| `/picode-models` | Show the current config. |
+| `/picode-models builder anthropic/claude-sonnet-4` | Set the model for a role. |
+| `/picode-models --reset` | Delete the file and restore defaults. |
 
-## Coordinator Mode
+## Customizing prompts
 
-When a picode has role `coordinator` (auto-detected from `--picode-id coordinator`):
+Each role's system prompt ships as a bundled default in `src/core/system-prompt.ts`. You can replace a role's entire prompt block with a markdown file in your project. No code changes and no reinstall needed.
 
-- **Write/edit tools are disabled** — coordinator reads, searches, and delegates only
-- **Bash is read-only** — `ls`, `grep`, `find`, `cat`, plus `herdr` commands for pane management
-- **Auto-spawns workers via [herdr](https://github.com/earendil-works/herdr)** — a terminal multiplexer that manages panes and tabs
-- **Pane reuse** — checks existing panes first, reuses idle/done workers instead of spawning duplicates
-- **Layout** — spawns workers in the same tab, 50/50 split (coordinator left, workers stacked in right column)
-- **Model config** — reads `.picode/models.json` for per-role model overrides when spawning
-- **Self-improving** — updates its per-project prompt override (`.picode/prompts/coordinator.md`) when it discovers gaps in rules, workflow, or defaults during operation
-
-## Customizing Prompts
-
-Each role's system prompt comes from a bundled default in `src/core/system-prompt.ts`. You can override a role's entire prompt block with a markdown file in your project — no code changes, no reinstall needed.
-
-Create `.picode/prompts/<role>.md` at your project root (the git repo root, or cwd if not in a repo):
+Create `.picode/prompts/<role>.md` at your project root (the git repo root, or the cwd if you are not in a repo):
 
 ```
 .picode/
@@ -309,129 +222,64 @@ Create `.picode/prompts/<role>.md` at your project root (the git repo root, or c
     worker.md        # catch-all for any generic worker role
 ```
 
-**Supported role names:** `coordinator`, `builder`, `reviewer`, `scout`, `explorer`, `designer`, `tester`, `worker`.
+A few things to know:
 
-- The override file **replaces** the bundled role block entirely (no merging).
-- Leave the file empty to use the bundled default (empty files are ignored).
-- Unknown roles (generic workers) fall back to `worker.md`.
-- Loaded once at picode startup — no hot reload. Restart the picode after editing.
+- The override file replaces the bundled role block entirely. There is no merging.
+- An empty file is ignored, so you get the bundled default.
+- Unknown roles fall back to `worker.md`.
+- Prompts are loaded once at startup. Restart the picode after editing.
+- When a coordinator discovers a gap in its rules during operation, it writes to these override files rather than to the extension source. Those changes survive reinstalls and are safe to commit to your project.
 
-**Self-improvement:** When a coordinator discovers a gap in its rules during operation, it writes to these override files — not to the extension source. This survives reinstalls and is safe to commit to your project repo.
+Sample overrides to copy live in [`examples/prompts/`](examples/prompts/).
 
-Sample overrides to copy: [`examples/prompts/`](examples/prompts/).
+## The journal
 
-## Journal Compaction
+Every picode keeps a journal: a forked model call after each turn that summarizes its state. It runs in the background and does not interrupt the work.
 
-Journal entries are append-only, so a long-running picode can grow `journal.md` without bound. Compaction keeps the file bounded by summarizing the oldest entries into a single block and keeping the most recent ones verbatim.
+- **Cadence control.** `--picode-journal turn|done|off`. Same-task turns are rate-limited to one entry per two minutes.
+- **Compaction.** When the journal passes 500 entries, the oldest ones are summarized into a single block, keeping the most recent 100 verbatim. There is a 24-hour cooldown between compactions.
+- **Duplicate suppression.** An entry is skipped when its Working on or Done line matches the previous one.
+- **Pinned journal model.** `--picode-journal-model <model>` defaults to the picode's own model.
 
-**Automatic:**
+Manage it through the slash command:
 
-- Triggers at `agent_end` when the journal has more than 500 entries.
-- Summarizes all but the most recent 100 entries into a single `<!-- COMPACTION <ts> -->` block.
-- 24-hour cooldown between compactions (enforced by a marker in the file, no extra state).
-- The summarization runs as a forked `pi` process — no in-process LLM call, fire-and-forget, never blocks the picode.
-- The new content is re-read under the journal lock just before writing, so any entries appended during the fork are preserved.
+| Subcommand | Effect |
+| ---------- | ------ |
+| `/picode-journal` | Show the last 12 entries. |
+| `/picode-journal tail N` | Show the last N entries. |
+| `/picode-journal status` | Entry count, file size, oldest and newest timestamps. |
+| `/picode-journal trim N` | Keep only the last N entries. |
+| `/picode-journal clear` | Delete the journal file. |
+| `/picode-journal compact` | Force compaction now, even under the 500-entry threshold. |
 
-**Manual control via `/picode-journal`:**
+## Human monitoring and steering
 
-| Subcommand                | Effect                                                 |
-| ------------------------- | ------------------------------------------------------ |
-| `/picode-journal`         | Show last 12 entries                                   |
-| `/picode-journal tail N`  | Show last N entries                                    |
-| `/picode-journal status`  | Entry count, file size, oldest and newest timestamps   |
-| `/picode-journal trim N`  | Keep only the last N entries (no fork)                 |
-| `/picode-journal clear`   | Delete the journal file                                |
-| `/picode-journal compact` | Force compact now (even under the 500-entry threshold) |
-
-## The message model
-
-There is **one message shape** — the envelope — and two optional fields give it meaning:
-
-```
-Envelope {
-  id            own identity — minted per send, form <from>/<ulid>
-  from, to      sender / target picode id
-  body          content
-  sentAt        ISO-8601
-  re?           reply correlation: settles the debt on that envelope id
-  expects?      true — sender needs a reply; tracked until one arrives
-  urgency?      "high" (interrupt at next opening) | "low" (default: when idle)
-  deliverAfter? not deliverable before this instant
-}
-```
-
-- `expects: true` → a **request**. The receiver records an owed reply (durable, survives restarts); the sender records an obligation with a deadline (default 15 min) and gets a one-time overdue reminder.
-- `re: <id>` → a **reply**. Settles the debt.
-- Both together → a reply that asks a follow-up — "pass the ball" when you can't answer without more information.
-- Neither → a plain **note**.
-
-There are no message types on the wire and no locks anywhere: a picode that wants to block on a reply arms a **barrier** (`wait=true` or `picode_wait`) and ends its turn — the reply wakes it. A live back-and-forth (a "meeting") is a convention: request "meet?" → reply ok/busy → exchange of high-urgency notes → note "closing". A scheduled self-wake is just an envelope to your own id with `deliverAfter`.
-
-Messages arrive as `[<kind> from <sender> #<id>]` — kind (request/reply/reply+request/note) is derived from the fields, and requests carry an explicit reply hint so receivers always know the id to echo back as `re`.
-
-### Tools available to the LLM
-
-| Tool             | Purpose                                                                                                                                           |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `picode_send`    | Send an envelope — to one id, `a,b`, `*`, or `role:<role>`; `expects`, `re`, `urgency`, `deliverAfterSeconds`, `wait=true` (arm a barrier inline) |
-| `picode_wait`    | Wait for all/any of several outstanding replies (barrier) — accepts `deadlineSeconds` and an optional `message` payload injected on resolution    |
-| `picode_status`  | Read this picode's state, obligations, owed replies, barriers, and journal                                                                        |
-| `picode_list`    | List all known threads in the workspace                                                                                                           |
-| `picode_journal` | Read another picode's journal — filter by `tail`/`lookbackMinutes`                                                                                |
-| `picode_suspend` | Mark picode On Hold — inbox queues until resume (client-local, not protocol)                                                                      |
-| `picode_resume`  | Resume from On Hold and drain queued messages (client-local, not protocol)                                                                        |
-
-### Slash commands
-
-| Command                    | Purpose                                    |
-| -------------------------- | ------------------------------------------ |
-| `/picode-status`           | Show state and latest journal entry        |
-| `/picode-list`             | List all known threads                     |
-| `/picode-send <to> <body>` | Send a high-urgency note to another picode |
-| `/picode-suspend`          | Mark On Hold                               |
-| `/picode-resume`           | Resume from On Hold                        |
-| `/picode-models`           | Show/set/reset worker model config         |
-| `/picode-journal`          | View, trim, clear, or compact the journal  |
-
-## Flags
-
-- `--picode-id <id>` — stable identity for this picode (e.g., `coordinator`, `worker-a`); also the opt-in trigger — omit it and the extension does nothing
-- `--picode-role <role>` — role label, targetable via `picode_send to="role:<role>"`. Optional — auto-detected from `--picode-id` (exact match or prefix: `builder-1` → `builder`). Known roles: coordinator, builder, reviewer, scout/explorer, tester, designer. Unknown ids default to `worker`.
-- `--picode-parent <id>` — parent picode id, the escalation target ("I'm stuck" → request to parent at high urgency). Optional — auto-defaults to `coordinator` for non-coordinator threads.
-- `--picode-journal <turn|done|off>` — journal cadence (default `turn`; each entry is one forked model call, rate-limited to one entry per ~2 minutes of same-task tool turns, plus a wrap-up entry when a run ends with unjournaled work; structural changes — new obligations, barriers — always journal immediately)
-- `--picode-journal-model <model>` — model for the journal fork (e.g. `deepseek/deepseek-chat` to keep entries cheap). Default: the picode's own model. A pinned model must resolve on the machine the picode runs on, or journaling fails (loudly, on stderr)
-- `--picode-storage <local|restate>` — storage backend (default `local`, the filesystem; see [Running with the Restate adapter](#running-with-the-restate-adapter))
-- `--picode-storage-url <url>` — backend connection URL (e.g. a Restate ingress URL); ignored by the local backend
-
-## Human monitoring & steering
-
-`bin/picode-cli.mjs` lets a human act on the picode system without running pi — a full protocol citizen over plain files:
+`bin/picode-cli.mjs` lets a human act on the picode system without running pi. It is a full protocol citizen working over plain files.
 
 ```bash
-node bin/picode-cli.mjs list                      # table of all threads incl. coordination counts
-node bin/picode-cli.mjs status link               # one picode's full coordination state:
-                                                  #   obligations, owed replies, barriers,
-                                                  #   pending inbox, last journal entry
+node bin/picode-cli.mjs list                      # table of all threads
+node bin/picode-cli.mjs status link               # one picode's full coordination state
 node bin/picode-cli.mjs status link --json        # same, as machine-readable JSON
 node bin/picode-cli.mjs watch                     # live coordination board
-node bin/picode-cli.mjs tail link                 # follow one picode's state/journal/messages
-                                                  #   (incl. +/- diffs of obligations/barriers)
-node bin/picode-cli.mjs inbox link                # pending + recent messages
-node bin/picode-cli.mjs send link "status?" --expects       # ask, tracked — picode owes you a reply
+node bin/picode-cli.mjs tail link                 # follow one picode's state, journal, and messages
+node bin/picode-cli.mjs inbox link                # pending and recent messages
+node bin/picode-cli.mjs send link "status?" --expects       # ask, tracked
 node bin/picode-cli.mjs send link "looks good" --re link/01ABC…  # reply, settles the debt
-node bin/picode-cli.mjs send '*' "standup in 5"             # broadcast note
-node bin/picode-cli.mjs delete link                         # remove a picode (refuses if it looks live)
-node bin/picode-cli.mjs delete --stale --yes                # prune every stopped/stale picode
+node bin/picode-cli.mjs send '*' "standup in 5"   # broadcast note
+node bin/picode-cli.mjs delete link               # remove a picode (refuses if it looks live)
+node bin/picode-cli.mjs delete --stale --yes      # prune every stopped or stale picode
 ```
 
-## Interop: MCP server for other coding agents
+## Connecting other coding agents (MCP)
 
-`bin/postbox-mcp.mjs` is a zero-dependency MCP (Model Context Protocol) stdio server: point any MCP-capable coding agent at it and that agent becomes a full Postbox picode over plain files — the same `.picode/threads/<id>/` binding pi and `picode-cli` speak, so a Claude Code or Codex session sends, receives, and settles reply debts with pi threads and each other, no pi process required on its side. It exposes the six protocol tools (`picode_send`, `picode_inbox`, `picode_wait`, `picode_status`, `picode_list`, `picode_journal`) and maintains the sending picode's presence and obligation/owed ledger in `state.json`. Identity comes from environment variables: `POSTBOX_THREAD_ID` (required), `POSTBOX_DIR` (workspace root, default cwd), and optional `POSTBOX_ROLE` / `POSTBOX_PARENT`.
+`bin/postbox-mcp.mjs` is a zero-dependency MCP (Model Context Protocol) stdio server. Point any MCP-capable agent at it and that agent becomes a full Postbox picode over plain files, speaking the same `.picode/picodes/<id>/` layout that pi and `picode-cli` use. A Claude Code or Codex session can then send, receive, and settle reply debts with pi threads and each other, with no pi process required on its side.
+
+It exposes the six protocol tools (`picode_send`, `picode_inbox`, `picode_wait`, `picode_status`, `picode_list`, `picode_journal`) and keeps the sending agent's presence and obligation ledger in `state.json`. Identity comes from environment variables: `POSTBOX_THREAD_ID` (required), `POSTBOX_DIR` (workspace root, defaults to cwd), and optional `POSTBOX_ROLE` or `POSTBOX_PARENT`.
 
 Register it with Claude Code:
 
 ```bash
-claude mcp add postbox -e POSTBOX_THREAD_ID=cc-1 -- node /path/to/pi-extension/bin/postbox-mcp.mjs
+claude mcp add postbox -e POSTBOX_THREAD_ID=cc-1 -- node /path/to/picode/bin/postbox-mcp.mjs
 ```
 
 Or with Codex, in `~/.codex/config.toml`:
@@ -439,54 +287,108 @@ Or with Codex, in `~/.codex/config.toml`:
 ```toml
 [mcp_servers.postbox]
 command = "node"
-args = ["/path/to/pi-extension/bin/postbox-mcp.mjs"]
+args = ["/path/to/picode/bin/postbox-mcp.mjs"]
 env = { POSTBOX_THREAD_ID = "codex-1" }
 ```
 
-Caveat — foreign agents are pull-delivery only: they see incoming messages when they call `picode_inbox` (drain now) or `picode_wait` (block until one arrives), and don't get pi's push injection into a live turn.
+One caveat: foreign agents are pull-delivery only. They see incoming messages when they call `picode_inbox` or `picode_wait`, not through pi's push injection into a live turn.
 
-## State machine
+There is also `bin/postbox-hook.mjs`, a Claude Code hook that does push-style delivery: cold-start drain, turn-start, post-tool-use, and stop-block.
 
-```
-IDLE → THINKING → WORKING → OPEN ──→ DONE
+## Storage backends
 
-OPEN ──(suspend)──→ ON HOLD ──(resume)──→ OPEN
-any ──(unclean exit)──→ STOPPED
-```
+**Local filesystem (default).** Zero dependencies. State lives in `.picode/picodes/<id>/state.json`, `journal.md`, and `inbox/` (messages are enqueued atomically with a rename, and read in FIFO order thanks to ULID-sorted filenames).
 
-There is no waiting state: debts and barriers are durable records, not states, so nothing needs repair on restart beyond `done/stopped → idle`. Full detail in [THREAD-MODEL.md](THREAD-MODEL.md) §11–§13.
+**Restate backend.** A durable backend that can wake a stopped picode. A `deliverAfter` envelope coming due for a stopped picode causes the companion service to spawn pi back up, because the mailbox and its timer live in Restate rather than in the process that armed it.
 
-## Running with the Restate adapter
+**Pluggable adapter.** The `StorageAdapter` interface means you can add a backend with a single factory registration.
 
-The default `local` backend is the filesystem — durable enough for a crash, but a stopped `pi` process obviously can't watch its own inbox or fire its own heartbeat while it isn't running. The `restate` backend trades "no dependencies" for one real capability the local backend structurally cannot offer: **waking a stopped picode**. A `deliverAfter` envelope coming due for a stopped picode causes the companion service to spawn `pi` back up, because the mailbox and its timer live in Restate, not in the process that armed it.
+### Running with the Restate adapter
 
-This backend has a real operational footprint — three things need to be running:
+The default local backend is durable enough to survive a crash, but a stopped pi process obviously cannot watch its own inbox or fire its own heartbeat while it is not running. The Restate backend trades "no dependencies" for one real capability the local backend structurally cannot offer: waking a stopped picode.
 
-1. **A self-hosted `restate-server`** (single binary or Docker), e.g. `docker run --rm -p 8080:8080 -p 9070:9070 docker.io/restatedev/restate:latest`.
-2. **The companion service**, which hosts the `Picode`/`PicodeRegistry` virtual objects: `npm run restate:serve` (listens on port 9080 by default). Three environment variables shape how it revives a stopped picode: `RESTATE_INGRESS_URL` — the ingress URL the spawned `pi` connects back to (default `http://localhost:8080`); `PI_THREAD_EXTENSION` — the path to this extension's entry point, passed to the spawned `pi` as `--extension` (omit if your `pi` config already loads it); and `PI_BIN` — the pi executable to spawn (default `pi` from PATH; required on Windows, where the npm-installed `pi` is a `.cmd` shim `spawn()` can't execute). The revived `pi` runs in the picode's original working directory, recorded in its state.
-3. **Register the deployment** with the server's admin API (one-time, or after changing `src/restate/service.ts`):
+This backend has a real operational footprint. Three things need to be running:
+
+1. **A self-hosted `restate-server`** (single binary or Docker), for example:
+   ```bash
+   docker run --rm -p 8080:8080 -p 9070:9070 docker.io/restatedev/restate:latest
+   ```
+2. **The companion service**, which hosts the `Picode` and `PicodeRegistry` virtual objects:
+   ```bash
+   npm run restate:serve
+   ```
+   It listens on port 9080 by default. Three environment variables shape how it revives a stopped picode:
+   - `RESTATE_INGRESS_URL` is the ingress URL the spawned pi connects back to (default `http://localhost:8080`).
+   - `PI_THREAD_EXTENSION` is the path to this extension's entry point, passed to the spawned pi as `--extension` (omit if your pi config already loads it).
+   - `PI_BIN` is the pi executable to spawn (default `pi` from PATH; required on Windows, where the npm-installed `pi` is a `.cmd` shim that `spawn()` cannot execute).
+   
+   The revived pi runs in the picode's original working directory, recorded in its state.
+3. **Register the deployment** with the server's admin API (one time, or after changing `src/restate/service.ts`):
    ```bash
    curl -X POST http://localhost:9070/deployments -d '{"uri":"http://localhost:9080"}'
    ```
 
-Then start `pi` pointed at it:
+Then start pi pointed at it:
 
 ```bash
-pi --picode-id coordinator --picode-storage restate --picode-storage-url http://localhost:8080
+picode coordinator --picode-storage restate --picode-storage-url http://localhost:8080
 ```
 
-Known limitations versus the local backend: `watchInbox` polls (every 2s) instead of getting an instant `fs.watch` notification — cold-start delivery at session_start is unaffected either way. A future-dated envelope's delayed self-check (`deliverDue`) can't be un-armed once scheduled (Restate has no public "cancel a delayed send" API) — it no-ops if the envelope was already drained by the time it fires. `bin/picode-cli.mjs` (the human monitoring CLI above) is a standalone, zero-dependency script that only ever reads the local filesystem layout — it won't see threads running against the Restate backend.
+Known limitations versus the local backend: `watchInbox` polls every two seconds instead of getting an instant `fs.watch` notification (cold-start delivery at session start is unaffected either way). A future-dated envelope's delayed self-check cannot be un-armed once scheduled, since Restate has no public "cancel a delayed send" API. It no-ops if the envelope was already drained by the time it fires. The `bin/picode-cli.mjs` human monitoring CLI only ever reads the local filesystem layout, so it will not see threads running against the Restate backend.
+
+## CLI flags
+
+- `--picode-id <id>`: stable identity for this picode, for example `coordinator` or `worker-a`. This is also the opt-in trigger. Omit it and the extension does nothing.
+- `--picode-role <role>`: role label, targetable via `picode_send to="role:<role>"`. Optional. Auto-detected from the id (exact match or prefix: `builder-1` becomes `builder`).
+- `--picode-parent <id>`: parent picode id, the escalation target. Optional. Auto-defaults to `coordinator` for non-coordinator threads.
+- `--picode-journal <turn|done|off>`: journal cadence. Default is `turn`.
+- `--picode-journal-model <model>`: model for the journal fork. Default is the picode's own model. A pinned model must resolve on the machine the picode runs on, or journaling fails loudly on stderr.
+- `--picode-storage <local|restate>`: storage backend. Default is `local`.
+- `--picode-storage-url <url>`: backend connection URL. Ignored by the local backend.
+
+## State machine
+
+```
+IDLE -> THINKING -> WORKING -> OPEN -> DONE
+
+OPEN -(suspend)-> ON HOLD -(resume)-> OPEN
+any -(unclean exit)-> STOPPED
+```
+
+There is no waiting state. Debts and barriers are durable records rather than states, so nothing needs repair on restart beyond `done` or `stopped` going back to `idle`. Full detail is in [THREAD-MODEL.md](THREAD-MODEL.md).
+
+## Visual identification
+
+- **Role emoji in the pane label.** Each herdr pane label shows the role with an emoji: `🧭 coordinator`, `🔨 builder`, `🔍 explorer`, `🛡️ reviewer`, `🎨 designer`, `🧪 tester`, `🐛 bug-hunter`, `👷 worker`.
+- **Role in the terminal title.** The terminal title shows `pi · <emoji> <role> · <cwd>`, which is useful when you are not running inside herdr.
+- **Coordination with herdr.** Herdr's pane label and the terminal title carry the same role info, so identification is consistent across surfaces.
+
+## Developing picode
+
+If you are hacking on the extension itself, you have both a local checkout at `/Users/kentaylor/developer/picode/` and a globally installed version at `~/.pi/agent/git/github.com/ktappdev/picode/`. Running pi inside the local checkout auto-loads both extensions and fails with a `Tool "X" conflicts` error.
+
+Workaround: spawn test workers in a directory that is not a picode project:
+
+```bash
+mkdir -p /tmp/picode-cwd
+cd /tmp/picode-cwd
+picode builder-test
+```
+
+The worker has full access to picode tools (from the installed version) and can `cd /Users/kentaylor/developer/picode && <command>` to operate on the source tree. The local auto-load never fires because there is no `package.json` in `/tmp/picode-cwd`.
+
+The same applies to the coordinator. Keep it in `/tmp/picode-cwd` or another non-picode directory while developing.
 
 ## Tests
 
 ```bash
-npm run test:unit         # ~120 cases, milliseconds, no API cost — deterministic logic
-npm run test:e2e          # ~10 cases, minutes, real model calls — tool discovery & process boundaries
-npm run test:e2e:restate  # ~6 cases, needs Docker, no API cost — RestateAdapter against a real restate-server
+npm run test:unit         # ~120 cases, milliseconds, no API cost, deterministic logic
+npm run test:e2e          # ~10 cases, minutes, real model calls, tool discovery and process boundaries
+npm run test:e2e:restate  # ~6 cases, needs Docker, no API cost, RestateAdapter against a real restate-server
 npm test                  # test:unit + test:e2e
 ```
 
-Three tiers, deliberately: `test:unit` drives the extension's own tool/command/inbox/adapter logic directly against a stubbed `pi` (no subprocess), covering targeting, correlation, dedup, error handling, and — via a small fake in-memory `StorageAdapter` — that the core logic doesn't secretly depend on the filesystem. `test:e2e` spawns a real `pi` process per case and is kept small — each test there earns its place by proving something only a live model or a real subprocess boundary can (ambiguity resolution, envelope comprehension, cross-process durability, journal forking). `test:e2e:restate` is separate because it needs Docker rather than API credits — it proves `RestateAdapter` and the `Picode`/`PicodeRegistry` service actually work against a real `restate-server`, not just against the type checker. See [TESTING.md](TESTING.md) before adding a new test.
+Three tiers, deliberately. `test:unit` drives the extension's own tool, command, inbox, and adapter logic directly against a stubbed pi (no subprocess), covering targeting, correlation, dedup, and error handling. `test:e2e` spawns a real pi process per case and is kept small, because each test there earns its place by proving something only a live model or a real subprocess boundary can. `test:e2e:restate` is separate because it needs Docker rather than API credits. See [TESTING.md](TESTING.md) before adding a new test.
 
 ## License
 
