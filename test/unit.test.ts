@@ -33,7 +33,7 @@ import type {
 import { createThreadStore } from "../src/state";
 import { createInbox } from "../src/inbox";
 import type { Injection } from "../src/inbox";
-import { registerLifecycle, computeTps, buildStatsRows, extractFirstLine } from "../src/lifecycle";
+import { registerLifecycle, extractFirstLine } from "../src/lifecycle";
 import { deadlineFromSeconds } from "../src/core/time";
 import { checkBodySize, MAX_BODY_BYTES } from "../src/tools/messaging";
 import { registerTools } from "../src/tools/index";
@@ -2458,130 +2458,6 @@ describe("commands: /thread-journal", () => {
     h.store.threadId = "";
     await callCommand(h, "/thread-journal", "status");
     assert.match(h.notifications[0].text, /hasn't opted into picode/);
-  });
-});
-
-describe("lifecycle: footer tps (computeTps)", () => {
-  // Anchor scenario from the bug report: output=100, stream=1000ms → 100 t/s.
-  // The old code used message.timestamp (set at partial creation, ~50ms
-  // after turn_start) as the end time, giving 100/0.05s = 2000 t/s. With
-  // the real end time from message_end, the same inputs now report 100.
-  it("100 output tokens over 1000ms → ' 100t/s'", () => {
-    const t0 = 1_000_000_000_000;
-    const rate = computeTps(t0, t0 + 1000, 0, 100);
-    assert.equal(rate, " 100t/s");
-  });
-
-  it("5000 output tokens over 2000ms → ' 2500t/s'", () => {
-    const t0 = 1_000_000_000_000;
-    const rate = computeTps(t0, t0 + 2000, 0, 5000);
-    assert.equal(rate, " 2500t/s");
-  });
-
-  it("isolates this turn's output from the cumulative branch total", () => {
-    // Prior turn produced 40k output; this turn adds 10k. Without the
-    // outputAtTurnStart subtraction, we'd report 50k/1s = 50000 t/s.
-    const t0 = 1_000_000_000_000;
-    const rate = computeTps(t0, t0 + 1000, 40_000, 50_000);
-    assert.equal(rate, " 10000t/s");
-  });
-
-  it("returns empty string when turn_start hasn't fired (fresh session)", () => {
-    assert.equal(computeTps(0, 0, 0, 0), "");
-    assert.equal(computeTps(0, 1_000_000_000_000, 0, 100), "");
-  });
-
-  it("returns empty string when message_end hasn't fired yet", () => {
-    // turn_start set, but no assistant message has finished.
-    const t0 = 1_000_000_000_000;
-    assert.equal(computeTps(t0, 0, 0, 100), "");
-  });
-
-  it("returns empty string when this turn produced no output", () => {
-    // Tool-only turn: assistant output is unchanged from turn_start.
-    const t0 = 1_000_000_000_000;
-    assert.equal(computeTps(t0, t0 + 1000, 100, 100), "");
-  });
-
-  it("guards against negative/zero elapsed time", () => {
-    const t0 = 1_000_000_000_000;
-    // endTime < startTime (clock skew / wrong order) → no rate.
-    assert.equal(computeTps(t0, t0 - 1, 0, 100), "");
-    // endTime == startTime → no rate (would be Infinity).
-    assert.equal(computeTps(t0, t0, 0, 100), "");
-  });
-
-  // Live mid-stream t/s: message_update sets lastMessageEndTime to a
-  // non-final wall-clock time during streaming, and the render closure
-  // passes a live (partial) output value. computeTps must produce a
-  // real rate from these non-final anchors — same math as the final
-  // case, just with an earlier endTime. This guards the live-update
-  // feature added in 0.5.19 (message_update handler in lifecycle.ts).
-  it("live mid-stream: partial output + non-final endTime → live rate", () => {
-    const t0 = 1_000_000_000_000;
-    // 40 tokens streamed in 200ms so far → 200 t/s live.
-    const rate = computeTps(t0, t0 + 200, 0, 40);
-    assert.equal(rate, " 200t/s");
-  });
-
-  it("live mid-stream: grows as more tokens stream in", () => {
-    const t0 = 1_000_000_000_000;
-    // First update: 40 tokens / 200ms → 200 t/s.
-    assert.equal(computeTps(t0, t0 + 200, 0, 40), " 200t/s");
-    // Second update: 120 tokens / 600ms → 200 t/s (steady).
-    assert.equal(computeTps(t0, t0 + 600, 0, 120), " 200t/s");
-    // Third update: 300 tokens / 1000ms → 300 t/s (sped up).
-    assert.equal(computeTps(t0, t0 + 1000, 0, 300), " 300t/s");
-  });
-});
-
-describe("lifecycle: buildStatsRows (footer layout)", () => {
-  const modelPart = "deepseek-v4 • thinking:L";
-  const ctxColored = "1.5k/128k (1.2%)";
-  const ioStr = "↑12k ↓3.4k";
-  const rateStr = " 85t/s";
-
-  it("wide (>=80) returns 1 row with all parts", () => {
-    const rows = buildStatsRows(80, modelPart, ctxColored, ioStr, rateStr);
-    assert.equal(rows.length, 1);
-    assert.ok(rows[0].includes(modelPart));
-    assert.ok(rows[0].includes(ctxColored));
-    assert.ok(rows[0].includes(ioStr));
-    assert.ok(rows[0].includes(rateStr));
-  });
-
-  it("narrow (<80) returns 2 rows", () => {
-    const rows = buildStatsRows(79, modelPart, ctxColored, ioStr, rateStr);
-    assert.equal(rows.length, 2);
-    assert.ok(rows[0].includes(modelPart));
-    assert.ok(rows[0].includes(ctxColored));
-    assert.ok(!rows[0].includes(ioStr));
-    assert.ok(rows[1].includes(ioStr));
-    assert.ok(rows[1].includes(rateStr));
-  });
-
-  it("boundary: 79 -> 2 rows, 80 -> 1 row, 81 -> 1 row", () => {
-    assert.equal(buildStatsRows(79, modelPart, ctxColored, ioStr, rateStr).length, 2);
-    assert.equal(buildStatsRows(80, modelPart, ctxColored, ioStr, rateStr).length, 1);
-    assert.equal(buildStatsRows(81, modelPart, ctxColored, ioStr, rateStr).length, 1);
-  });
-
-  it("missing rateStr still produces correct row count", () => {
-    const rows = buildStatsRows(79, modelPart, ctxColored, ioStr, "");
-    assert.equal(rows.length, 2);
-    assert.equal(rows[1], ioStr);
-  });
-
-  it("missing context renders the ctxColored string as-is", () => {
-    const ctxStr = "?/128k";
-    const rows = buildStatsRows(79, modelPart, ctxStr, ioStr, rateStr);
-    assert.equal(rows.length, 2);
-    assert.ok(rows[0].includes(ctxStr));
-  });
-
-  it("very narrow width still returns 2 rows (not 4)", () => {
-    const rows = buildStatsRows(40, modelPart, ctxColored, ioStr, rateStr);
-    assert.equal(rows.length, 2);
   });
 });
 

@@ -50,114 +50,6 @@ function hasThreadIdentity(ctx: ExtensionContext): boolean {
   return false;
 }
 
-/** Compact token-count formatter (1.5k / 12k / 1.5M) — mirrors the
- *  built-in `formatTokens` from pi's default footer so the picode footer
- *  reads consistently with what users already know. */
-function formatTokens(count: number): string {
-  if (count < 1000) return count.toString();
-  if (count < 10000) return `${(count / 1000).toFixed(1)}k`;
-  if (count < 1000000) return `${Math.round(count / 1000)}k`;
-  if (count < 10000000) return `${(count / 1000000).toFixed(1)}M`;
-  return `${Math.round(count / 1000000)}M`;
-}
-
-/** Strip CSI SGR (`ESC[...m`) sequences for width measurement. The footer
- *  only emits SGR codes (theme.fg / theme.fg error / warning), so this
- *  regex covers everything we produce. No support for OSC, cursor moves,
- *  or CJK wide-width — the footer text is short and ASCII-only. */
-const ANSI_SGR = /\x1b\[[0-9;]*m/g;
-function visibleWidth(s: string): number {
-  return s.replace(ANSI_SGR, "").length;
-}
-
-/** ANSI-aware truncation: walks code points (so surrogate-pair emoji stay
- *  intact), preserves embedded SGR sequences, and stops once visible
- *  width hits `maxWidth - ellipsisWidth`. If the input already fits,
- *  returns it unchanged. Trailing `…` is added only when the visible
- *  content was actually cut. */
-function truncateToWidth(text: string, maxWidth: number, ellipsis = "…"): string {
-  if (maxWidth <= 0) return "";
-  if (visibleWidth(text) <= maxWidth) return text;
-  const ellipsisW = visibleWidth(ellipsis);
-  const targetW = Math.max(0, maxWidth - ellipsisW);
-  let out = "";
-  let pending = "";
-  let width = 0;
-  for (let i = 0; i < text.length;) {
-    if (text[i] === "\x1b" && text[i + 1] === "[") {
-      const m = text.slice(i).match(/^\x1b\[[0-9;]*m/);
-      if (m) {
-        pending += m[0];
-        i += m[0].length;
-        continue;
-      }
-    }
-    const code = text.codePointAt(i)!;
-    const ch = String.fromCodePoint(code);
-    const w = ch.length; // ASCII-only footer text; 1 code unit = 1 cell
-    if (width + w > targetW) break;
-    if (pending) {
-      out += pending;
-      pending = "";
-    }
-    out += ch;
-    width += w;
-    i += ch.length;
-  }
-  out += pending;
-  return out + ellipsis;
-}
-
-/** Tokens-per-second for the just-completed turn.
- *
- *  `outputAtTurnStart` is the cumulative output across all assistant
- *  messages on the current branch at the moment turn_start fired;
- *  `lastAssistantOutput` is the same cumulative total at render time.
- *  Their difference is therefore the output produced by THIS turn's
- *  final assistant response (or, for a multi-step turn, the sum of all
- *  assistant outputs in the turn — acceptable since the denominator is
- *  also the full turn wall time).
- *
- *  `lastTurnStart` anchors the start; `lastMessageEndTime` is captured
- *  in the `message_end` event handler (NOT message timestamp — that is
- *  set at partial creation, ~50ms after turn_start, which inflated the
- *  old tps by 1000x).
- *
- *  Returns "" until both anchors are set AND the turn actually produced
- *  output, so a fresh session or a tool-only turn shows nothing rather
- *  than a misleading zero or negative. */
-export function computeTps(
-  lastTurnStart: number,
-  lastMessageEndTime: number,
-  outputAtTurnStart: number,
-  lastAssistantOutput: number,
-): string {
-  if (lastTurnStart === 0 || lastMessageEndTime === 0) return "";
-  const elapsedMs = lastMessageEndTime - lastTurnStart;
-  if (elapsedMs <= 0) return "";
-  const turnOutput = lastAssistantOutput - outputAtTurnStart;
-  if (turnOutput <= 0) return "";
-  const tps = turnOutput / (elapsedMs / 1000);
-  if (tps <= 0) return "";
-  return ` ${Math.round(tps)}t/s`;
-}
-
-/** Split the stats line into 1 or 2 rows based on terminal width.
- *  Wide (>=80 cols): model + ctx + io + rate on one row.
- *  Narrow (<80 cols): model + ctx on row 1, io + rate on row 2. */
-export function buildStatsRows(
-  width: number,
-  modelPart: string,
-  ctxColored: string,
-  ioStr: string,
-  rateStr: string,
-): string[] {
-  if (width >= 80) {
-    return [`${modelPart}  ${ctxColored}  ${ioStr}${rateStr}`];
-  }
-  return [`${modelPart}  ${ctxColored}`, `${ioStr}${rateStr}`];
-}
-
 /** Strip the rendered-envelope header/hint/barrier wrapper to recover the
  *  raw message body. `renderEnvelope` produces `${header}\n${body}${hint}`
  *  and `deliver` may append `\n\n[barrier …]` notes after it.
@@ -193,22 +85,6 @@ export function extractFirstLine(body: string): string {
 
 export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: Inbox) {
   let toolUsedThisTurn = false;
-  // Footer reactivity state: the factory passed to `setFooter` is invoked
-  // once with the TUI handle, which we stash so the turn/thinking handlers
-  // below can ask the TUI to repaint. lastTurnStart + lastMessageEndTime
-  // bound the t/s window; outputAtTurnStart isolates THIS turn's output
-  // from the cumulative branch total.
-  let lastTurnStart = 0;
-  let lastMessageEndTime = 0;
-  let outputAtTurnStart = 0;
-  // Live cumulative output of the in-flight assistant message, updated
-  // from `message_update` during streaming. getBranch() does NOT include
-  // the partial assistant message until `message_end` fires (appendMessage
-  // runs after the extension handler), so without this the render closure
-  // sees a stale lastAssistantOutput mid-stream and t/s stays blank.
-  // Reset to 0 in turn_start; locked to the final value in message_end.
-  let liveAssistantOutput = 0;
-  let footerRequestRender: () => void = () => {};
   // Opt-in gate (§2.3 — participation is opt-in): this extension only turns
   // a directory into a picode workspace when explicitly asked —
   // --thread-id on this launch, or a thread-identity entry already stamped
@@ -332,108 +208,6 @@ export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: I
       pi.setActiveTools(filtered);
     }
 
-    // Custom picode footer: two lines — cwd(branch) on top, model+thinking,
-    // context usage, cumulative ↑/↓ tokens, and a live t/s readout. The
-    // built-in footer is replaced because its symbols obscure what we care
-    // about most in a coordinated workspace. Re-render triggers come from
-    // turn_start (reset t/s clock), turn_end (tokens changed), and
-    // thinking_level_select (model/thinking changed). Branch changes are
-    // pushed by footerData's own subscription.
-    ctx.ui.setFooter((tui, theme, footerData) => {
-      const unsubBranch = footerData.onBranchChange(() => tui.requestRender());
-      footerRequestRender = () => tui.requestRender();
-      return {
-        invalidate() {
-          // No-op: render reads fresh state on every frame.
-        },
-        dispose() {
-          unsubBranch();
-          footerRequestRender = () => {};
-        },
-        render(width: number): string[] {
-          // Line 1: dirname (branch) — dimmed
-          const dirName = basename(ctx.cwd);
-          const branch = footerData.getGitBranch();
-          const cwdStr = branch ? `${dirName} (${branch})` : dirName;
-          const pwdLine = truncateToWidth(theme.fg("dim", cwdStr), width, theme.fg("dim", "..."));
-
-          // Cumulative input/output from every assistant message on the
-          // CURRENT BRANCH — getBranch() excludes entries on abandoned
-          // forks, so stale sub-agent edits can't inflate the totals.
-          // lastAssistantOutput is the cumulative total at the end of the
-          // branch (i.e., the most recent assistant message's running
-          // total), used by computeTps to derive THIS turn's delta.
-          let input = 0;
-          let output = 0;
-          let lastAssistantOutput = 0;
-          try {
-            for (const e of ctx.sessionManager.getBranch()) {
-              if (e.type === "message" && e.message.role === "assistant") {
-                const m = e.message as {
-                  usage: { input: number; output: number };
-                  timestamp: number;
-                };
-                input += m.usage.input;
-                output += m.usage.output;
-                lastAssistantOutput = m.usage.output;
-              }
-            }
-          } catch {
-            // getBranch can throw on uninitialized session — show no
-            // cumulative numbers rather than crash the footer.
-          }
-
-          // Line 2: model  ctx: X/Y (Z%)  ↑I ↓O  Rt/s
-          const modelId = ctx.model?.id ?? "no-model";
-          // Shorten model ID: strip provider prefix if present
-          const shortModel = modelId.includes("/") ? modelId.split("/")[1] : modelId;
-          const modelPart = shortModel;
-
-          const usage = ctx.getContextUsage();
-          const contextWindow = usage?.contextWindow ?? 0;
-          const contextTokens = usage?.tokens ?? null;
-          const percent = usage?.percent ?? null;
-          const ctxStr =
-            contextTokens === null
-              ? `?/${formatTokens(contextWindow)}`
-              : `${formatTokens(contextTokens)}/${formatTokens(contextWindow)} (${percent !== null ? percent.toFixed(1) : "?"}%)`;
-          let ctxColored: string = ctxStr;
-          if (percent !== null) {
-            if (percent > 90) ctxColored = theme.fg("error", ctxStr);
-            else if (percent > 70) ctxColored = theme.fg("warning", ctxStr);
-          }
-
-          const ioStr = `↑${formatTokens(input)} ↓${formatTokens(output)}`;
-
-          // t/s = output tokens produced by the just-completed turn
-          // divided by the wall-clock duration of that turn. The end
-          // time is captured by the message_end handler (not message
-          // .timestamp, which is set at partial creation, ~50ms after
-          // turn_start — using that produced values like 430000 t/s).
-          // During streaming, getBranch() does NOT yet contain the
-          // in-flight assistant message (appendMessage runs at message_end,
-          // after the extension handler), so lastAssistantOutput is stale.
-          // liveAssistantOutput tracks the partial message's usage.output
-          // via message_update; take the max so t/s updates live while the
-          // model is generating, then locks to the final value at message_end.
-          const effectiveOutput = Math.max(lastAssistantOutput, liveAssistantOutput);
-          const rateStr = computeTps(
-            lastTurnStart,
-            lastMessageEndTime,
-            outputAtTurnStart,
-            effectiveOutput,
-          );
-
-          const rows = buildStatsRows(width, modelPart, ctxColored, ioStr, rateStr);
-          const statsOut = rows.map(row =>
-            truncateToWidth(theme.fg("dim", row), width, theme.fg("dim", "...")),
-          );
-
-          return [pwdLine, ...statsOut];
-        },
-      };
-    });
-
     // Defer initial drain to next tick — calling pi.sendUserMessage
     // synchronously from session_start deadlocks turn scheduling.
     setImmediate(() => void inbox.drainInbox(ctx));
@@ -481,29 +255,6 @@ export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: I
     inbox.noteRunStarted();
     const wasOnHold = store.state === "on-hold";
     toolUsedThisTurn = false;
-    // Anchor the t/s clock: footer's render() pairs lastTurnStart with
-    // the matching lastMessageEndTime (captured in the message_end handler)
-    // to compute tokens-per-second for this turn.
-    lastTurnStart = Date.now();
-    // Reset the live-stream output tracker — no partial assistant message
-    // exists yet at turn start. Updated by message_update below.
-    liveAssistantOutput = 0;
-    // Snapshot the last assistant output BEFORE this turn starts so render()
-    // can subtract to get THIS turn's output alone (not lifetime total).
-    // getBranch() keeps the tps branch-safe — stale fork messages don't
-    // pollute the delta.
-    outputAtTurnStart = 0;
-    try {
-      for (const e of ctx.sessionManager.getBranch()) {
-        if (e.type === "message" && e.message.role === "assistant") {
-          outputAtTurnStart = e.message.usage.output;
-        }
-      }
-    } catch {
-      // getBranch can throw on uninitialized session — fall back to 0
-      // (the renderer will hide tps until a real end time lands).
-    }
-    footerRequestRender();
     await store.transition("thinking", ctx);
     if (wasOnHold) {
       // A prompt landing on a suspended thread is an implicit resume.
@@ -564,9 +315,6 @@ export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: I
     // The turn boundary is the documented "Open" moment — pick up anything
     // the watcher couldn't deliver while the injection gate was closed.
     await inbox.drainInbox(ctx);
-    // Footer reactivity: cumulative ↑/↓ and t/s only change when an
-    // assistant message has landed, which has happened by turn_end.
-    footerRequestRender();
   });
 
   pi.on("agent_end", async (_event, ctx) => {
@@ -604,58 +352,5 @@ export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: I
     return {
       systemPrompt: event.systemPrompt + "\n\n" + threadModelPrompt(store),
     };
-  });
-
-  // Footer reactivity: thinking level appears on line 2 next to the model
-  // name, so a level change must trigger a re-render. The event is
-  // dispatched by pi's own UI when the user picks a new level — it does
-  // NOT fire on session_start, which is why we capture the initial level
-  // implicitly via pi.getThinkingLevel() inside render().
-  pi.on("thinking_level_select", () => {
-    if (!active) return;
-    footerRequestRender();
-  });
-
-  // Footer reactivity: t/s updates LIVE during assistant streaming.
-  // message_update fires on every token delta with event.message = the
-  // partial AssistantMessage (a fresh copy). Its usage.output grows as
-  // the provider streams (Anthropic updates output_tokens in message_delta;
-  // some providers only settle usage at the end). We capture wall-clock
-  // time + the partial output so computeTps can show a live rate before
-  // message_end locks the final value. getBranch() does NOT include this
-  // partial (appendMessage runs at message_end, after extension handlers),
-  // so liveAssistantOutput is the only source of in-flight output.
-  pi.on("message_update", event => {
-    if (!active) return;
-    if (event.message.role === "assistant") {
-      const m = event.message as { usage?: { output: number } };
-      if (m.usage && m.usage.output > liveAssistantOutput) {
-        liveAssistantOutput = m.usage.output;
-      }
-      lastMessageEndTime = Date.now();
-      footerRequestRender();
-    }
-  });
-
-  // Footer reactivity: t/s needs the REAL end time of the most recent
-  // assistant message. message.timestamp is the partial-creation time
-  // (set at stream start, ~50ms after turn_start), so using it as the
-  // end of the message produces wildly inflated tps. message_end fires
-  // after the stream settles, so Date.now() here gives a real wall-time
-  // end. We also lock liveAssistantOutput to the final usage.output so
-  // the render closure sees the settled value even if it runs before
-  // SessionManager.appendMessage lands the entry in getBranch(). We
-  // only capture for assistant messages — other roles (user/toolResult)
-  // don't contribute to output tokens.
-  pi.on("message_end", event => {
-    if (!active) return;
-    if (event.message.role === "assistant") {
-      const m = event.message as { usage?: { output: number } };
-      if (m.usage) {
-        liveAssistantOutput = m.usage.output;
-      }
-      lastMessageEndTime = Date.now();
-      footerRequestRender();
-    }
   });
 }
