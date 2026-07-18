@@ -166,7 +166,7 @@ npm run mcp                   # Start MCP server
 | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `src/prompts/coordinator.md` | Coordinator rules + full herdr reference — **the prompt agents see at startup**                                                                                 |
 | `src/prompts/worker-base.md` | Shared worker communication contract — all workers inherit this                                                                                                 |
-| `src/prompts/<role>.md`      | Role-specific prompts (builder, reviewer, explorer, tester, designer, bug-hunter, scout)                                                                        |
+| `src/prompts/<role>.md`      | Role-specific prompts (builder, reviewer, explorer, tester, designer, bug-hunter, scout, planner)                                                             |
 | `src/core/system-prompt.ts`  | Prompt loader — reads markdown files, adds dynamic context, handles overrides                                                                                   |
 | `src/inbox.ts`               | Envelope delivery, barrier resolution, obligation tracking, dead-letter handling. **Injection gate blocks during compaction**                                   |
 | `src/lifecycle.ts`           | Thread startup, state machine, footer rendering, widget injection. **Auto-purges stale threads on coordinator startup. Footer shows model, ctx usage, io, t/s** |
@@ -202,7 +202,7 @@ npm run mcp                   # Start MCP server
 2. **State file layout** — `.thread/threads/<id>/state.json` structure; other tools depend on it
 3. **Tool names** — `thread_send`, `thread_wait`, `thread_status`, `thread_list`, `thread_journal`, `thread_suspend`, `thread_resume`
 4. **Slash command names** — `/thread-status`, `/thread-journal`, `/thread-list`, `/thread-send`, `/thread-suspend`, `/thread-resume`, `/thread-models`
-5. **Role names** — `coordinator`, `builder`, `reviewer`, `explorer`/`scout`, `tester`, `designer`, `bug-hunter`
+5. **Role names** — `coordinator`, `builder`, `reviewer`, `explorer`/`scout`, `tester`, `designer`, `bug-hunter`, `planner`
 6. **Message model** — Envelope shape with `expects`, `re`, `urgency`, `deliverAfterSeconds` fields
 
 ### Sensitive Areas
@@ -243,7 +243,7 @@ npm run mcp                   # Start MCP server
 
 1. Create `.thread/prompts/<role>.md` in your project root
 2. The file replaces the bundled role prompt entirely (no merging)
-3. Supported roles: `coordinator`, `builder`, `reviewer`, `scout`, `explorer`, `designer`, `tester`, `bug-hunter`, `worker`
+3. Supported roles: `coordinator`, `builder`, `reviewer`, `scout`, `explorer`, `designer`, `tester`, `bug-hunter`, `planner`, `worker`
 4. Empty files are ignored; unknown roles fall back to `worker.md`
 5. Bundled prompts are in `src/prompts/*.md` — edit those to change defaults
 
