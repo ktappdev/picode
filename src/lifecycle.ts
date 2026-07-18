@@ -202,6 +202,7 @@ export function registerLifecycle(pi: ExtensionAPI, store: ThreadStore, inbox: I
       "designer",
       "explorer",
       "bug-hunter",
+      "planner",
     ]);
     if (READ_ONLY_ROLES.has(store.role)) {
       const active = pi.getActiveTools();
