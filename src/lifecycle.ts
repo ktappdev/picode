@@ -36,22 +36,6 @@ function setHerdrPaneLabel(store: PicodeStore): void {
   }
 }
 
-/** Set agent_status to "working" for coordinators so cleanup_panes never
- *  considers them stale. Workers report their own status via pi core.
- *  Startup-only, so execSync is fine. Errors logged, not fatal. */
-function setCoordinatorWorking(store: PicodeStore): void {
-  if (store.role !== "coordinator") return;
-  if (process.env.HERDR_ENV !== "1" || !process.env.HERDR_PANE_ID) return;
-  try {
-    execSync(`herdr agent-status "${process.env.HERDR_PANE_ID}" working`, {
-      stdio: "pipe",
-    });
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
-    console.log(`[picode] Failed to set coordinator status to working: ${msg}`);
-  }
-}
-
 /** True once this session has stamped its own picode-identity entry — the
  *  signal that lets a later launch of the *same* session stay a picode
  *  without repassing --picode-id. Mirrors the lookup in state.ts's init(). */
@@ -199,7 +183,6 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
       `pi · ${roleEmoji(store.role)} ${store.role ?? "worker"} · ${basename(ctx.cwd)}`,
     );
     setHerdrPaneLabel(store);
-    setCoordinatorWorking(store);
 
     // Read-only roles: coordinator + read-only subtypes (reviewer, scout,
     // designer). Builder and generic worker keep full tools.

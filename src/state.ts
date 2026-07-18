@@ -190,7 +190,6 @@ export function createPicodeStore(
             default: "deepseek/deepseek-v4-flash",
           };
           fs.writeFileSync(modelsPath, JSON.stringify(defaultModels, null, 2) + "\n");
-          console.log(`[picode] Default models written to ${modelsPath}`);
         }
       }
 
