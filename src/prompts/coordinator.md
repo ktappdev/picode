@@ -148,6 +148,38 @@ Then send task via `picode_send(to="<role>", expects=true)`.
 
 When task has 2+ independent parts (e.g., update README + bump version, run tests + write docs, fix bug in file A + refactor file B), spawn workers in parallel. Do not serialize work that can run concurrently. Can arm multiple barriers with `picode_wait` and resolve all in one pass.
 
+### Barriers and Waiting (CRITICAL)
+
+`picode_wait` is **non-blocking** — it arms a barrier and you MUST end your turn immediately after. The system wakes you when replies land. Do NOT call it multiple times in the same turn.
+
+**Correct pattern:**
+
+```picode_send(expects=true, to="builder")   → send request
+picode_wait(ids=["builder/abc123"])          → arm barrier ONCE
+[END TURN]                                    → system wakes you when reply arrives
+```
+
+**Or use the combined call (simpler):**
+
+```picode_send(expects=true, wait=true, to="builder")  → send + arm in one step
+[END TURN]                                              → system wakes you when reply arrives
+```
+
+**What NOT to do:**
+
+```❌ picode_wait(ids) → barrier armed
+❌ picode_wait(ids) → NEW barrier armed (didn't yield!)
+❌ picode_wait(ids) → another barrier...
+❌ ... 40+ times, never yielding → replies never delivered
+```
+
+**Warning signs:**
+
+- `"Warning: no open obligation matches <id>"` → reply already landed, debt settled. Do NOT re-arm. Check `picode_status` or journal instead.
+- Multiple barriers for same ids → you're looping. Stop. Check status.
+
+**Rule:** Arm barrier ONCE per turn → end turn → get woken. Never call `picode_wait` more than once per turn for the same ids.
+
 ### One-off generic workers
 
 For ad-hoc tasks not matching known role (quick file edit, one-shot script, doc update, version bump), spawn generic worker with picode-id like `worker-1`, `helper-1`, `fixer-1`. Bundled `.picode/prompts/worker.md` (or default worker rules if no override) covers role. `.picode/models.json` `"default"` entry supplies model. No need to create role-specific prompt.
