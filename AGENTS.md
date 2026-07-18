@@ -175,6 +175,7 @@ npm run mcp                   # Start MCP server
 | `src/journal.ts`             | Auto-journaling, compaction logic, duplicate suppression. **Fires at turn_end or agent_end depending on mode**                                                  |
 | `src/tools/spawn.ts`         | spawn_worker tool — splits pane, launches pi, waits for idle. **Reuses dead panes, validates role**                                                             |
 | `src/tools/cleanup-panes.ts` | cleanup_panes tool — closes stale herdr worker panes. **dry_run option available**                                                                              |
+| `src/tools/panes.ts`         | picode_panes tool — surveys all Herdr panes with status, role, position. **Read-only workspace surveillance**                                                   |
 | `src/tools/purge.ts`         | picode_purge tool + `purgeStalePcodes()` helper. **Called on coordinator startup**                                                                              |
 
 ### Storage & Backend
