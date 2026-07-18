@@ -204,7 +204,7 @@ export function registerSpawnTool(pi: ExtensionAPI) {
       reuse: Type.Optional(
         Type.Boolean({
           description:
-            "If true, reuse an existing idle/done pane with matching role. Default: false (always create new).",
+            "If false, always create a new pane. Default: true (reuse existing idle/done pane if available).",
         }),
       ),
     }),
@@ -228,11 +228,11 @@ export function registerSpawnTool(pi: ExtensionAPI) {
         // 2. Generate unique thread-id (auto-suffix if role already exists)
         const uniqueId = uniqueThreadId(params.role, workspaceId);
 
-        // 3. Check for existing pane with matching role (only if reuse=true)
+        // 3. Check for existing pane with matching role (default: reuse=true)
         let reused = false;
         let paneIdToUse: string | null = null;
 
-        if (params.reuse) {
+        if (params.reuse !== false) {
           const existingPaneId = findExistingPane(workspaceId, params.role);
           if (existingPaneId) {
             // Get pane status to decide what to do
