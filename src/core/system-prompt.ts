@@ -7,7 +7,7 @@ import type { PicodeData } from "./types";
 /** Worker subtypes that get specialized prompts. Any role not matching
  *  "coordinator" or a known subtype is treated as a generic worker. */
 export type WorkerSubtype =
-  "builder" | "reviewer" | "scout" | "designer" | "explorer" | "tester" | "bug-hunter" | "planner";
+  "builder" | "reviewer" | "scout" | "designer" | "tester" | "bug-hunter" | "planner";
 
 function workerSubtype(role: string): WorkerSubtype | null {
   const subtypes: WorkerSubtype[] = [
@@ -15,7 +15,6 @@ function workerSubtype(role: string): WorkerSubtype | null {
     "reviewer",
     "scout",
     "designer",
-    "explorer",
     "tester",
     "bug-hunter",
     "planner",
@@ -40,7 +39,6 @@ const WORKER_BASE_RULES = loadPromptFile("worker-base.md");
 const BUILDER_RULES = loadPromptFile("builder.md");
 const REVIEWER_RULES = loadPromptFile("reviewer.md");
 const SCOUT_RULES = loadPromptFile("scout.md");
-const EXPLORER_RULES = loadPromptFile("explorer.md");
 const DESIGNER_RULES = loadPromptFile("designer.md");
 const TESTER_RULES = loadPromptFile("tester.md");
 const BUG_HUNTER_RULES = loadPromptFile("bug-hunter.md");
@@ -51,7 +49,6 @@ const SUBTYPE_PROMPTS: Record<WorkerSubtype, string> = {
   reviewer: REVIEWER_RULES,
   scout: SCOUT_RULES,
   designer: DESIGNER_RULES,
-  explorer: EXPLORER_RULES,
   tester: TESTER_RULES,
   "bug-hunter": BUG_HUNTER_RULES,
   planner: PLANNER_RULES,
@@ -80,7 +77,6 @@ const OVERRIDABLE_ROLES = new Set([
   "builder",
   "reviewer",
   "scout",
-  "explorer",
   "designer",
   "tester",
   "bug-hunter",

@@ -184,7 +184,7 @@ export function registerSpawnTool(pi: ExtensionAPI) {
       "Spawn a new worker pane in one call: splits the current pane, names it, launches pi with the right model/theme, and waits for it to be ready.",
     parameters: Type.Object({
       role: Type.String({
-        description: "Worker role / picode-id (e.g. 'builder', 'explorer', 'worker-1')",
+        description: "Worker role / picode-id (e.g. 'builder', 'scout', 'worker-1')",
       }),
       direction: Type.Optional(
         Type.Union([Type.Literal("right"), Type.Literal("down")], {

@@ -4,8 +4,7 @@ import { execSync } from "child_process";
 import { err, extractRole } from "./shared";
 
 /** Worker role labels to clean up (case-insensitive, emoji prefix stripped). */
-const WORKER_ROLE_PATTERN =
-  /^(builder|explorer|reviewer|tester|worker|scout|bug-hunter|designer)$/i;
+const WORKER_ROLE_PATTERN = /^(builder|reviewer|tester|worker|scout|bug-hunter|designer)$/i;
 
 /** Statuses that mean the pane is still useful — don't close these. */
 const ACTIVE_STATUSES = new Set(["working", "idle"]);
@@ -31,7 +30,7 @@ export function registerCleanupPanesTool(pi: ExtensionAPI) {
     name: "cleanup_panes",
     label: "Cleanup Panes",
     description:
-      "Close stale herdr worker panes spawned by the coordinator. Removes panes with role labels (builder, explorer, reviewer, tester, worker, scout, bug-hunter, designer) that are not working or idle. Use when the picode list is cluttered with dead workers.",
+      "Close stale herdr worker panes spawned by the coordinator. Removes panes with role labels (builder, reviewer, tester, worker, scout, bug-hunter, designer) that are not working or idle. Use when the picode list is cluttered with dead workers.",
     parameters: Type.Object({
       dry_run: Type.Optional(
         Type.Boolean({

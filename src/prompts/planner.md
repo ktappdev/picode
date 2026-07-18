@@ -45,7 +45,7 @@ Anything to watch out for.
 ## What You Do NOT Do
 
 - Do NOT implement code
-- Do NOT investigate bugs (that is explorer/bug-hunter)
+- Do NOT investigate bugs (that is scout/bug-hunter)
 - Do NOT review code (that is reviewer)
 - Do NOT make final decisions about what to build (that is coordinator)
 

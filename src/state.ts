@@ -156,15 +156,7 @@ export function createPicodeStore(
         store.role = "coordinator";
       } else {
         // Auto-detect worker subtype from picode-id if it matches a known role
-        const KNOWN_ROLES = [
-          "builder",
-          "reviewer",
-          "scout",
-          "designer",
-          "explorer",
-          "tester",
-          "bug-hunter",
-        ];
+        const KNOWN_ROLES = ["builder", "reviewer", "scout", "designer", "tester", "bug-hunter"];
         const prefix = KNOWN_ROLES.find(
           r =>
             store.picodeId === r ||
@@ -185,7 +177,6 @@ export function createPicodeStore(
             tester: "deepseek/deepseek-v4-pro",
             designer: "deepseek/deepseek-v4-pro",
             "bug-hunter": "deepseek/deepseek-v4-pro",
-            explorer: "deepseek/deepseek-v4-flash",
             scout: "deepseek/deepseek-v4-flash",
             default: "deepseek/deepseek-v4-flash",
           };

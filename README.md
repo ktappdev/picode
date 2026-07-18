@@ -127,41 +127,41 @@ Messages show up as `[<kind> from <sender> #<id>]`. The kind (request, reply, re
 
 ## Tools the model can use
 
-| Tool | Purpose |
-| ---- | ------- |
-| `picode_send` | Send an envelope to one name, `a,b`, `*`, or `role:<role>`. Supports `expects`, `re`, `urgency`, `deliverAfterSeconds`, `wait=true` to arm a barrier inline. |
-| `picode_wait` | Wait for all or any of several outstanding replies (a barrier). Accepts `deadlineSeconds` and an optional `message` injected on resolution. |
-| `picode_status` | Read this picode's state, obligations, owed replies, barriers, and journal. |
-| `picode_list` | List all known threads in the workspace. |
-| `picode_journal` | Read another picode's journal, filtered by `tail` or `lookbackMinutes`. |
-| `picode_suspend` | Mark this picode On Hold. The inbox queues until resume. |
-| `picode_resume` | Resume from On Hold and drain queued messages. |
+| Tool             | Purpose                                                                                                                                                      |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `picode_send`    | Send an envelope to one name, `a,b`, `*`, or `role:<role>`. Supports `expects`, `re`, `urgency`, `deliverAfterSeconds`, `wait=true` to arm a barrier inline. |
+| `picode_wait`    | Wait for all or any of several outstanding replies (a barrier). Accepts `deadlineSeconds` and an optional `message` injected on resolution.                  |
+| `picode_status`  | Read this picode's state, obligations, owed replies, barriers, and journal.                                                                                  |
+| `picode_list`    | List all known threads in the workspace.                                                                                                                     |
+| `picode_journal` | Read another picode's journal, filtered by `tail` or `lookbackMinutes`.                                                                                      |
+| `picode_suspend` | Mark this picode On Hold. The inbox queues until resume.                                                                                                     |
+| `picode_resume`  | Resume from On Hold and drain queued messages.                                                                                                               |
 
 ## Slash commands for humans
 
-| Command | Purpose |
-| ------- | ------- |
-| `/picode-status` | Show state and the latest journal entry. |
-| `/picode-list` | List all known threads. |
-| `/picode-send <to> <body>` | Send a high-urgency note to another picode. |
-| `/picode-suspend` | Mark On Hold. |
-| `/picode-resume` | Resume from On Hold. |
-| `/picode-models` | Show, set, or reset per-role worker model config. |
-| `/picode-journal` | View, trim, clear, or compact the journal. |
+| Command                    | Purpose                                           |
+| -------------------------- | ------------------------------------------------- |
+| `/picode-status`           | Show state and the latest journal entry.          |
+| `/picode-list`             | List all known threads.                           |
+| `/picode-send <to> <body>` | Send a high-urgency note to another picode.       |
+| `/picode-suspend`          | Mark On Hold.                                     |
+| `/picode-resume`           | Resume from On Hold.                              |
+| `/picode-models`           | Show, set, or reset per-role worker model config. |
+| `/picode-journal`          | View, trim, clear, or compact the journal.        |
 
 ## Worker roles
 
 Each picode has a role that shapes its system prompt. The role is auto-detected from the name you give it.
 
-| Role | Subtype | Description |
-| ---- | ------- | ----------- |
-| `coordinator` | - | Directs workers, delegates tasks, keeps project context. Cannot write or edit files. |
-| `builder` | Worker | Implements code changes, edits files, runs type checks. |
-| `reviewer` | Worker | Reviews diffs, audits for bugs, security, and quality. Read-only. |
-| `scout` / `explorer` | Worker | Explores the codebase, finds files, answers architecture questions. Read-only. Summarizes findings instead of dumping raw output. |
-| `bug-hunter` | Worker | Hunts bugs by reading code, session entries, and journals. Reports root cause and a suggested fix but does not implement it. Read-only. |
-| `tester` | Worker | Writes and runs tests, reproduces bugs, checks coverage. |
-| `designer` | Worker | Designs UI specs for the builder to implement. Read-only. |
+| Role                 | Subtype | Description                                                                                                                             |
+| -------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `coordinator`        | -       | Directs workers, delegates tasks, keeps project context. Cannot write or edit files.                                                    |
+| `builder`            | Worker  | Implements code changes, edits files, runs type checks.                                                                                 |
+| `reviewer`           | Worker  | Reviews diffs, audits for bugs, security, and quality. Read-only.                                                                       |
+| `scout` / `explorer` | Worker  | Explores the codebase, finds files, answers architecture questions. Read-only. Summarizes findings instead of dumping raw output.       |
+| `bug-hunter`         | Worker  | Hunts bugs by reading code, session entries, and journals. Reports root cause and a suggested fix but does not implement it. Read-only. |
+| `tester`             | Worker  | Writes and runs tests, reproduces bugs, checks coverage.                                                                                |
+| `designer`           | Worker  | Designs UI specs for the builder to implement. Read-only.                                                                               |
 
 Prefix matching means `builder-1`, `builder-a`, `builder_foo`, and `builder.task` all resolve to the `builder` role. Any name that does not match a known role (or prefix) becomes a generic `worker` with base worker rules only.
 
@@ -201,11 +201,11 @@ You can pick which LLM model each worker role uses with `.picode/models.json`:
 - The coordinator reads this file on startup and passes the model to each spawned worker.
 - You can also manage it through the slash command:
 
-| Command | Effect |
-| ------- | ------ |
-| `/picode-models` | Show the current config. |
-| `/picode-models builder anthropic/claude-sonnet-4` | Set the model for a role. |
-| `/picode-models --reset` | Delete the file and restore defaults. |
+| Command                                            | Effect                                |
+| -------------------------------------------------- | ------------------------------------- |
+| `/picode-models`                                   | Show the current config.              |
+| `/picode-models builder anthropic/claude-sonnet-4` | Set the model for a role.             |
+| `/picode-models --reset`                           | Delete the file and restore defaults. |
 
 ## Customizing prompts
 
@@ -243,13 +243,13 @@ Every picode keeps a journal: a forked model call after each turn that summarize
 
 Manage it through the slash command:
 
-| Subcommand | Effect |
-| ---------- | ------ |
-| `/picode-journal` | Show the last 12 entries. |
-| `/picode-journal tail N` | Show the last N entries. |
-| `/picode-journal status` | Entry count, file size, oldest and newest timestamps. |
-| `/picode-journal trim N` | Keep only the last N entries. |
-| `/picode-journal clear` | Delete the journal file. |
+| Subcommand                | Effect                                                    |
+| ------------------------- | --------------------------------------------------------- |
+| `/picode-journal`         | Show the last 12 entries.                                 |
+| `/picode-journal tail N`  | Show the last N entries.                                  |
+| `/picode-journal status`  | Entry count, file size, oldest and newest timestamps.     |
+| `/picode-journal trim N`  | Keep only the last N entries.                             |
+| `/picode-journal clear`   | Delete the journal file.                                  |
 | `/picode-journal compact` | Force compaction now, even under the 500-entry threshold. |
 
 ## Human monitoring and steering
@@ -314,15 +314,18 @@ This backend has a real operational footprint. Three things need to be running:
    docker run --rm -p 8080:8080 -p 9070:9070 docker.io/restatedev/restate:latest
    ```
 2. **The companion service**, which hosts the `Picode` and `PicodeRegistry` virtual objects:
+
    ```bash
    npm run restate:serve
    ```
+
    It listens on port 9080 by default. Three environment variables shape how it revives a stopped picode:
    - `RESTATE_INGRESS_URL` is the ingress URL the spawned pi connects back to (default `http://localhost:8080`).
    - `PI_THREAD_EXTENSION` is the path to this extension's entry point, passed to the spawned pi as `--extension` (omit if your pi config already loads it).
    - `PI_BIN` is the pi executable to spawn (default `pi` from PATH; required on Windows, where the npm-installed `pi` is a `.cmd` shim that `spawn()` cannot execute).
-   
+
    The revived pi runs in the picode's original working directory, recorded in its state.
+
 3. **Register the deployment** with the server's admin API (one time, or after changing `src/restate/service.ts`):
    ```bash
    curl -X POST http://localhost:9070/deployments -d '{"uri":"http://localhost:9080"}'

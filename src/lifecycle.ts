@@ -191,7 +191,6 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
       "reviewer",
       "scout",
       "designer",
-      "explorer",
       "bug-hunter",
       "planner",
     ]);

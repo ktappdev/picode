@@ -7,7 +7,6 @@ export const ROLE_EMOJI: Record<string, string> = {
   builder: "🔨",
   reviewer: "🛡️",
   scout: "🔍",
-  explorer: "🔍",
   designer: "🎨",
   tester: "🧪",
   "bug-hunter": "🐛",
