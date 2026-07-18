@@ -222,6 +222,72 @@ export function registerCommands(pi: ExtensionAPI, store: ThreadStore, inbox: In
     },
   });
 
+  pi.registerCommand("/thread-reset", {
+    description:
+      "Clear all obligations, owed replies, and barriers across all threads. Use before shutdown for a clean slate.",
+    async handler(args, ctx) {
+      if (!checkActive(store, ctx)) return;
+      try {
+        await ctx.waitForIdle();
+        const force = args.trim() === "--force";
+        const threads = await store.listThreads();
+        const cleared: string[] = [];
+        const skipped: { id: string; reason: string }[] = [];
+
+        for (const thread of threads) {
+          // Never reset the current thread unless --force is passed
+          if (thread.id === store.threadId && !force) {
+            skipped.push({ id: thread.id, reason: "current thread (use --force to include)" });
+            continue;
+          }
+
+          const state = await store.adapter.loadState(thread.id);
+          if (!state) {
+            skipped.push({ id: thread.id, reason: "no state.json" });
+            continue;
+          }
+
+          const obligations = state.obligations?.length ?? 0;
+          const owed = state.owed?.length ?? 0;
+          const barriers = state.barriers?.length ?? 0;
+
+          if (obligations === 0 && owed === 0 && barriers === 0) {
+            skipped.push({ id: thread.id, reason: "no debts to clear" });
+            continue;
+          }
+
+          // Zero out all three debt arrays
+          state.obligations = [];
+          state.owed = [];
+          state.barriers = [];
+          state.updatedAt = new Date().toISOString();
+
+          await store.adapter.saveState(thread.id, state);
+          cleared.push(
+            `${thread.id} (obligations: ${obligations}, owed: ${owed}, barriers: ${barriers})`,
+          );
+        }
+
+        const lines = [];
+        if (cleared.length > 0) {
+          lines.push(`Cleared ${cleared.length} thread(s):`);
+          lines.push(...cleared.map(id => `  ${id}`));
+        }
+        if (skipped.length > 0) {
+          lines.push(`Skipped ${skipped.length} thread(s):`);
+          lines.push(...skipped.map(s => `  ${s.id}: ${s.reason}`));
+        }
+        if (lines.length === 0) {
+          lines.push("No threads found with debts to clear.");
+        }
+
+        ctx.ui.notify(lines.join("\n"), cleared.length > 0 ? "info" : "warning");
+      } catch (e) {
+        ctx.ui.notify(e instanceof Error ? e.message : String(e), "error");
+      }
+    },
+  });
+
   pi.registerCommand("/thread-models", {
     description: "Show or set worker models: /thread-models [role model] (--reset to clear)",
     async handler(args, ctx) {
