@@ -2,6 +2,31 @@
 
 Cross-thread communication extension for [pi coding agent](https://github.com/earendil-works/pi-coding-agent). Independent threads that coordinate work, share state, and converse — without losing context or forking their history.
 
+## Requirements
+
+### Required
+
+- **[pi](https://github.com/earendil-works/pi-coding-agent)** — the coding agent this extension runs on
+  ```bash
+  npm install -g @earendil-works/pi-coding-agent
+  ```
+- **[Herdr](https://github.com/earendil-works/herdr)** — terminal multiplexer for coordinator mode (auto-spawns workers, manages panes)
+  ```bash
+  brew install earendil-works/tap/herdr   # macOS
+  ```
+  Without Herdr the coordinator cannot auto-spawn or manage worker panes. Manual multi-process setups (`pi --thread-id builder` in separate terminals) still work.
+- **Node.js ≥ 20**
+- **An LLM provider** — at minimum an [OpenRouter](https://openrouter.ai/) API key (free tier models work). Other supported providers: Anthropic, OpenAI, Google, local Ollama, etc.
+  ```bash
+  export OPENROUTER_API_KEY=sk-or-...    # or set in pi config
+  ```
+
+### Optional
+
+- **Docker** — needed only for the Restate storage backend (`npm run restate:serve`)
+- **[Restate](https://restate.dev/)** — pluggable durable backend (alternative to default local filesystem)
+- **Claude Code / Codex** — connect external agents via the MCP server (`bin/postbox-mcp.mjs`)
+
 ## Quick Start
 
 1. **Install** the extension:
@@ -18,6 +43,33 @@ Cross-thread communication extension for [pi coding agent](https://github.com/ea
    ```
 
 That's it — workers self-label by their thread-id and can `thread_send` each other or the coordinator. See [Coordinator Mode](#coordinator-mode) and [Worker Roles](#worker-roles) for details.
+
+## Requirements
+
+### Required
+
+- **[pi](https://github.com/earendil-works/pi-coding-agent)** — the coding agent
+  ```bash
+  npm i -g @earendil-works/pi-coding-agent
+  ```
+- **Node.js** ≥ 18
+- **Model access** — at least one provider configured in pi:
+  - [OpenRouter](https://openrouter.ai/) (free models available)
+  - Anthropic (`ANTHROPIC_API_KEY`)
+  - OpenAI (`OPENAI_API_KEY`)
+  - Ollama (local, free)
+
+### Required for Coordinator Mode
+
+- **[herdr](https://github.com/earendil-works/herdr)** — terminal multiplexer for auto-spawning and managing worker panes
+  ```bash
+  npm i -g @earendil-works/herdr
+  ```
+
+### Optional
+
+- **jq** — handy for inspecting JSON output from `thread-cli.mjs --json`
+- **[Restate](https://restate.dev/)** — distributed backend (default is local filesystem)
 
 ## Features
 
