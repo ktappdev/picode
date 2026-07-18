@@ -53,6 +53,9 @@ export function registerCleanupPanesTool(pi: ExtensionAPI) {
           ((result.result as Record<string, unknown> | undefined)?.panes as
             Record<string, unknown>[] | undefined) || [];
 
+        // Current pane ID — never close ourselves, even if labeled as a worker.
+        const currentPaneId = process.env.HERDR_PANE_ID || "";
+
         // 2. Filter to stale worker panes
         const toClose: string[] = [];
         const skipped: string[] = [];
@@ -61,6 +64,12 @@ export function registerCleanupPanesTool(pi: ExtensionAPI) {
           const label = (pane.label as string) || "";
           const agentStatus = (pane.agent_status as string) || "unknown";
           const paneId = (pane.pane_id as string) || "";
+
+          // Safety: never close the pane running this tool (the coordinator).
+          if (paneId === currentPaneId) {
+            skipped.push(paneId);
+            continue;
+          }
 
           const role = extractRole(label);
           if (!WORKER_ROLE_PATTERN.test(role)) {
