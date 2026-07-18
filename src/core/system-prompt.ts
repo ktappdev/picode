@@ -7,7 +7,7 @@ import type { ThreadData } from "./types";
 /** Worker subtypes that get specialized prompts. Any role not matching
  *  "coordinator" or a known subtype is treated as a generic worker. */
 export type WorkerSubtype =
-  "builder" | "reviewer" | "scout" | "designer" | "explorer" | "tester" | "bug-hunter";
+  "builder" | "reviewer" | "scout" | "designer" | "explorer" | "tester" | "bug-hunter" | "planner";
 
 function workerSubtype(role: string): WorkerSubtype | null {
   const subtypes: WorkerSubtype[] = [
@@ -18,6 +18,7 @@ function workerSubtype(role: string): WorkerSubtype | null {
     "explorer",
     "tester",
     "bug-hunter",
+    "planner",
   ];
   return subtypes.includes(role as WorkerSubtype) ? (role as WorkerSubtype) : null;
 }
@@ -43,6 +44,7 @@ const EXPLORER_RULES = loadPromptFile("explorer.md");
 const DESIGNER_RULES = loadPromptFile("designer.md");
 const TESTER_RULES = loadPromptFile("tester.md");
 const BUG_HUNTER_RULES = loadPromptFile("bug-hunter.md");
+const PLANNER_RULES = loadPromptFile("planner.md");
 
 const SUBTYPE_PROMPTS: Record<WorkerSubtype, string> = {
   builder: BUILDER_RULES,
@@ -52,6 +54,7 @@ const SUBTYPE_PROMPTS: Record<WorkerSubtype, string> = {
   explorer: EXPLORER_RULES,
   tester: TESTER_RULES,
   "bug-hunter": BUG_HUNTER_RULES,
+  planner: PLANNER_RULES,
 };
 
 // ── Project-root resolution ────────────────────────────────────────
