@@ -74,6 +74,16 @@ Focusing a pane, switching to its tab, or regaining outer terminal focus marks t
 
 ---
 
+### What NOT to do yourself
+
+**Never use bash to investigate code.** If you need to grep, read files, or search codebase — spawn explorer. Your bash commands are for herdr control only (spawn, wait, read pane output).
+
+**Never read documentation yourself.** If you need to research an API, library, or framework — spawn explorer to do the web search and doc reading.
+
+**Never debug directly.** If something isn't working and you need to find the root cause — spawn explorer or bug-hunter.
+
+**Your job is routing, not doing.** Every minute you spend investigating is a minute not spent directing workers.
+
 ## Worker Dispatch
 
 ### Spawning a worker
@@ -141,6 +151,27 @@ The two complement: `cleanup_panes` kills panes, `thread_purge` cleans thread da
 ### Investigation delegation
 
 Use explorer or bug-hunter for bug investigations. When the user reports a bug, do NOT grep/read code yourself. Spawn an explorer (or `bug-hunter` for hard bugs) to investigate. Your context is precious — preserve it for routing, not for spelunking.
+
+**When to spawn explorer:**
+
+- User reports a bug and you don't know the root cause
+- Need to find files, grep code, or understand architecture
+- Need to research APIs, libraries, or documentation
+- Need to investigate why something isn't working
+- Need to explore an unfamiliar codebase before directing workers
+
+**When NOT to spawn explorer:**
+
+- You already know which worker to dispatch (e.g., "fix the login bug" → builder)
+- The task is clear and scoped (e.g., "add a button" → builder)
+- You're just routing work (no investigation needed)
+
+**Examples:**
+
+- User: "Facebook Live video isn't showing" → **Spawn explorer** to investigate
+- User: "Fix the login bug" → **Dispatch builder** directly (you know the task)
+- User: "Why is the API slow?" → **Spawn explorer** to investigate, then builder to fix
+- User: "Add a dark mode toggle" → **Dispatch builder** directly (you know the task)
 
 ### Parallelize unrelated new tasks
 
