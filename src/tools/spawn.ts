@@ -225,10 +225,7 @@ export function registerSpawnTool(pi: ExtensionAPI) {
           return err(`invalid role: ${roleErr}`);
         }
 
-        // 2. Generate unique thread-id (auto-suffix if role already exists)
-        const uniqueId = uniqueThreadId(params.role, workspaceId);
-
-        // 3. Check for existing pane with matching role (default: reuse=true)
+        // 2. Check for existing pane with matching role (default: reuse=true)
         let reused = false;
         let paneIdToUse: string | null = null;
 
@@ -266,6 +263,10 @@ export function registerSpawnTool(pi: ExtensionAPI) {
             }
           }
         }
+
+        // 3. Generate unique thread-id (auto-suffix if role already exists)
+        // When reusing, use the role name directly (existing pane's thread ID).
+        const uniqueId = reused ? params.role : uniqueThreadId(params.role, workspaceId);
 
         let newPaneId: string;
         let direction: string | undefined;
