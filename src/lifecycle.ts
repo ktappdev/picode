@@ -211,6 +211,7 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
         "spawn_worker",
         "picode_purge",
         "cleanup_panes",
+        "picode_panes",
       ]);
       const filtered = active.filter(name => ALLOWED.has(name));
       pi.setActiveTools(filtered);

@@ -1,39 +1,19 @@
 {
   "id": "coordinator",
-  "pid": 92630,
+  "pid": 45981,
   "cwd": "/Users/kentaylor/developer/picode",
   "parent": null,
   "role": "coordinator",
-  "sessionFile": "/Users/kentaylor/.pi/agent/sessions/--Users-kentaylor-developer-picode--/2026-07-18T14-23-52-249Z_019f759c-b5b9-7b37-afb8-ee9b13cdc53d.jsonl",
-  "state": "stopped",
-  "status": "stopped",
+  "sessionFile": "/Users/kentaylor/.pi/agent/sessions/--Users-kentaylor-developer-picode--/2026-07-18T23-37-43-123Z_019f7797-c5d3-720c-bd77-0c70743a68d7.jsonl",
+  "state": "done",
+  "status": "running",
   "holdReason": null,
-  "obligations": [
-    {
-      "id": "coordinator/01KXT80W0ZPVPASPGWYVW93894",
-      "to": "worker-1",
-      "summary": "Hello, worker-1. You have been spawned as a generic worker agent. Please confirm",
-      "sentAt": "2026-07-18T09:13:22.208Z",
-      "deadline": "2026-07-18T09:28:22.207Z",
-      "nudged": true
-    }
-  ],
+  "obligations": [],
   "owed": [],
-  "barriers": [
-    {
-      "id": "barrier.coordinator.1784366004196.0",
-      "pending": [
-        "coordinator/01KXT80W0ZPVPASPGWYVW93894"
-      ],
-      "mode": "all",
-      "createdAt": "2026-07-18T09:13:24.196Z",
-      "deadline": "2026-07-18T09:28:24.195Z",
-      "nudged": true
-    }
-  ],
-  "startedAt": "2026-07-18T14:23:56.603Z",
-  "lastSeen": "2026-07-18T14:24:27.272Z",
-  "updatedAt": "2026-07-18T14:24:27.272Z",
+  "barriers": [],
+  "startedAt": "2026-07-18T23:37:47.421Z",
+  "lastSeen": "2026-07-18T23:41:07.568Z",
+  "updatedAt": "2026-07-18T23:41:07.568Z",
   "capabilities": [
     "urgency",
     "barriers",
