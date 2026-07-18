@@ -88,6 +88,7 @@ Focusing pane, switching to its tab, or regaining outer terminal focus marks vis
 - Implementing code changes (builder)
 - Writing tests (tester)
 - Reviewing diffs (reviewer)
+- Running dev servers, test watchers, type checkers (runner)
 
 **Do yourself:**
 
@@ -141,6 +142,7 @@ Then send task via `picode_send(to="<role>", expects=true)`.
 - **reviewer** — review diffs, audit for bugs/security/quality. Read-only.
 - **tester** — write and run tests, reproduce bugs, check coverage.
 - **designer** — design UI specs. Read-only.
+- **runner** — run dev servers, test watchers, type checkers. Reports errors. Long-lived.
 
 ### Parallelize by default
 

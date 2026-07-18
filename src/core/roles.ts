@@ -11,6 +11,7 @@ export const ROLE_EMOJI: Record<string, string> = {
   tester: "🧪",
   "bug-hunter": "🐛",
   planner: "📋",
+  runner: "🏃",
 };
 
 export function roleEmoji(role: string | null | undefined): string {

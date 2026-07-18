@@ -7,7 +7,7 @@ import type { PicodeData } from "./types";
 /** Worker subtypes that get specialized prompts. Any role not matching
  *  "coordinator" or a known subtype is treated as a generic worker. */
 export type WorkerSubtype =
-  "builder" | "reviewer" | "scout" | "designer" | "tester" | "bug-hunter" | "planner";
+  "builder" | "reviewer" | "scout" | "designer" | "tester" | "bug-hunter" | "planner" | "runner";
 
 function workerSubtype(role: string): WorkerSubtype | null {
   const subtypes: WorkerSubtype[] = [
@@ -18,6 +18,7 @@ function workerSubtype(role: string): WorkerSubtype | null {
     "tester",
     "bug-hunter",
     "planner",
+    "runner",
   ];
   return subtypes.includes(role as WorkerSubtype) ? (role as WorkerSubtype) : null;
 }
@@ -43,6 +44,7 @@ const DESIGNER_RULES = loadPromptFile("designer.md");
 const TESTER_RULES = loadPromptFile("tester.md");
 const BUG_HUNTER_RULES = loadPromptFile("bug-hunter.md");
 const PLANNER_RULES = loadPromptFile("planner.md");
+const RUNNER_RULES = loadPromptFile("runner.md");
 
 const SUBTYPE_PROMPTS: Record<WorkerSubtype, string> = {
   builder: BUILDER_RULES,
@@ -52,6 +54,7 @@ const SUBTYPE_PROMPTS: Record<WorkerSubtype, string> = {
   tester: TESTER_RULES,
   "bug-hunter": BUG_HUNTER_RULES,
   planner: PLANNER_RULES,
+  runner: RUNNER_RULES,
 };
 
 // ── Project-root resolution ────────────────────────────────────────
@@ -81,6 +84,7 @@ const OVERRIDABLE_ROLES = new Set([
   "tester",
   "bug-hunter",
   "worker",
+  "runner",
 ]);
 
 /** Return the contents of `<root>/.picode/prompts/<role>.md` if the file

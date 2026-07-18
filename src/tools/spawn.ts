@@ -101,10 +101,20 @@ function getSplitDirection(paneId: string): "right" | "down" {
     const width = Number(areaDims?.width) || 0;
     const height = Number(areaDims?.height) || 0;
 
-    if (width > height) {
-      return "right";
+    // Extreme aspect ratios take priority
+    if (height > width * 2) return "down"; // very tall
+    if (width > height * 4) return "right"; // very wide
+
+    // Count existing panes in current tab to alternate directions
+    const panes = (area?.panes as Record<string, unknown>[] | undefined) || [];
+    const paneCount = panes.length;
+
+    // Alternate: odd count → right, even count → down
+    // Creates grid instead of endless row of narrow columns
+    if (paneCount % 2 === 0) {
+      return "down";
     }
-    return "down";
+    return "right";
   } catch {
     return "right";
   }
@@ -270,10 +280,23 @@ export function registerSpawnTool(pi: ExtensionAPI) {
 
         let newPaneId: string;
         let direction: string | undefined;
+        let actualRole: string = params.role;
 
         if (paneIdToUse) {
-          // Reuse existing pane — skip split and rename
+          // Reuse existing pane — skip split, rename, and launch.
+          // The agent is already running with its existing picode-id.
           newPaneId = paneIdToUse;
+
+          // Get the actual role from the pane label (could be "builder-1" etc.)
+          try {
+            const paneResult = herdrJson(`pane get ${newPaneId}`);
+            const paneInfo = (paneResult.result as Record<string, unknown> | undefined) || {};
+            const label = (paneInfo.label as string) || "";
+            actualRole = extractRole(label) || params.role;
+          } catch {
+            // Fall back to requested role if we can't read the label
+            actualRole = params.role;
+          }
         } else {
           // 3. Determine split direction
           direction = params.direction || getSplitDirection(paneId);
@@ -298,46 +321,68 @@ export function registerSpawnTool(pi: ExtensionAPI) {
           // 5. Rename pane (use uniqueId for label)
           try {
             herdr(`pane rename ${newPaneId} "${uniqueId}"`);
-          } catch {
-            // Non-fatal — continue even if rename fails
+          } catch (e) {
+            return err(`herdr pane rename failed: ${String(e)}`);
           }
         }
 
         // 7. Resolve model and theme
-        const model = resolveModel(params.role, params.model);
+        const model = resolveModel(actualRole, params.model);
         const theme = resolveTheme(params.theme);
 
-        // 8. Build launch command
+        // 8. Build launch command (only for new panes)
         const parts = ["pi"];
         if (model) parts.push(`--model ${model}`);
         if (theme) parts.push(`--theme ${theme}`);
-        parts.push(`--picode-id ${uniqueId}`);
+        parts.push(`--picode-id ${actualRole}`);
         const launchCmd = parts.join(" ");
 
-        // 9. Run launch command in new pane
-        try {
-          herdr(`pane run ${newPaneId} "${launchCmd}"`);
-        } catch (e) {
-          return err(`herdr pane run failed: ${String(e)}`);
+        // 9. Run launch command in new pane (only for new panes)
+        if (!paneIdToUse) {
+          try {
+            herdr(`pane run ${newPaneId} "${launchCmd}"`);
+          } catch (e) {
+            return err(`herdr pane run failed: ${String(e)}`);
+          }
+
+          // 10. Wait for agent to be idle (only for new panes)
+          let warning: string | undefined;
+          try {
+            herdr(`wait agent-status ${newPaneId} --status idle --timeout 30000`);
+          } catch {
+            warning = "agent did not become idle within 30s timeout — may still be starting";
+          }
+
+          const result = {
+            ok: true,
+            pane_id: newPaneId,
+            role: actualRole,
+            model: model || "(pi default)",
+            theme: theme || "(none)",
+            reused,
+            ...(direction ? { direction } : {}),
+            ...(warning ? { warning } : {}),
+          };
+
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify(result),
+              },
+            ],
+            details: result,
+          };
         }
 
-        // 10. Wait for agent to be idle
-        let warning: string | undefined;
-        try {
-          herdr(`wait agent-status ${newPaneId} --status idle --timeout 30000`);
-        } catch {
-          warning = "agent did not become idle within 30s timeout — may still be starting";
-        }
-
+        // Reuse path — return immediately without launching
         const result = {
           ok: true,
           pane_id: newPaneId,
-          role: uniqueId,
+          role: actualRole,
           model: model || "(pi default)",
           theme: theme || "(none)",
-          reused,
-          ...(direction ? { direction } : {}),
-          ...(warning ? { warning } : {}),
+          reused: true,
         };
 
         return {
