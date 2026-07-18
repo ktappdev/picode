@@ -136,6 +136,10 @@ Messages show up as `[<kind> from <sender> #<id>]`. The kind (request, reply, re
 | `picode_journal` | Read another picode's journal, filtered by `tail` or `lookbackMinutes`.                                                                                      |
 | `picode_suspend` | Mark this picode On Hold. The inbox queues until resume.                                                                                                     |
 | `picode_resume`  | Resume from On Hold and drain queued messages.                                                                                                               |
+| `picode_panes`   | Survey all Herdr panes: status, role, position, reuse/cleanup suggestions. Read-only workspace surveillance.                                                 |
+| `spawn_worker`   | Spawn a new worker pane: splits, names, launches pi, waits for idle. Auto-reuses idle workers.                                                               |
+| `cleanup_panes`  | Close stale herdr worker panes. Use `dry_run=true` to preview.                                                                                               |
+| `picode_purge`   | Delete stale picode data directories. Safe — only removes threads with no pending debts.                                                                     |
 
 ## Slash commands for humans
 
