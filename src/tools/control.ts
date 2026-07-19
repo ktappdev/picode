@@ -13,6 +13,7 @@ export function registerControlTools(pi: ExtensionAPI, store: PicodeStore, inbox
     label: "Picode Suspend",
     description:
       "Mark this picode On Hold. Cooperative — does not stop the process, just records suspended state for a human/harness to act on. Inbox messages queue until resume.",
+    promptSnippet: "Mark this picode On Hold (cooperative; inbox queues until resume).",
     parameters: Type.Object({
       reason: Type.Optional(Type.String()),
     }),
@@ -34,6 +35,7 @@ export function registerControlTools(pi: ExtensionAPI, store: PicodeStore, inbox
     name: "picode_resume",
     label: "Picode Resume",
     description: "Resume this picode from On Hold back to Open.",
+    promptSnippet: "Resume this picode from On Hold back to Open.",
     parameters: Type.Object({}),
     async execute(_id, _params, _signal, _onUpdate, ctx) {
       if (!(await resumeThread(store, () => inbox.drainInbox(ctx), ctx))) {

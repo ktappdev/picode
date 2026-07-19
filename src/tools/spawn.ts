@@ -102,7 +102,10 @@ const MIN_PANE_RATIO = 0.2; // pane must be ≥20% of workspace dimension to be 
 const MIN_RESULT_RATIO = 0.15; // resulting pane must be ≥15% of workspace dimension
 
 function isCoordinatorLabel(label: string): boolean {
-  const stripped = label.replace(/[🧭🔨🔍🧪🎨🐛📋⚙️🏃]\s*/, "").trim().toLowerCase();
+  const stripped = label
+    .replace(/[🧭🔨🔍🧪🎨🐛📋⚙️🏃]\s*/, "")
+    .trim()
+    .toLowerCase();
   return stripped === "coordinator";
 }
 
@@ -113,12 +116,12 @@ function getSplitTarget(currentPaneId: string, workspaceId: string, role: string
       ((snapshot.result as Record<string, unknown> | undefined)?.snapshot as
         Record<string, unknown> | undefined) || {};
 
-    const panes =
-      ((snap.panes as Record<string, unknown>[] | undefined) || []) as
-        Array<Record<string, unknown>>;
-    const layouts =
-      ((snap.layouts as Record<string, unknown>[] | undefined) || []) as
-        Array<Record<string, unknown>>;
+    const panes = ((snap.panes as Record<string, unknown>[] | undefined) || []) as Array<
+      Record<string, unknown>
+    >;
+    const layouts = ((snap.layouts as Record<string, unknown>[] | undefined) || []) as Array<
+      Record<string, unknown>
+    >;
 
     // Find current pane's tab_id
     const currentPane = panes.find(p => p.pane_id === currentPaneId);
@@ -141,9 +144,7 @@ function getSplitTarget(currentPaneId: string, workspaceId: string, role: string
     }
 
     // Find workspace area dimensions for ratio calculations
-    const wsLayout = layouts.find(
-      l => l.workspace_id === workspaceId && l.tab_id === currentTabId,
-    );
+    const wsLayout = layouts.find(l => l.workspace_id === workspaceId && l.tab_id === currentTabId);
     const wsArea = wsLayout?.area as Record<string, unknown> | undefined;
     const wsWidth = Number(wsArea?.width) || 0;
     const wsHeight = Number(wsArea?.height) || 0;
@@ -311,6 +312,8 @@ export function registerSpawnTool(pi: ExtensionAPI) {
     label: "Spawn Worker",
     description:
       "Spawn a new worker pane in one call: splits the current pane, names it, launches pi with the right model/theme, and waits for it to be ready.",
+    promptSnippet:
+      "Spawn a new worker pane in one call: split, name, launch pi, wait for idle (coordinator only).",
     parameters: Type.Object({
       role: Type.String({
         description: "Worker role / picode-id (e.g. 'builder', 'scout', 'worker-1')",

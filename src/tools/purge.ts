@@ -113,6 +113,7 @@ export function registerPurgeTool(pi: ExtensionAPI) {
     label: "Picode Purge",
     description:
       "Delete stale/dead picode data directories. Only removes threads with status 'stopped' or stale lastSeen (>60s) and no pending debts. Safe to run at end of session.",
+    promptSnippet: "Delete stale/dead picode data directories (safe to run at end of session).",
     parameters: Type.Object({
       force: Type.Optional(
         Type.Boolean({

@@ -37,6 +37,7 @@ export function registerPanesTool(pi: ExtensionAPI) {
     label: "Picode Panes",
     description:
       "Survey all Herdr panes in the workspace. Shows agent status, position, and role for each pane. Use this to check which workers are idle (reuse them), working (leave alone), or stopped (clean them up). Prefer reusing idle workers over spawning new ones.",
+    promptSnippet: "Survey all Herdr panes: status, position, role (find idle workers to reuse).",
     parameters: Type.Object({
       workspace: Type.Optional(
         Type.String({

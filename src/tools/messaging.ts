@@ -61,6 +61,8 @@ export function registerMessagingTools(pi: ExtensionAPI, store: PicodeStore, inb
     label: "Picode Send",
     description:
       'Send a message to other picode(s). `to` accepts a picode id, a comma-separated list, `*` (all known threads), or `role:<role>` — see picode_list. Set expects=true when you need a reply (a "request" — tracked as an obligation until the reply lands). Set re=<id> to reply to a message you received (this discharges the debt). Both together = a reply that asks a follow-up. Neither = a plain note. To your parent with expects=true and urgency="high" = an escalation. A future-dated send to your OWN id (deliverAfterSeconds) is a scheduled self-wake.',
+    promptSnippet:
+      "Send a message to other picode(s); expects=true for a request, re=<id> to reply, to parent+high=escalation.",
     parameters: Type.Object({
       to: Type.String({
         description: 'Target: picode id, "a,b,c", "*", or "role:<role>".',
@@ -238,6 +240,8 @@ export function registerMessagingTools(pi: ExtensionAPI, store: PicodeStore, inb
     label: "Picode Wait",
     description:
       "Wait for replies to outstanding requests (envelope ids from picode_send results / picode_status). When all (or any) of them receive a reply, you get a wake-up message — optionally with your own `message` payload injected alongside it. Non-blocking: end your turn after calling this.",
+    promptSnippet:
+      "Wait for replies to outstanding requests (non-blocking: end turn after calling).",
     parameters: Type.Object({
       ids: Type.Array(Type.String(), {
         description: "The envelope ids to wait on (from picode_send results / picode_status)",

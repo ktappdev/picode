@@ -12,6 +12,8 @@ export function registerIntrospectionTools(pi: ExtensionAPI, store: PicodeStore)
     label: "Picode Status",
     description:
       "Read this picode's own state and journal. Use this to understand what you were doing before a compaction, and to recover the envelope ids you owe replies to.",
+    promptSnippet:
+      "Read this picode's own state, journal, and owed-reply ids (recover context after compaction).",
     parameters: Type.Object({
       tail: Type.Optional(
         Type.Number({
@@ -71,6 +73,8 @@ export function registerIntrospectionTools(pi: ExtensionAPI, store: PicodeStore)
     label: "Picode List",
     description:
       "List all known threads sharing this workspace and their last known state. Use this to find a valid `to` id before calling picode_send.",
+    promptSnippet:
+      "List all picodes in the workspace and their last known state (find a valid `to` id before picode_send).",
     parameters: Type.Object({}),
     async execute() {
       const threads = await store.listPcodes();
@@ -92,6 +96,8 @@ export function registerIntrospectionTools(pi: ExtensionAPI, store: PicodeStore)
     label: "Picode Journal",
     description:
       "Read another picode's journal (or your own) without messaging it — the self-written status trail visible via picode_status, but for anyone. Use to check what a teammate has been doing before deciding whether to interrupt them.",
+    promptSnippet:
+      "Read any picode's journal without messaging it (check a teammate's progress before interrupting).",
     parameters: Type.Object({
       id: Type.String({
         description: "Picode id to read (see picode_list). Use your own id for your own journal.",
