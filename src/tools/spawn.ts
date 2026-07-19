@@ -106,7 +106,7 @@ function isCoordinatorLabel(label: string): boolean {
   return stripped === "coordinator";
 }
 
-function getSplitTarget(currentPaneId: string, role: string): SplitTarget {
+function getSplitTarget(currentPaneId: string, workspaceId: string, role: string): SplitTarget {
   try {
     const snapshot = herdrJson("api snapshot");
     const snap =
@@ -149,6 +149,9 @@ function getSplitTarget(currentPaneId: string, role: string): SplitTarget {
       const tabId = pane.tab_id as string;
       const agentStatus = pane.agent_status as string | undefined;
       const label = (pane.label as string) || "";
+
+      // Must be in same workspace
+      if (pane.workspace_id !== workspaceId) continue;
 
       // Must be in same tab
       if (tabId !== currentTabId) continue;
@@ -396,7 +399,7 @@ export function registerSpawnTool(pi: ExtensionAPI) {
             direction = params.direction;
             splitTargetPaneId = paneId;
           } else {
-            const target = getSplitTarget(paneId, params.role);
+            const target = getSplitTarget(paneId, workspaceId, params.role);
             splitTargetPaneId = target.paneId;
             direction = target.direction;
           }
