@@ -97,9 +97,9 @@ interface SplitTarget {
   direction: "right" | "down";
 }
 
-const COORDINATOR_LABELS = new Set(["coordinator", "🧭 coordinator"]);
-const MIN_PANE_WIDTH = 80;
-const MIN_PANE_HEIGHT = 24;
+/** Ratio thresholds relative to workspace area — screen-size independent. */
+const MIN_PANE_RATIO = 0.2; // pane must be ≥20% of workspace dimension to be split candidate
+const MIN_RESULT_RATIO = 0.15; // resulting pane must be ≥15% of workspace dimension
 
 function isCoordinatorLabel(label: string): boolean {
   const stripped = label.replace(/[🧭🔨🔍🧪🎨🐛📋⚙️🏃]\s*/, "").trim().toLowerCase();
@@ -140,6 +140,18 @@ function getSplitTarget(currentPaneId: string, workspaceId: string, role: string
       }
     }
 
+    // Find workspace area dimensions for ratio calculations
+    const wsLayout = layouts.find(
+      l => l.workspace_id === workspaceId && l.tab_id === currentTabId,
+    );
+    const wsArea = wsLayout?.area as Record<string, unknown> | undefined;
+    const wsWidth = Number(wsArea?.width) || 0;
+    const wsHeight = Number(wsArea?.height) || 0;
+
+    // Minimum pane size based on workspace ratios
+    const minWidth = wsWidth * MIN_PANE_RATIO;
+    const minHeight = wsHeight * MIN_PANE_RATIO;
+
     // Score candidates
     let bestPaneId: string | null = null;
     let bestScore = -1;
@@ -162,10 +174,10 @@ function getSplitTarget(currentPaneId: string, workspaceId: string, role: string
       // Must be idle or done (safe to split)
       if (agentStatus !== "idle" && agentStatus !== "done") continue;
 
-      // Check minimum size
+      // Check minimum size (ratio-based)
       const rect = rectMap.get(paneId);
       if (!rect) continue;
-      if (rect.width < MIN_PANE_WIDTH || rect.height < MIN_PANE_HEIGHT) continue;
+      if (rect.width < minWidth || rect.height < minHeight) continue;
 
       // Score by area
       let score = rect.width * rect.height;
@@ -189,7 +201,7 @@ function getSplitTarget(currentPaneId: string, workspaceId: string, role: string
 
     // Fallback to current pane if no valid candidate
     const targetPaneId = bestPaneId || currentPaneId;
-    const direction = computeDirection(targetPaneId, rectMap);
+    const direction = computeDirection(targetPaneId, rectMap, wsWidth, wsHeight);
 
     return { paneId: targetPaneId, direction };
   } catch {
@@ -200,6 +212,8 @@ function getSplitTarget(currentPaneId: string, workspaceId: string, role: string
 function computeDirection(
   paneId: string,
   rectMap: Map<string, { width: number; height: number }>,
+  wsWidth: number,
+  wsHeight: number,
 ): "right" | "down" {
   const rect = rectMap.get(paneId);
   if (!rect) return "right";
@@ -211,7 +225,17 @@ function computeDirection(
   if (height > width * 2) return "down";
   if (width > height * 4) return "right";
 
-  // Default: prefer right for wide panes, down for square-ish
+  // Check resulting pane sizes using ratios — avoid creating unusable panes
+  const minResultWidth = wsWidth * MIN_RESULT_RATIO;
+  const minResultHeight = wsHeight * MIN_RESULT_RATIO;
+  const rightOk = width / 2 >= minResultWidth;
+  const downOk = height / 2 >= minResultHeight;
+
+  // If only one direction keeps panes usable, pick it
+  if (rightOk && !downOk) return "right";
+  if (downOk && !rightOk) return "down";
+
+  // Both OK or both bad — prefer right for wide panes, down for square-ish
   return width > height * 1.5 ? "right" : "down";
 }
 
