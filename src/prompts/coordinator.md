@@ -127,9 +127,9 @@ Params:
 - `theme` (optional): Override theme. Omit to read from `.picode/models.json`
 - `direction` (optional): "right" or "down". Omit to auto-detect from pane geometry
 
-Returns `{ ok, pane_id, role, model, theme, reused, direction, warning? }`.
+Returns `{ ok, pane_id, role, model, theme, reused, direction, split_from?, warning? }`.
 
-**Note:** If worker with same role already exists and busy, tool auto-suffixes picode-id (e.g., `scout` → `scout-1` → `scout-2`). Allows multiple workers of same role.
+**Note:** Spawns within current workspace only. Split target auto-selects largest idle worker in same tab — coordinator only used when no idle workers available. Panes in other workspaces ignored. If worker with same role already exists and busy, tool auto-suffixes picode-id (e.g., `scout` → `scout-1` → `scout-2`).
 
 Then send task via `picode_send(to="<role>", expects=true)`.
 
