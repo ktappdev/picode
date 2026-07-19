@@ -92,32 +92,124 @@ function resolveTheme(override?: string): string | null {
   return null;
 }
 
-function getSplitDirection(paneId: string): "right" | "down" {
+interface SplitTarget {
+  paneId: string;
+  direction: "right" | "down";
+}
+
+const COORDINATOR_LABELS = new Set(["coordinator", "🧭 coordinator"]);
+const MIN_PANE_WIDTH = 80;
+const MIN_PANE_HEIGHT = 24;
+
+function isCoordinatorLabel(label: string): boolean {
+  const stripped = label.replace(/[🧭🔨🔍🧪🎨🐛📋⚙️🏃]\s*/, "").trim().toLowerCase();
+  return stripped === "coordinator";
+}
+
+function getSplitTarget(currentPaneId: string, role: string): SplitTarget {
   try {
-    const layout = herdrJson(`pane layout --pane ${paneId}`);
-    const result = layout.result as Record<string, unknown> | undefined;
-    const area = result?.layout as Record<string, unknown> | undefined;
-    const areaDims = area?.area as Record<string, unknown> | undefined;
-    const width = Number(areaDims?.width) || 0;
-    const height = Number(areaDims?.height) || 0;
+    const snapshot = herdrJson("api snapshot");
+    const snap =
+      ((snapshot.result as Record<string, unknown> | undefined)?.snapshot as
+        Record<string, unknown> | undefined) || {};
 
-    // Extreme aspect ratios take priority
-    if (height > width * 2) return "down"; // very tall
-    if (width > height * 4) return "right"; // very wide
+    const panes =
+      ((snap.panes as Record<string, unknown>[] | undefined) || []) as
+        Array<Record<string, unknown>>;
+    const layouts =
+      ((snap.layouts as Record<string, unknown>[] | undefined) || []) as
+        Array<Record<string, unknown>>;
 
-    // Count existing panes in current tab to alternate directions
-    const panes = (area?.panes as Record<string, unknown>[] | undefined) || [];
-    const paneCount = panes.length;
+    // Find current pane's tab_id
+    const currentPane = panes.find(p => p.pane_id === currentPaneId);
+    const currentTabId = (currentPane?.tab_id as string) || "";
 
-    // Alternate: odd count → right, even count → down
-    // Creates grid instead of endless row of narrow columns
-    if (paneCount % 2 === 0) {
-      return "down";
+    // Build rect map: pane_id → {width, height}
+    const rectMap = new Map<string, { width: number; height: number }>();
+    for (const layout of layouts) {
+      const layoutPanes = (layout.panes as Record<string, unknown>[] | undefined) || [];
+      for (const lp of layoutPanes) {
+        const pid = lp.pane_id as string;
+        const r = lp.rect as Record<string, unknown> | undefined;
+        if (pid && r) {
+          rectMap.set(pid, {
+            width: Number(r.width) || 0,
+            height: Number(r.height) || 0,
+          });
+        }
+      }
     }
-    return "right";
+
+    // Score candidates
+    let bestPaneId: string | null = null;
+    let bestScore = -1;
+
+    for (const pane of panes) {
+      const paneId = pane.pane_id as string;
+      const tabId = pane.tab_id as string;
+      const agentStatus = pane.agent_status as string | undefined;
+      const label = (pane.label as string) || "";
+
+      // Must be in same tab
+      if (tabId !== currentTabId) continue;
+
+      // Must have an agent
+      if (!agentStatus) continue;
+
+      // Must be idle or done (safe to split)
+      if (agentStatus !== "idle" && agentStatus !== "done") continue;
+
+      // Check minimum size
+      const rect = rectMap.get(paneId);
+      if (!rect) continue;
+      if (rect.width < MIN_PANE_WIDTH || rect.height < MIN_PANE_HEIGHT) continue;
+
+      // Score by area
+      let score = rect.width * rect.height;
+
+      // Strong penalty for coordinator — only use if no workers available
+      if (isCoordinatorLabel(label)) {
+        score = score * 0.1;
+      }
+
+      // Bonus for same role — groups same workers together
+      const paneRole = extractRole(label).toLowerCase();
+      if (paneRole === role.toLowerCase()) {
+        score = score * 1.2;
+      }
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestPaneId = paneId;
+      }
+    }
+
+    // Fallback to current pane if no valid candidate
+    const targetPaneId = bestPaneId || currentPaneId;
+    const direction = computeDirection(targetPaneId, rectMap);
+
+    return { paneId: targetPaneId, direction };
   } catch {
-    return "right";
+    return { paneId: currentPaneId, direction: "right" };
   }
+}
+
+function computeDirection(
+  paneId: string,
+  rectMap: Map<string, { width: number; height: number }>,
+): "right" | "down" {
+  const rect = rectMap.get(paneId);
+  if (!rect) return "right";
+
+  const width = rect.width;
+  const height = rect.height;
+
+  // Extreme aspect ratios take priority
+  if (height > width * 2) return "down";
+  if (width > height * 4) return "right";
+
+  // Default: prefer right for wide panes, down for square-ish
+  return width > height * 1.5 ? "right" : "down";
 }
 
 /** Check if a picode-id already exists in the workspace.
@@ -280,6 +372,7 @@ export function registerSpawnTool(pi: ExtensionAPI) {
 
         let newPaneId: string;
         let direction: string | undefined;
+        let splitTargetPaneId = paneId;
         let actualRole: string = params.role;
 
         if (paneIdToUse) {
@@ -298,13 +391,20 @@ export function registerSpawnTool(pi: ExtensionAPI) {
             actualRole = params.role;
           }
         } else {
-          // 3. Determine split direction
-          direction = params.direction || getSplitDirection(paneId);
+          // 3. Determine split target and direction
+          if (params.direction) {
+            direction = params.direction;
+            splitTargetPaneId = paneId;
+          } else {
+            const target = getSplitTarget(paneId, params.role);
+            splitTargetPaneId = target.paneId;
+            direction = target.direction;
+          }
 
           // 4. Split pane
           try {
             const splitResult = herdrJson(
-              `pane split ${paneId} --direction ${direction} --no-focus`,
+              `pane split ${splitTargetPaneId} --direction ${direction} --no-focus`,
             );
             const splitPane = (splitResult.result as Record<string, unknown>)?.pane as
               Record<string, unknown> | undefined;
@@ -361,6 +461,7 @@ export function registerSpawnTool(pi: ExtensionAPI) {
             theme: theme || "(none)",
             reused,
             ...(direction ? { direction } : {}),
+            ...(splitTargetPaneId !== paneId ? { split_from: splitTargetPaneId } : {}),
             ...(warning ? { warning } : {}),
           };
 
