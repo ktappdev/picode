@@ -11,7 +11,17 @@
 
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { DynamicBorder } from "@earendil-works/pi-coding-agent";
-import { Container, type SelectItem, SelectList, Text } from "@earendil-works/pi-tui";
+import {
+  Container,
+  type Focusable,
+  fuzzyFilter,
+  Input,
+  Key,
+  matchesKey,
+  type SelectItem,
+  SelectList,
+  Text,
+} from "@earendil-works/pi-tui";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
 /** Model type derived from the registry — avoids a direct @earendil-works/pi-ai
@@ -151,7 +161,95 @@ function themedSelectList(items: SelectItem[], maxVisible: number): SelectList {
   });
 }
 
-/** Show the role selector. Returns the chosen value or null on cancel. */
+/** A SelectList with an fzf-style fuzzy filter input above it.
+ *  Printable chars + backspace go to the Input; arrows/enter/esc go to the
+ *  SelectList. The list is re-filtered on every keystroke via fuzzyFilter
+ *  (subsequence match, best matches first). Implements Focusable so the
+ *  Input's hardware cursor is positioned correctly for IME input. */
+class FilterableSelectList implements Focusable {
+  private allItems: SelectItem[];
+  private maxVisible: number;
+  private filterLabel: string;
+  private input: Input;
+  private list: SelectList;
+  private _focused = false;
+
+  onSelect?: (item: SelectItem) => void;
+  onCancel?: () => void;
+
+  constructor(items: SelectItem[], maxVisible: number, filterLabel: string) {
+    this.allItems = items;
+    this.maxVisible = maxVisible;
+    this.filterLabel = filterLabel;
+    this.input = new Input();
+    this.list = themedSelectList(items, maxVisible);
+  }
+
+  get focused(): boolean {
+    return this._focused;
+  }
+  set focused(value: boolean) {
+    this._focused = value;
+    this.input.focused = value;
+  }
+
+  private applyFilter(query: string): void {
+    if (!query) {
+      this.list = themedSelectList(this.allItems, this.maxVisible);
+    } else {
+      const filtered = fuzzyFilter(this.allItems, query, i => `${i.label} ${i.description ?? ""}`);
+      this.list = themedSelectList(filtered, this.maxVisible);
+    }
+    this.list.onSelect = (item: SelectItem) => this.onSelect?.(item);
+    this.list.onCancel = () => this.onCancel?.();
+  }
+
+  render(width: number): string[] {
+    const lines: string[] = [];
+    const inputLines = this.input.render(Math.max(1, width - this.filterLabel.length));
+    lines.push(this.filterLabel + inputLines.join("\n"));
+    lines.push(...this.list.render(width));
+    return lines;
+  }
+
+  invalidate(): void {
+    this.input.invalidate();
+    this.list.invalidate();
+  }
+
+  handleInput(data: string): void {
+    // Route navigation/confirm/cancel to the list; printable/edit keys to Input.
+    // Escape: if filter query active, clear it first; second escape cancels.
+    const isUp = matchesKey(data, Key.up);
+    const isDown = matchesKey(data, Key.down);
+    const isEnter = data === "\r" || data === "\n";
+    const isEscape = matchesKey(data, Key.escape);
+
+    if (isUp || isDown || isEnter) {
+      this.list.handleInput(data);
+      return;
+    }
+    if (isEscape) {
+      if (this.input.getValue()) {
+        this.input.setValue("");
+        this.applyFilter("");
+      } else {
+        this.onCancel?.();
+      }
+      return;
+    }
+
+    // Printable / edit keys → Input, then refilter if value changed
+    const before = this.input.getValue();
+    this.input.handleInput(data);
+    const after = this.input.getValue();
+    if (before !== after) {
+      this.applyFilter(after);
+    }
+  }
+}
+
+/** Show the role selector with fuzzy filter. Returns chosen value or null. */
 async function showRoleSelector(
   ctx: ExtensionCommandContext,
   items: SelectItem[],
@@ -163,27 +261,30 @@ async function showRoleSelector(
     container.addChild(new Text(theme.fg("dim", "Select a role to configure"), 1, 0));
     container.addChild(new Text("", 1, 0));
 
-    const list = themedSelectList(items, Math.min(items.length, 12));
-    list.onSelect = (item: SelectItem) => done(item.value);
-    list.onCancel = () => done(null);
-    container.addChild(list);
+    const filter = new FilterableSelectList(items, Math.min(items.length, 12), "filter: ");
+    filter.focused = true;
+    filter.onSelect = (item: SelectItem) => done(item.value);
+    filter.onCancel = () => done(null);
+    container.addChild(filter);
 
     container.addChild(new Text("", 1, 0));
-    container.addChild(new Text(theme.fg("dim", "↑↓ navigate • enter select • esc cancel"), 1, 0));
+    container.addChild(
+      new Text(theme.fg("dim", "type to filter • ↑↓ navigate • enter select • esc cancel"), 1, 0),
+    );
     container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
 
     return {
       render: (w: number) => container.render(w),
       invalidate: () => container.invalidate(),
       handleInput: (data: string) => {
-        list.handleInput(data);
+        filter.handleInput(data);
         tui.requestRender();
       },
     };
   });
 }
 
-/** Show the model picker for a role. Returns the chosen value or null on cancel. */
+/** Show the model picker with fuzzy filter. Returns chosen value or null. */
 async function showModelSelector(
   ctx: ExtensionCommandContext,
   items: SelectItem[],
@@ -200,20 +301,23 @@ async function showModelSelector(
     container.addChild(new Text(theme.fg("dim", currentLine), 1, 0));
     container.addChild(new Text("", 1, 0));
 
-    const list = themedSelectList(items, Math.min(items.length, 12));
-    list.onSelect = (item: SelectItem) => done(item.value);
-    list.onCancel = () => done(BACK_SENTINEL); // esc = back, not exit
-    container.addChild(list);
+    const filter = new FilterableSelectList(items, Math.min(items.length, 12), "filter: ");
+    filter.focused = true;
+    filter.onSelect = (item: SelectItem) => done(item.value);
+    filter.onCancel = () => done(BACK_SENTINEL); // esc = back, not exit
+    container.addChild(filter);
 
     container.addChild(new Text("", 1, 0));
-    container.addChild(new Text(theme.fg("dim", "↑↓ navigate • enter select • esc back"), 1, 0));
+    container.addChild(
+      new Text(theme.fg("dim", "type to filter • ↑↓ navigate • enter select • esc back"), 1, 0),
+    );
     container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
 
     return {
       render: (w: number) => container.render(w),
       invalidate: () => container.invalidate(),
       handleInput: (data: string) => {
-        list.handleInput(data);
+        filter.handleInput(data);
         tui.requestRender();
       },
     };
