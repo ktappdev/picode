@@ -3,15 +3,15 @@
  *  and unknown roles — never blank, so a missing mapping still renders
  *  something recognizable. */
 export const ROLE_EMOJI: Record<string, string> = {
-  coordinator: "🧭",
-  builder: "🔨",
-  reviewer: "🛡️",
-  scout: "🔍",
-  designer: "🎨",
-  tester: "🧪",
-  "bug-hunter": "🐛",
-  planner: "📋",
-  runner: "🏃",
+  coordinator: "⚪",
+  builder: "🔴",
+  reviewer: "🔵",
+  scout: "🟡",
+  designer: "🟣",
+  tester: "🟢",
+  "bug-hunter": "🟠",
+  planner: "🟤",
+  runner: "⚫",
 };
 
 export function roleEmoji(role: string | null | undefined): string {
