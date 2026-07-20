@@ -7,6 +7,7 @@ import { roleEmoji } from "./core/roles";
 import { purgeStalePcodes } from "./tools/purge";
 import { execSync } from "node:child_process";
 import { basename, dirname, join } from "node:path";
+import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
 /** Wiring into pi's event stream: state transitions across the turn cycle,
@@ -303,7 +304,10 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
       }
     }
 
-    if (journalMode(pi) === "turn" && shouldJournal(store, toolUsedThisTurn, "turn")) {
+    if (
+      journalMode(pi, path.join(ctx.cwd, ".picode", "models.json")) === "turn" &&
+      shouldJournal(store, toolUsedThisTurn, "turn")
+    ) {
       const sf = ctx.sessionManager.getSessionFile();
       if (sf) store.forkJournal(sf);
     }
@@ -321,7 +325,7 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
     // consecutive silent runs — that's what makes the streak>=2 escalation
     // in turn_end's guard reachable at all.
     store.owedNudgePending = false;
-    const mode = journalMode(pi);
+    const mode = journalMode(pi, path.join(ctx.cwd, ".picode", "models.json"));
     const write =
       mode === "done"
         ? shouldJournal(store, toolUsedThisTurn, "done")
@@ -333,7 +337,7 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
 
     // Auto-compact if journal grew past threshold. Fire-and-forget. Only
     // at run end — not per turn — to avoid racing the normal journal writes.
-    if (journalMode(pi) !== "off") {
+    if (journalMode(pi, path.join(ctx.cwd, ".picode", "models.json")) !== "off") {
       const sf = ctx.sessionManager.getSessionFile();
       if (sf) store.compactJournal(sf);
     }

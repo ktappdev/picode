@@ -34,7 +34,7 @@ function validateRole(role: string): string | null {
   return null;
 }
 
-function loadModelsJson(): Record<string, string> {
+export function loadModelsJson(): Record<string, string> {
   try {
     let root: string;
     try {

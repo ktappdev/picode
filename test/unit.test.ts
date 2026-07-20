@@ -50,6 +50,7 @@ import {
   journalFingerprint,
   isDuplicateOfLastEntry,
   journalForkArgs,
+  journalMode,
   journalSignature,
   piSelfCommand,
   shouldJournal,
@@ -1714,10 +1715,11 @@ describe("commands-models: pure helpers", () => {
   it("buildRoleItems includes standard roles in order", () => {
     const items = buildRoleItems({});
     const labels = items.map(i => i.label);
-    // default first, then builder, reviewer, tester, …
+    // default first, then journal, then builder, reviewer, tester, …
     assert.equal(labels[0], "default");
-    assert.equal(labels[1], "builder");
-    assert.equal(labels[2], "reviewer");
+    assert.equal(labels[1], "journal");
+    assert.equal(labels[2], "builder");
+    assert.equal(labels[3], "reviewer");
     assert.ok(labels.includes("(reset all)"));
     assert.ok(labels.includes("(done)"));
   });
@@ -1779,6 +1781,102 @@ describe("commands-models: pure helpers", () => {
     const items = buildModelItems(models, "deepseek/deepseek-v4-pro");
     const clearItem = items.find(i => i.value === "\x00clear")!;
     assert.match(clearItem.description!, /was deepseek\/deepseek-v4-pro/);
+  });
+
+  it("buildRoleItems includes journal role after default", () => {
+    const items = buildRoleItems({});
+    const labels = items.map(i => i.label);
+    assert.equal(labels[0], "default");
+    assert.equal(labels[1], "journal");
+    const journal = items.find(i => i.label === "journal")!;
+    assert.equal(journal.description, "(inherits coordinator model)");
+  });
+
+  it("buildRoleItems shows journal model as description when set", () => {
+    const items = buildRoleItems({ journal: "deepseek/deepseek-v4-flash" });
+    const journal = items.find(i => i.label === "journal")!;
+    assert.equal(journal.description, "deepseek/deepseek-v4-flash");
+  });
+
+  it("buildRoleItems includes (journal cadence) entry", () => {
+    const items = buildRoleItems({ "journal-cadence": "done" });
+    const cadence = items.find(i => i.label === "(journal cadence)")!;
+    assert.ok(cadence);
+    assert.equal(cadence.description, "done");
+  });
+
+  it("buildRoleItems (journal cadence) shows done (default) when unset", () => {
+    const items = buildRoleItems({});
+    const cadence = items.find(i => i.label === "(journal cadence)")!;
+    assert.equal(cadence.description, "done (default)");
+  });
+
+  it("buildRoleItems filters journal-cadence from custom role keys", () => {
+    const items = buildRoleItems({ "journal-cadence": "done", "my-role": "x/y" });
+    const labels = items.map(i => i.label);
+    assert.ok(!labels.includes("journal-cadence"));
+    assert.ok(labels.includes("my-role"));
+  });
+});
+
+describe("journal: journalMode with modelsPath", () => {
+  function makePi(flag?: string) {
+    const flags: Record<string, string | boolean | undefined> = {};
+    if (flag !== undefined) flags["picode-journal"] = flag;
+    return { getFlag: (name: string) => flags[name] } as unknown as ExtensionAPI;
+  }
+
+  it("returns done when models.json has journal-cadence done and no CLI flag", () => {
+    const dir = mkdtempSync(join(tmpdir(), "picode-jm-"));
+    try {
+      const p = join(dir, "models.json");
+      writeFileSync(p, JSON.stringify({ "journal-cadence": "done" }));
+      assert.equal(journalMode(makePi(), p), "done");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("returns turn when models.json explicitly sets journal-cadence turn", () => {
+    const dir = mkdtempSync(join(tmpdir(), "picode-jm-"));
+    try {
+      const p = join(dir, "models.json");
+      writeFileSync(p, JSON.stringify({ "journal-cadence": "turn" }));
+      assert.equal(journalMode(makePi(), p), "turn");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("CLI flag wins over models.json", () => {
+    const dir = mkdtempSync(join(tmpdir(), "picode-jm-"));
+    try {
+      const p = join(dir, "models.json");
+      writeFileSync(p, JSON.stringify({ "journal-cadence": "done" }));
+      assert.equal(journalMode(makePi("off"), p), "off");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("falls through to done on invalid JSON", () => {
+    const dir = mkdtempSync(join(tmpdir(), "picode-jm-"));
+    try {
+      const p = join(dir, "models.json");
+      writeFileSync(p, "{not valid json");
+      assert.equal(journalMode(makePi(), p), "done");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("returns done when models.json absent", () => {
+    const dir = mkdtempSync(join(tmpdir(), "picode-jm-"));
+    try {
+      assert.equal(journalMode(makePi(), join(dir, "models.json")), "done");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

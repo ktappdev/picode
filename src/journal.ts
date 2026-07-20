@@ -75,9 +75,21 @@ export function isDuplicateOfLastEntry(journalContent: string | undefined, entry
   return journalFingerprint(last) === journalFingerprint(entry);
 }
 
-export function journalMode(pi: ExtensionAPI): "turn" | "done" | "off" {
+export function journalMode(pi: ExtensionAPI, modelsPath?: string): "turn" | "done" | "off" {
   const v = pi.getFlag("picode-journal");
-  return v === "done" || v === "off" ? v : "turn";
+  if (v === "done" || v === "off") return v;
+  if (modelsPath) {
+    try {
+      const cfg = fs.existsSync(modelsPath)
+        ? (JSON.parse(fs.readFileSync(modelsPath, "utf8")) as Record<string, string>)
+        : {};
+      const c = cfg["journal-cadence"];
+      if (c === "done" || c === "off" || c === "turn") return c;
+    } catch {
+      // invalid JSON — fall through to default
+    }
+  }
+  return "done";
 }
 
 /** Fingerprint of everything a journal entry could newly report. Unchanged
@@ -218,9 +230,11 @@ export function forkJournalEntry(store: PicodeStore, sessionFile: string, model?
         // A fork that never produces an entry must not fail silently — this
         // is exactly how a misconfigured journal model reads as "journal.md
         // just never appears".
-        console.error(
-          `[picode] journal fork produced no entry (exit ${code})${errOut.trim() ? `: ${errOut.trim().slice(0, 300)}` : ""}`,
-        );
+        const balanceErr = /402|Insufficient Balance|insufficient_balance|no balance/i.test(errOut);
+        const msg = balanceErr
+          ? `[picode] journal fork failed: model balance/quota error (exit ${code}). Set a cheaper journal model via /picode-models. stderr: ${errOut.trim().slice(0, 200)}`
+          : `[picode] journal fork produced no entry (exit ${code})${errOut.trim() ? `: ${errOut.trim().slice(0, 300)}` : ""}`;
+        console.error(msg);
         return;
       }
       const existing = await store.adapter.readJournal?.(store.picodeId);
@@ -288,9 +302,11 @@ export function compactJournal(store: PicodeStore, sessionFile: string, model?: 
       fs.rmSync(tmpSes, { recursive: true, force: true });
       const summary = out.trim();
       if (!summary) {
-        console.error(
-          `[picode] journal compaction produced no summary (exit ${code})${errOut.trim() ? `: ${errOut.trim().slice(0, 300)}` : ""}`,
-        );
+        const balanceErr = /402|Insufficient Balance|insufficient_balance|no balance/i.test(errOut);
+        const msg = balanceErr
+          ? `[picode] journal compaction failed: model balance/quota error (exit ${code}). Set a cheaper journal model via /picode-models. stderr: ${errOut.trim().slice(0, 200)}`
+          : `[picode] journal compaction produced no summary (exit ${code})${errOut.trim() ? `: ${errOut.trim().slice(0, 300)}` : ""}`;
+        console.error(msg);
         return;
       }
       void (async () => {

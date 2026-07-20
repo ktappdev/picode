@@ -9,6 +9,7 @@ import { forkJournalEntry, compactJournal as compactJournalFn } from "./journal"
 import { roleEmoji } from "./core/roles";
 import type { PicodeAdapter } from "./adapter/types";
 import { createLocalFsAdapter } from "./adapter/local-fs";
+import { loadModelsJson } from "./tools/spawn";
 
 /** The PicodeStore: this picode's identity and mutable coordination state,
  *  restored from the storage adapter at init, persisted on every change, kept
@@ -179,6 +180,8 @@ export function createPicodeStore(
             "bug-hunter": "deepseek/deepseek-v4-pro",
             scout: "deepseek/deepseek-v4-flash",
             default: "deepseek/deepseek-v4-flash",
+            journal: "deepseek/deepseek-v4-flash",
+            "journal-cadence": "done",
           };
           fs.writeFileSync(modelsPath, JSON.stringify(defaultModels, null, 2) + "\n");
         }
@@ -355,14 +358,16 @@ export function createPicodeStore(
     },
 
     forkJournal(sessionFile: string) {
-      const m = pi.getFlag("picode-journal-model");
-      forkJournalEntry(store, sessionFile, typeof m === "string" && m ? m : undefined);
+      const flag = pi.getFlag("picode-journal-model");
+      const m = (typeof flag === "string" && flag) || loadModelsJson()["journal"] || undefined;
+      forkJournalEntry(store, sessionFile, m);
     },
 
     compactJournal(sessionFile: string) {
       if (!store.sessionFile) return;
-      const m = pi.getFlag("picode-journal-model");
-      compactJournalFn(store, sessionFile, typeof m === "string" && m ? m : undefined);
+      const flag = pi.getFlag("picode-journal-model");
+      const m = (typeof flag === "string" && flag) || loadModelsJson()["journal"] || undefined;
+      compactJournalFn(store, sessionFile, m);
     },
 
     startHeartbeat(onTick?: () => void | Promise<void>) {

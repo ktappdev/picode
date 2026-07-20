@@ -33,6 +33,7 @@ type AvailableModel = ReturnType<ExtensionCommandContext["modelRegistry"]["getAv
  *  fallback resolveModel() uses when no role-specific entry exists. */
 const ROLE_DISPLAY_ORDER = [
   "default",
+  "journal",
   "builder",
   "reviewer",
   "tester",
@@ -54,6 +55,7 @@ const DONE_SENTINEL = "\x00done";
 const RESET_SENTINEL = "\x00reset";
 const CLEAR_SENTINEL = "\x00clear";
 const BACK_SENTINEL = "\x00back";
+const CADENCE_SENTINEL = "\x00cadence";
 
 // ── Pure helpers (unit-testable) ────────────────────────────────────
 
@@ -103,13 +105,24 @@ export function buildRoleItems(config: Record<string, string>): SelectItem[] {
     seen.add(role);
     const model = config[role];
     const label = role;
-    const description = model ?? "(not set)";
+    const description =
+      role === "journal" && !model ? "(inherits coordinator model)" : (model ?? "(not set)");
     items.push({ value: role, label, description });
   };
 
   for (const role of ROLE_DISPLAY_ORDER) addRole(role);
   // Any custom role keys from config not in the standard order
-  for (const key of Object.keys(config)) addRole(key);
+  for (const key of Object.keys(config)) {
+    if (key.startsWith("journal-")) continue; // handled explicitly as cadence entry
+    addRole(key);
+  }
+
+  // Journal cadence entry (reads/writes "journal-cadence" key in models.json)
+  items.push({
+    value: CADENCE_SENTINEL,
+    label: "(journal cadence)",
+    description: config["journal-cadence"] ?? "done (default)",
+  });
 
   // Special entries
   items.push({ value: RESET_SENTINEL, label: "(reset all)", description: "delete models.json" });
@@ -363,6 +376,31 @@ export async function interactiveModelSelector(
       writeModelsConfig(modelsPath, config);
       changed.length = 0;
       changed.push("reset all");
+      continue;
+    }
+
+    if (roleChoice === CADENCE_SENTINEL) {
+      const cadenceItems: SelectItem[] = [
+        { value: "turn", label: "turn", description: "journal every turn (2-min throttle)" },
+        {
+          value: "done",
+          label: "done",
+          description: "journal only at agent_end (one entry per run) (default)",
+        },
+        { value: "off", label: "off", description: "no journaling" },
+        { value: BACK_SENTINEL, label: "(back)", description: "return to role list" },
+      ];
+      const cadenceChoice = await showModelSelector(
+        ctx,
+        cadenceItems,
+        "journal cadence",
+        config["journal-cadence"],
+      );
+      if (cadenceChoice && cadenceChoice !== BACK_SENTINEL) {
+        config["journal-cadence"] = cadenceChoice;
+        writeModelsConfig(modelsPath, config);
+        changed.push(`journal-cadence → ${cadenceChoice}`);
+      }
       continue;
     }
 
