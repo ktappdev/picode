@@ -57,6 +57,7 @@
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "^0.80.3",
+    "@earendil-works/pi-tui": "^0.80.9",
     "@eslint/js": "^9.0.0",
     "@restatedev/restate-sdk-testcontainers": "^1.15.1",
     "@types/node": "^26.1.0",

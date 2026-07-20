@@ -39,6 +39,14 @@ import { checkBodySize, MAX_BODY_BYTES } from "../src/tools/messaging";
 import { registerTools } from "../src/tools/index";
 import { registerCommands } from "../src/commands";
 import {
+  buildRoleItems,
+  buildModelItems,
+  formatContextWindow,
+  formatModelDescription,
+  readModelsConfig,
+  writeModelsConfig,
+} from "../src/commands-models";
+import {
   journalFingerprint,
   isDuplicateOfLastEntry,
   journalForkArgs,
@@ -1587,6 +1595,190 @@ describe("commands: slash commands", () => {
     const h = makeHarness(tmpDir);
     await callCommand(h, "/picode-models", "builder gemini-2.5-flash");
     assert.match(h.notifications.at(-1)!.text, /Set builder/);
+  });
+
+  it("/picode-models --reset deletes the file", async () => {
+    const h = makeHarness(tmpDir);
+    const modelsPath = join(tmpDir, ".picode", "models.json");
+    mkdirSync(join(tmpDir, ".picode"), { recursive: true });
+    writeFileSync(modelsPath, JSON.stringify({ builder: "deepseek/deepseek-v4-pro" }));
+    await callCommand(h, "/picode-models", "--reset");
+    assert.match(h.notifications.at(-1)!.text, /defaults restored/);
+    assert.equal(existsSync(modelsPath), false);
+  });
+
+  it("/picode-models no-UI listing excludes theme key", async () => {
+    const h = makeHarness(tmpDir);
+    const modelsPath = join(tmpDir, ".picode", "models.json");
+    mkdirSync(join(tmpDir, ".picode"), { recursive: true });
+    writeFileSync(
+      modelsPath,
+      JSON.stringify({ builder: "deepseek/deepseek-v4-pro", theme: "tokyo-night" }),
+    );
+    await callCommand(h, "/picode-models");
+    const text = h.notifications.at(-1)!.text;
+    assert.match(text, /builder/);
+    assert.doesNotMatch(text, /theme/);
+  });
+});
+
+// --- commands-models: pure helpers --------------------------------------
+
+describe("commands-models: pure helpers", () => {
+  // Minimal mock Model matching the shape returned by modelRegistry.getAvailable()
+  function mockModel(
+    provider: string,
+    id: string,
+    opts: { contextWindow?: number; reasoning?: boolean } = {},
+  ) {
+    return {
+      id,
+      name: id,
+      provider,
+      reasoning: opts.reasoning ?? false,
+      contextWindow: opts.contextWindow ?? 128000,
+      maxTokens: 16384,
+    } as never; // cast — we only use id/provider/reasoning/contextWindow
+  }
+
+  it("formatContextWindow formats millions and thousands", () => {
+    assert.equal(formatContextWindow(1_000_000), "1M");
+    assert.equal(formatContextWindow(1_500_000), "1.5M");
+    assert.equal(formatContextWindow(128_000), "128K");
+    assert.equal(formatContextWindow(49_152), "49K");
+    assert.equal(formatContextWindow(500), "500");
+  });
+
+  it("formatModelDescription appends reasoning flag", () => {
+    const m1 = mockModel("deepseek", "deepseek-v4-pro", {
+      contextWindow: 1_000_000,
+      reasoning: true,
+    });
+    const m2 = mockModel("deepseek", "deepseek-v4-flash", { contextWindow: 1_000_000 });
+    assert.equal(formatModelDescription(m1), "1M · reasoning");
+    assert.equal(formatModelDescription(m2), "1M");
+  });
+
+  it("readModelsConfig returns {} when absent", () => {
+    const dir = mkdtempSync(join(tmpdir(), "picode-test-"));
+    try {
+      const result = readModelsConfig(join(dir, "models.json"));
+      assert.deepEqual(result, {});
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("readModelsConfig parses existing JSON", () => {
+    const dir = mkdtempSync(join(tmpdir(), "picode-test-"));
+    try {
+      const p = join(dir, "models.json");
+      writeFileSync(
+        p,
+        JSON.stringify({ builder: "deepseek/deepseek-v4-pro", theme: "tokyo-night" }),
+      );
+      const result = readModelsConfig(p);
+      assert.equal(result.builder, "deepseek/deepseek-v4-pro");
+      assert.equal(result.theme, "tokyo-night");
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("readModelsConfig throws on invalid JSON", () => {
+    const dir = mkdtempSync(join(tmpdir(), "picode-test-"));
+    try {
+      const p = join(dir, "models.json");
+      writeFileSync(p, "{not valid json");
+      assert.throws(() => readModelsConfig(p));
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("writeModelsConfig writes 2-space indented JSON", () => {
+    const dir = mkdtempSync(join(tmpdir(), "picode-test-"));
+    try {
+      const p = join(dir, "models.json");
+      writeModelsConfig(p, { builder: "deepseek/deepseek-v4-pro", theme: "tokyo-night" });
+      const raw = readFileSync(p, "utf8");
+      assert.match(raw, /"builder": "deepseek\/deepseek-v4-pro"/);
+      assert.match(raw, /"theme": "tokyo-night"/);
+      // 2-space indent
+      assert.match(raw, /\n {2}"builder"/);
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("buildRoleItems includes standard roles in order", () => {
+    const items = buildRoleItems({});
+    const labels = items.map(i => i.label);
+    // default first, then builder, reviewer, tester, …
+    assert.equal(labels[0], "default");
+    assert.equal(labels[1], "builder");
+    assert.equal(labels[2], "reviewer");
+    assert.ok(labels.includes("(reset all)"));
+    assert.ok(labels.includes("(done)"));
+  });
+
+  it("buildRoleItems shows current model as description", () => {
+    const items = buildRoleItems({ builder: "deepseek/deepseek-v4-pro" });
+    const builder = items.find(i => i.label === "builder")!;
+    assert.equal(builder.description, "deepseek/deepseek-v4-pro");
+    const tester = items.find(i => i.label === "tester")!;
+    assert.equal(tester.description, "(not set)");
+  });
+
+  it("buildRoleItems excludes theme and coordinator keys", () => {
+    const items = buildRoleItems({
+      theme: "tokyo-night",
+      coordinator: "windsurf/glm-5-2",
+      builder: "deepseek/deepseek-v4-pro",
+    });
+    const labels = items.map(i => i.label);
+    assert.ok(!labels.includes("theme"));
+    assert.ok(!labels.includes("coordinator"));
+    assert.ok(labels.includes("builder"));
+  });
+
+  it("buildRoleItems includes custom role keys from config", () => {
+    const items = buildRoleItems({ "my-custom-role": "windsurf/glm-5-2" });
+    const labels = items.map(i => i.label);
+    assert.ok(labels.includes("my-custom-role"));
+  });
+
+  it("buildModelItems sorts by provider then id", () => {
+    const models = [
+      mockModel("windsurf", "glm-5-2"),
+      mockModel("deepseek", "deepseek-v4-flash"),
+      mockModel("deepseek", "deepseek-v4-pro", { reasoning: true }),
+    ];
+    const items = buildModelItems(models, undefined);
+    // First item is (clear) sentinel
+    const values = items.map(i => i.value);
+    assert.equal(values[0], "\x00clear");
+    assert.equal(values[1], "deepseek/deepseek-v4-flash");
+    assert.equal(values[2], "deepseek/deepseek-v4-pro");
+    assert.equal(values[3], "windsurf/glm-5-2");
+    // Last is (back)
+    assert.equal(values.at(-1), "\x00back");
+  });
+
+  it("buildModelItems description shows context window + reasoning", () => {
+    const models = [
+      mockModel("deepseek", "deepseek-v4-pro", { contextWindow: 1_000_000, reasoning: true }),
+    ];
+    const items = buildModelItems(models, undefined);
+    const modelItem = items.find(i => i.value === "deepseek/deepseek-v4-pro")!;
+    assert.equal(modelItem.description, "1M · reasoning");
+  });
+
+  it("buildModelItems (clear) description shows current model when set", () => {
+    const models = [mockModel("deepseek", "deepseek-v4-pro")];
+    const items = buildModelItems(models, "deepseek/deepseek-v4-pro");
+    const clearItem = items.find(i => i.value === "\x00clear")!;
+    assert.match(clearItem.description!, /was deepseek\/deepseek-v4-pro/);
   });
 });
 
