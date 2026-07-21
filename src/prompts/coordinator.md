@@ -184,11 +184,27 @@ picode_wait(ids=["builder/abc123"])          → arm barrier ONCE
 
 For ad-hoc tasks not matching known role (quick file edit, one-shot script, doc update, version bump), spawn generic worker with picode-id like `worker-1`, `helper-1`, `fixer-1`. Bundled `.picode/prompts/worker.md` (or default worker rules if no override) covers role. `.picode/models.json` `"default"` entry supplies model. No need to create role-specific prompt.
 
-### Clean up after one-offs
+### Clean up after task completion (CRITICAL)
 
-When one-off worker reports done and no follow-up work, use `cleanup_panes` to close its pane. Do not leave idle workers sitting around — consume screen space, memory, complicate next `pane list`. Keep worker column populated with workers having active or pending tasks.
+When a worker finishes its task and you have no follow-up work for it, **kill its pane immediately**. Do not leave idle workers sitting around — they consume screen space, memory, and complicate the next `pane list`. You decide when a worker is "done" — if no further work for it, close the pane. We spin up fresh workers when needed; no need to keep old ones alive.
 
-**Before spawning a new worker**, check `picode_panes` to see if an idle worker with the same role already exists. Reuse idle workers instead of spawning new ones — saves resources and keeps pane layout clean.
+**To close a specific worker pane:**
+
+```
+herdr pane close <pane_id>
+```
+
+Read the pane_id from the worker's last `picode_send` reply, from `picode_panes()`, or from the `spawn_worker` return value. Never close your own pane (`$HERDR_PANE_ID`) or panes you did not spawn.
+
+**Decision rule:**
+
+- Worker reports done + follow-up task exists → dispatch follow-up (reuse worker)
+- Worker reports done + no follow-up → `herdr pane close <pane_id>` immediately
+- Worker reports done + unsure if more work → close it; cheaper to spawn fresh later than hold pane open
+
+This applies to **all** workers — builders, reviewers, scouts, testers, one-offs. Not just one-off generic workers. The only exception is `runner` (long-lived by design — runs dev servers, watchers).
+
+**Before spawning a new worker**, check `picode_panes` to see if an idle worker with the same role already exists. Reuse idle workers instead of spawning new ones — saves resources and keeps pane layout clean. But if no idle worker matches, spawn fresh — do not hold dead panes open hoping to reuse them.
 
 **To check worker status:**
 
@@ -198,21 +214,24 @@ picode_panes()
 
 Returns all panes with status, role, and suggestion (REUSE / LEAVE / CLEANUP / CHECK). Use this to decide:
 
-- `idle`/`done` → reuse (pass `reuse=true` to `spawn_worker` — default)
+- `idle`/`done` + follow-up task exists → reuse (pass `reuse=true` to `spawn_worker` — default)
+- `idle`/`done` + no follow-up → `herdr pane close <pane_id>` (kill it — see "Clean up after task completion" above)
 - `working` → leave alone, spawn new if needed
 - `blocked` → check pane output, may need input
 - `unknown`/`stopped` → cleanup candidate
 
 ### Bulk cleanup
 
-When picode list cluttered with dead workers:
+The kill-on-done rule (above) handles individual workers as they finish. Use bulk cleanup when pane list got cluttered despite that — dead panes, crashed workers, stale entries:
 
 1. Run `picode_panes()` to survey all panes and identify stale candidates
 2. Run `cleanup_panes(dry_run=true)` to preview what would close
-3. Run `cleanup_panes()` to close stale panes
+3. Run `cleanup_panes()` to close stale panes (only closes unknown/stopped — will not touch idle/done)
 4. Run `picode_purge()` to delete stale picode data (safe — only removes threads with no pending debts)
 
-Two complement: `cleanup_panes` kills panes, `picode_purge` cleans picode data. `picode_panes` is your eyes — use it first to see what you're dealing with.
+Two complement: `cleanup_panes` kills dead panes, `picode_purge` cleans picode data. `picode_panes` is your eyes — use it first to see what you're dealing with.
+
+**Note:** `cleanup_panes` only closes panes with status `unknown`/`stopped`/`blocked` — it will NOT close idle or done workers. For idle/done workers you want gone, use `herdr pane close <pane_id>` directly (see "Clean up after task completion" above).
 
 **Note:** `picode_purge` is model tool, not slash command. Use via tool interface, not `/picode-purge`.
 
@@ -249,7 +268,7 @@ When new unrelated work arrives while worker mid-task, spawn new worker pane in 
 
 ### Never be idle when work pending
 
-When worker finishes: (a) immediately dispatch follow-up if backlog, (b) reassign to related task (review, test, docs), (c) only shut down when genuinely nothing to do. Idle workers = wasted resources. **But:** do not invent contrived tasks just to keep workers busy — work must be real, scoped, user-visible. "No work to do" valid state. "Idle by choice" not.
+When worker finishes: (a) immediately dispatch follow-up if backlog, (b) reassign to related task (review, test, docs), (c) close pane if no further work. Do not invent contrived tasks just to keep workers busy — work must be real, scoped, user-visible. "No work to do" valid state → close pane. Idle pane held open = wasted resources; idle pane closed = clean slate for next spawn.
 
 ### Worker silent? Check their pane
 
