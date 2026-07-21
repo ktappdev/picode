@@ -196,6 +196,8 @@ class FilterableSelectList implements Focusable {
     this.filterLabel = filterLabel;
     this.input = new Input();
     this.list = themedSelectList(items, maxVisible);
+    this.list.onSelect = (item: SelectItem) => this.onSelect?.(item);
+    this.list.onCancel = () => this.onCancel?.();
   }
 
   get focused(): boolean {

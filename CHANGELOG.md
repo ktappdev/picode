@@ -2,6 +2,21 @@
 
 All notable changes to picode are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+
+- **Journal model + cadence configurable via `/picode-models`** — the interactive model selector now includes a `journal` role and a `(journal cadence)` entry. Set a cheap model for journal forks and choose cadence (`turn`/`done`/`off`) without CLI flags. Both also configurable via `.picode/models.json` keys `"journal"` and `"journal-cadence"`. CLI flags (`--picode-journal-model`, `--picode-journal`) still override.
+- **Journal model + cadence in auto-created default `models.json`** — fresh installs now get `"journal": "deepseek/deepseek-v4-flash"` and `"journal-cadence": "done"` out of the box, preventing 402 balance errors when the coordinator's model is out of quota.
+
+### Changed
+
+- **Journal cadence default is now `done`** — was `turn` (one forked LLM call per ~2 min of work). Now defaults to one entry per run at agent_end, drastically reducing background model calls. Still switchable to `turn` or `off`.
+
+### Fixed
+
+- **Journal fork 402 errors** — when the coordinator's model is out of balance, journal forks (and compaction forks) that inherited it would die silently. Now: fresh installs get a cheap journal model, users can set one via `/picode-models`, and 402/balance errors produce an actionable message pointing to `/picode-models`.
+
 ## [0.5.19] — 2026-07-18
 
 ### Removed

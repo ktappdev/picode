@@ -196,13 +196,17 @@ You can pick which LLM model each worker role uses with `.picode/models.json`:
   "builder": "anthropic/claude-sonnet-4",
   "reviewer": "anthropic/claude-haiku-4",
   "explorer": "anthropic/claude-haiku-4",
-  "default": "anthropic/claude-sonnet-4"
+  "default": "anthropic/claude-sonnet-4",
+  "journal": "deepseek/deepseek-v4-flash",
+  "journal-cadence": "done"
 }
 ```
 
 - Roles match by prefix, so a `builder` key matches `builder-1` and `builder-a`.
 - It falls back to the `default` key, then to pi's default model.
 - The coordinator reads this file on startup and passes the model to each spawned worker.
+- `"journal"` sets the model for journal fork entries. If unset, inherits the picode's own model — use a cheap model to avoid quota/balance errors on the coordinator's model.
+- `"journal-cadence"` sets the journal cadence: `"turn"`, `"done"` (default), or `"off"`.
 - You can also manage it through the slash command:
 
 | Command                                            | Effect                                |
@@ -238,12 +242,12 @@ Sample overrides to copy live in [`examples/prompts/`](examples/prompts/).
 
 ## The journal
 
-Every picode keeps a journal: a forked model call after each turn that summarizes its state. It runs in the background and does not interrupt the work.
+Every picode keeps a journal: a forked model call that summarizes its state. It runs in the background and does not interrupt the work.
 
-- **Cadence control.** `--picode-journal turn|done|off`. Same-task turns are rate-limited to one entry per two minutes.
+- **Cadence control.** Default is `done` — one entry per run at agent_end. Set to `turn` for one entry per turn (rate-limited to one per two minutes on same-task turns), or `off` to disable. Configure via `/picode-models` → `(journal cadence)`, `--picode-journal <turn|done|off>`, or the `"journal-cadence"` key in `.picode/models.json`.
+- **Journal model.** The model used for journal forks. Set via `/picode-models` → `journal`, `--picode-journal-model <model>`, or the `"journal"` key in `.picode/models.json`. If unset, inherits the picode's own model — which can fail (e.g. 402 balance errors) if that model is out of quota. Fresh installs default to a cheap model (`deepseek/deepseek-v4-flash`).
 - **Compaction.** When the journal passes 500 entries, the oldest ones are summarized into a single block, keeping the most recent 100 verbatim. There is a 24-hour cooldown between compactions.
 - **Duplicate suppression.** An entry is skipped when its Working on or Done line matches the previous one.
-- **Pinned journal model.** `--picode-journal-model <model>` defaults to the picode's own model.
 
 Manage it through the slash command:
 
@@ -348,8 +352,8 @@ Known limitations versus the local backend: `watchInbox` polls every two seconds
 - `--picode-id <id>`: stable identity for this picode, for example `coordinator` or `worker-a`. This is also the opt-in trigger. Omit it and the extension does nothing.
 - `--picode-role <role>`: role label, targetable via `picode_send to="role:<role>"`. Optional. Auto-detected from the id (exact match or prefix: `builder-1` becomes `builder`).
 - `--picode-parent <id>`: parent picode id, the escalation target. Optional. Auto-defaults to `coordinator` for non-coordinator threads.
-- `--picode-journal <turn|done|off>`: journal cadence. Default is `turn`.
-- `--picode-journal-model <model>`: model for the journal fork. Default is the picode's own model. A pinned model must resolve on the machine the picode runs on, or journaling fails loudly on stderr.
+- `--picode-journal <turn|done|off>`: journal cadence. Default is `done`. Overrides `.picode/models.json` `"journal-cadence"` key.
+- `--picode-journal-model <model>`: model for the journal fork. Default is the picode's own model. Overrides `.picode/models.json` `"journal"` key. A pinned model must resolve on the machine the picode runs on, or journaling fails loudly on stderr.
 - `--picode-storage <local|restate>`: storage backend. Default is `local`.
 - `--picode-storage-url <url>`: backend connection URL. Ignored by the local backend.
 

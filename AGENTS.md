@@ -30,7 +30,7 @@ picode/
 │   ├── commands.ts       # Slash commands (/picode-status, /picode-journal, etc.)
 │   ├── inbox.ts          # Envelope delivery, barriers, obligations, injection gate
 │   ├── index.ts          # Extension entry point (registers all tools/commands)
-│   ├── journal.ts        # Auto-journaling with compaction (turn/agent modes)
+│   ├── journal.ts        # Auto-journaling with compaction (turn/done/off modes, default done)
 │   ├── lifecycle.ts      # Picode lifecycle (startup, footer, widget, state machine, auto-purge)
 │   └── state.ts          # Picode state management, heartbeats, watcher
 ├── bin/
