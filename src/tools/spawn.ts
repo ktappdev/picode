@@ -464,7 +464,7 @@ export function registerSpawnTool(pi: ExtensionAPI) {
         const parts = ["pi"];
         if (model) parts.push(`--model ${model}`);
         if (theme) parts.push(`--theme ${theme}`);
-        parts.push(`--picode-id ${actualRole}`);
+        parts.push(`--picode-id ${uniqueId}`);
         const launchCmd = parts.join(" ");
 
         // 9. Run launch command in new pane (only for new panes)
