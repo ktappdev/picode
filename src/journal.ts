@@ -169,13 +169,12 @@ export function piSelfCommand(
 
 /** Spawn args for the journal fork.
  *
- *  `--no-extensions` is load-bearing: when picode is installed via
- *  extension discovery, a fork without it loads the extension too — and
- *  having no --picode-id, it mints a fresh identity, writes a ghost
- *  .picode/picodes/picode-<uuid>/ into the shared workspace, and at its own
- *  turn_end forks yet another journal pi, chaining forever. The fork's only
- *  job is to summarize the session it was forked from; it must never become
- *  a picode.
+ *  Extensions load normally so the journal model can resolve through any
+ *  registered provider (including extension-registered ones like commandcode).
+ *  The ghost-chain bug (fork inheriting picode identity → minting a fresh
+ *  .picode/ dir → forking another journal → ∞) is prevented in lifecycle.ts:
+ *  `hasThreadIdentity` returns false for any session with a `parentSession`
+ *  header, so picode stays inactive in the fork and never forks again.
  *
  *  No `--model` unless one is explicitly configured: the fork then inherits
  *  the forked session's own model, which resolves on any machine by
@@ -188,7 +187,6 @@ export function journalForkArgs(sessionFile: string, sessionDir: string, model?:
     sessionFile,
     "--session-dir",
     sessionDir,
-    "--no-extensions",
     ...(model ? ["--model", model] : []),
     "--thinking",
     "off",

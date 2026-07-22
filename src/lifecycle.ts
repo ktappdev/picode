@@ -39,9 +39,20 @@ function setHerdrPaneLabel(store: PicodeStore): void {
 
 /** True once this session has stamped its own picode-identity entry — the
  *  signal that lets a later launch of the *same* session stay a picode
- *  without repassing --picode-id. Mirrors the lookup in state.ts's init(). */
+ *  without repassing --picode-id. Mirrors the lookup in state.ts's init().
+ *
+ *  Forked sessions are excluded: `--fork` copies all entries (including
+ *  picode-identity) into a new session with a `parentSession` header. Without
+ *  this guard, a journal fork would inherit the coordinator's identity,
+ *  activate, persist state over the real picode, and fork another journal —
+ *  the ghost-chain bug. A fork is never the same picode, even if it carries
+ *  the identity entry. */
 function hasThreadIdentity(ctx: ExtensionContext): boolean {
   try {
+    // A forked session (header.parentSession set) is never a picode, even if
+    // it inherited a picode-identity entry from the source session.
+    const header = ctx.sessionManager.getHeader();
+    if (header?.parentSession) return false;
     for (const e of ctx.sessionManager.getEntries()) {
       if (e.type === "custom" && e.customType === "picode-identity") return true;
     }

@@ -296,13 +296,14 @@ function makeLifecycleHarness(dir: string) {
   const inbox = createInbox(store, stubPi);
   registerLifecycle(stubPi, store, inbox);
 
-  function makeCtx(entries: CustomEntry[] = []) {
+  function makeCtx(entries: CustomEntry[] = [], header?: { parentSession?: string }) {
     return {
       cwd: dir,
       ui: { setStatus: () => {}, setTitle: () => {}, setFooter: () => {}, notify: () => {} },
       sessionManager: {
         getEntries: () => entries,
         getSessionFile: () => undefined,
+        getHeader: () => header ?? null,
       },
       isIdle: () => true,
     } as unknown as ExtensionContext;
@@ -1375,9 +1376,9 @@ describe("lifecycle: journalSignature / shouldJournal", () => {
     assert.notStrictEqual(journalSignature(store), before);
   });
 
-  it("the journal fork opts out of extensions so it can never become a picode itself", () => {
+  it("the journal fork loads extensions so provider models resolve (ghost chain prevented by hasThreadIdentity)", () => {
     const args = journalForkArgs("/ses/file.jsonl", "/tmp/x");
-    assert.ok(args.includes("--no-extensions"));
+    assert.ok(!args.includes("--no-extensions"), "extensions load so journal model can resolve");
     assert.ok(args.includes("--fork"));
     assert.ok(!args.includes("--model"), "no model pinned unless configured");
   });
@@ -1424,6 +1425,20 @@ describe("lifecycle: opt-in gate (§2.3)", () => {
     const ctx = h.makeCtx([{ type: "custom", customType: "picode-identity", data: { id: "t7" } }]);
     await h.fire("session_start", ctx);
     assert.ok(existsSync(join(tmpDir, ".picode", "picodes", "t7", "state.json")));
+    h.store.stopHeartbeat();
+    h.store.stopWatcher();
+  });
+
+  it("a forked session (parentSession header) stays inactive even with a picode-identity entry", async () => {
+    const h = makeLifecycleHarness(tmpDir);
+    const ctx = h.makeCtx([{ type: "custom", customType: "picode-identity", data: { id: "t7" } }], {
+      parentSession: "/some/source/session.jsonl",
+    });
+    await h.fire("session_start", ctx);
+    assert.ok(
+      !existsSync(join(tmpDir, ".picode", "picodes", "t7", "state.json")),
+      "fork must not persist state — it is not the source picode",
+    );
     h.store.stopHeartbeat();
     h.store.stopWatcher();
   });
