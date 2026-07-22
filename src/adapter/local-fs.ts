@@ -234,6 +234,16 @@ export function createLocalFsAdapter(): StorageAdapter & JournalAdapter {
       return fs.existsSync(statePath(picodeId));
     },
 
+    async countQueued(picodeId: string): Promise<number> {
+      const dir = inboxDir(picodeId);
+      if (!fs.existsSync(dir)) return 0;
+      try {
+        return fs.readdirSync(dir).filter(f => f.endsWith(".json")).length;
+      } catch {
+        return 0;
+      }
+    },
+
     async enqueueMessage(message: Envelope) {
       const dir = inboxDir(message.to);
       const staging = stagingDir(message.to);

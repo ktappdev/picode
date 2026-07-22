@@ -164,17 +164,20 @@ export function registerMessagingTools(pi: ExtensionAPI, store: PicodeStore, inb
         }
       }
 
-      // Soft warning, not a hard failure (§9.1): the discharge gate in the
-      // engine is what actually protects the ledger — this is the send-side
-      // half of the silent-debtor nudge, catching misdirected replies before
-      // they even go out.
-      let targetWarning = "";
+      // Soft warnings, not hard failures: the discharge gate in the engine
+      // is what actually protects the ledger. These catch likely mistakes
+      // before the send goes out.
+      const warnings: string[] = [];
       if (params.re) {
         const owedMatch = store.owed.find(o => o.id === params.re);
         if (!owedMatch) {
-          targetWarning = `Warning: no owed reply matches re "${params.re}" — check picode_status before sending, in case this reply is misdirected or stale.`;
+          warnings.push(
+            `Warning: no owed reply matches re "${params.re}" — check picode_status before sending, in case this reply is misdirected or stale.`,
+          );
         } else if (!targets.includes(owedMatch.from)) {
-          targetWarning = `Warning: re "${params.re}" is owed to ${owedMatch.from}, not "${toSpec}" — double check the target.`;
+          warnings.push(
+            `Warning: re "${params.re}" is owed to ${owedMatch.from}, not "${toSpec}" — double check the target.`,
+          );
         }
       }
 
@@ -182,6 +185,18 @@ export function registerMessagingTools(pi: ExtensionAPI, store: PicodeStore, inb
       // direct id may be a typo. Queueing is a durable dead-drop (§7.1), so
       // this is a warning, never a refusal.
       const missing = selfWake ? [] : await inbox.findMissingTargets(targets);
+      const queued = selfWake
+        ? []
+        : (
+            await Promise.all(
+              targets.map(async to => ({ to, count: await store.adapter.countQueued(to) })),
+            )
+          ).filter(x => x.count > 0);
+      for (const q of queued) {
+        warnings.push(
+          `Warning: "${q.to}" already has ${q.count} queued message${q.count === 1 ? "" : "s"} waiting. If this is duplicate task resend, receiver may reply to earlier envelope, leaving this send's obligation stale.`,
+        );
+      }
 
       const deadline = deadlineFromSeconds(params.deadlineSeconds);
 
@@ -205,7 +220,7 @@ export function registerMessagingTools(pi: ExtensionAPI, store: PicodeStore, inb
         s =>
           `Sent to ${s.to}. id=${s.id} (${s.delivered}${deliverAfter ? `, holds until ${deliverAfter}` : ""}).`,
       );
-      if (targetWarning) lines.push(targetWarning);
+      lines.push(...warnings);
       if (missing.length) {
         lines.push(
           `(note: ${missing.join(", ")} ${missing.length === 1 ? "has" : "have"} never been seen in this workspace — the message is queued durably and delivers if a picode with that id starts. If this was a typo, check picode_list.)`,
@@ -230,7 +245,7 @@ export function registerMessagingTools(pi: ExtensionAPI, store: PicodeStore, inb
 
       return {
         content: [{ type: "text" as const, text: lines.join("\n") + waitNote }],
-        details: { ok: true, sent },
+        details: { ok: true, sent, queued },
       };
     },
   });

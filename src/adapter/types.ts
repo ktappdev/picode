@@ -20,6 +20,10 @@ export interface StorageAdapter {
 
   listPcodes(): Promise<PicodeSummary[]>;
   threadExists(picodeId: string): Promise<boolean>;
+  /** Count due envelopes still waiting in this picode's inbox root — does
+   *  not include claimed/processed audit tiers. Used for soft duplicate-send
+   *  warnings when a target already has pending mail. */
+  countQueued(picodeId: string): Promise<number>;
 
   /** Deliver a message into the mailbox `message.to` names. The envelope is
    *  self-contained (§6) — there is no separate target parameter. MUST be

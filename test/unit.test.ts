@@ -406,6 +406,28 @@ describe("tools: picode_send", () => {
     assert.doesNotMatch(r.content[0].text, /Warning/);
   });
 
+  it("warns when target already has queued messages", async () => {
+    const h = makeHarness(tmpDir);
+    seedRemoteThread(h, "alice");
+    seedEnvelope(h, "alice", { from: "coordinator", body: "older queued task" });
+    const r = await callTool(h, "picode_send", { to: "alice", body: "new task", expects: true });
+    assert.strictEqual(r.details.ok, true);
+    assert.match(r.content[0].text, /"alice" already has 1 queued message waiting/);
+    assert.deepStrictEqual(r.details.queued, [{ to: "alice", count: 1 }]);
+  });
+
+  it("reports queued warnings only for targets that already have inbox backlog", async () => {
+    const h = makeHarness(tmpDir);
+    seedRemoteThread(h, "alice");
+    seedRemoteThread(h, "bob");
+    seedEnvelope(h, "alice", { from: "coordinator", body: "older queued task" });
+    const r = await callTool(h, "picode_send", { to: "alice,bob", body: "new task" });
+    assert.strictEqual(r.details.ok, true);
+    assert.match(r.content[0].text, /"alice" already has 1 queued message waiting/);
+    assert.doesNotMatch(r.content[0].text, /"bob" already has/);
+    assert.deepStrictEqual(r.details.queued, [{ to: "alice", count: 1 }]);
+  });
+
   it("expects=true records an obligation with the default deadline (§9.2)", async () => {
     const h = makeHarness(tmpDir);
     seedRemoteThread(h, "alice");
@@ -1944,6 +1966,23 @@ describe("adapter: LocalFsAdapter (Appendix B binding)", () => {
     assert.strictEqual(await adapter.threadExists("a"), true);
   });
 
+  it("countQueued counts only inbox-root JSON envelopes", async () => {
+    const adapter = createLocalFsAdapter();
+    await adapter.configure(tmpDir);
+    await adapter.enqueueMessage(wireEnvelope("alice", "bob", "first"));
+    await adapter.enqueueMessage(wireEnvelope("alice", "bob", "second"));
+    const claimedDir = join(tmpDir, ".picode", "picodes", "bob", "inbox", "claimed");
+    const processedDir = join(tmpDir, ".picode", "picodes", "bob", "inbox", "processed");
+    mkdirSync(claimedDir, { recursive: true });
+    mkdirSync(processedDir, { recursive: true });
+    writeFileSync(join(claimedDir, "claimed.json"), JSON.stringify(wireEnvelope("a", "bob", "c")));
+    writeFileSync(
+      join(processedDir, "processed.json"),
+      JSON.stringify(wireEnvelope("a", "bob", "p")),
+    );
+    assert.strictEqual(await adapter.countQueued("bob"), 2);
+  });
+
   it("enqueueMessage + drainInbox delivers everything exactly once, in FIFO ulid order", async () => {
     const adapter = createLocalFsAdapter();
     await adapter.configure(tmpDir);
@@ -2068,6 +2107,15 @@ function createFakeAdapter(): StorageAdapter {
     },
     async threadExists(id) {
       return states.has(id);
+    },
+    async countQueued(id) {
+      const arr = inboxes.get(id) ?? [];
+      const now = Date.now();
+      return arr.filter(
+        m =>
+          (!m.expiresAt || new Date(m.expiresAt).getTime() > now) &&
+          (!m.deliverAfter || new Date(m.deliverAfter).getTime() <= now),
+      ).length;
     },
     async enqueueMessage(message) {
       const arr = inboxes.get(message.to) ?? [];

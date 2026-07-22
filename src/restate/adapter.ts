@@ -92,6 +92,10 @@ export function createRestateAdapter(opts: { url?: string }): StorageAdapter & J
       return (await picode(picodeId).loadPicodeState()) != null;
     },
 
+    async countQueued(picodeId: string): Promise<number> {
+      return (await picode(picodeId).countQueued()) ?? 0;
+    },
+
     async enqueueMessage(message: Envelope) {
       await picode(message.to).enqueueMessage(message);
     },
