@@ -6,6 +6,8 @@ All notable changes to picode are documented here. Format follows [Keep a Change
 
 ### Added
 
+- **New `presenter` worker role** — pure communication bridge between coordinator and user. Displays completed work in a clean, separate pane. Relays user messages/questions back to coordinator. Does no work on its own (no research, no edits, no code, no spawning workers). Spawn at task wrap-up via `spawn_worker(role="presenter")`.
+- **Coordinator: "use the internet when in doubt" rule** — when uncertain, needs more info, or about to assume, coordinator should search using any available web search or URL fetch tools before directing workers. Works with any web extension (e.g. pi-web-access).
 - **Journal model + cadence configurable via `/picode-models`** — the interactive model selector now includes a `journal` role and a `(journal cadence)` entry. Set a cheap model for journal forks and choose cadence (`turn`/`done`/`off`) without CLI flags. Both also configurable via `.picode/models.json` keys `"journal"` and `"journal-cadence"`. CLI flags (`--picode-journal-model`, `--picode-journal`) still override.
 - **Journal model + cadence in auto-created default `models.json`** — fresh installs now get `"journal": "deepseek/deepseek-v4-flash"` and `"journal-cadence": "done"` out of the box, preventing 402 balance errors when the coordinator's model is out of quota.
 

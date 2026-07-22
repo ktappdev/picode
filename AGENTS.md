@@ -166,7 +166,7 @@ npm run mcp                   # Start MCP server
 | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `src/prompts/coordinator.md` | Coordinator rules + full herdr reference — **the prompt agents see at startup**                                                                                 |
 | `src/prompts/worker-base.md` | Shared worker communication contract — all workers inherit this                                                                                                 |
-| `src/prompts/<role>.md`      | Role-specific prompts (builder, reviewer, explorer, tester, designer, bug-hunter, scout, planner)                                                               |
+| `src/prompts/<role>.md`      | Role-specific prompts (builder, reviewer, explorer, tester, designer, bug-hunter, scout, planner, presenter)                                                               |
 | `src/core/system-prompt.ts`  | Prompt loader — reads markdown files, adds dynamic context, handles overrides                                                                                   |
 | `src/inbox.ts`               | Envelope delivery, barrier resolution, obligation tracking, dead-letter handling. **Injection gate blocks during compaction**                                   |
 | `src/lifecycle.ts`           | Picode startup, state machine, footer rendering, widget injection. **Auto-purges stale threads on coordinator startup. Footer shows model, ctx usage, io, t/s** |
@@ -203,7 +203,7 @@ npm run mcp                   # Start MCP server
 2. **State file layout** — `.picode/threads/<id>/state.json` structure; other tools depend on it
 3. **Tool names** — `picode_send`, `picode_wait`, `picode_status`, `picode_list`, `picode_journal`, `picode_suspend`, `picode_resume`
 4. **Slash command names** — `/picode-status`, `/picode-journal`, `/picode-list`, `/picode-send`, `/picode-suspend`, `/picode-resume`, `/picode-models`
-5. **Role names** — `coordinator`, `builder`, `reviewer`, `explorer`/`scout`, `tester`, `designer`, `bug-hunter`, `planner`, `runner`
+5. **Role names** — `coordinator`, `builder`, `reviewer`, `explorer`/`scout`, `tester`, `designer`, `bug-hunter`, `planner`, `runner`, `presenter`, `presenter`
 6. **Message model** — Envelope shape with `expects`, `re`, `urgency`, `deliverAfterSeconds` fields
 
 ### Sensitive Areas
