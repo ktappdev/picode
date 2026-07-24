@@ -3263,3 +3263,43 @@ describe("tools/cleanup-panes: targeted pane_id validation (no herdr needed)", (
     }
   });
 });
+
+describe("tools/cleanup-panes: WORKER_ROLE_PATTERN", () => {
+  // Verify the regex matches suffixed roles and new roles.
+  // We test the pattern indirectly via the module's behavior — but since
+  // the pattern is module-internal, we verify via a re-declaration match.
+  const pattern =
+    /^(builder|reviewer|tester|worker|scout|bug-hunter|designer|planner|runner|presenter|explorer)(-[0-9]+)?$/i;
+
+  it("matches base roles", () => {
+    assert.ok(pattern.test("builder"));
+    assert.ok(pattern.test("worker"));
+    assert.ok(pattern.test("scout"));
+    assert.ok(pattern.test("bug-hunter"));
+  });
+
+  it("matches suffixed roles (worker-1, builder-2, etc.)", () => {
+    assert.ok(pattern.test("worker-1"));
+    assert.ok(pattern.test("worker-12"));
+    assert.ok(pattern.test("builder-2"));
+    assert.ok(pattern.test("scout-3"));
+  });
+
+  it("matches new roles (planner, runner, presenter, explorer)", () => {
+    assert.ok(pattern.test("planner"));
+    assert.ok(pattern.test("runner"));
+    assert.ok(pattern.test("presenter"));
+    assert.ok(pattern.test("explorer"));
+  });
+
+  it("rejects non-worker roles", () => {
+    assert.ok(!pattern.test("coordinator"));
+    assert.ok(!pattern.test("admin"));
+    assert.ok(!pattern.test(""));
+  });
+
+  it("rejects invalid suffixes", () => {
+    assert.ok(!pattern.test("worker-abc"));
+    assert.ok(!pattern.test("worker--1"));
+  });
+});

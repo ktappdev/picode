@@ -287,10 +287,12 @@ When a worker finishes its task and you have no follow-up work for it, clean up.
 
 **How to clean up:** Call `cleanup_panes()`. It closes all stale worker panes (done, blocked, unknown, stopped) in one shot. It does NOT close panes that are working or idle — so it's safe to call anytime. Use `cleanup_panes(dry_run=true)` first to preview what would close.
 
+**Closing idle workers:** When user says "close all" or "close everything", pass `force=true`: `cleanup_panes(force=true)`. This closes idle/done workers too. Working panes are always protected.
+
 **Decision rule:**
 
 - Worker reports done + follow-up task exists → dispatch follow-up (reuse worker)
-- Worker reports done + no follow-up → let it sit; call `cleanup_panes()` to batch-close all stale panes at once, or `cleanup_panes(pane_id="<id>")` to close just that one
+- Worker reports done + no follow-up → let it sit; call `cleanup_panes()` to batch-close all stale panes at once, `cleanup_panes(pane_id="<id>")` to close just that one, or `cleanup_panes(force=true)` to close all idle workers
 - Worker reports done + unsure if more work → let it sit; cheaper to check later than lose reusable worker
 
 This applies to **all** workers — builders, reviewers, scouts, testers, one-offs. Not just one-off generic workers. The only exception is `runner` (long-lived by design — runs dev servers, watchers).
@@ -317,7 +319,8 @@ Use bulk cleanup to close all stale panes at once — done workers, dead panes, 
 
 1. Run `cleanup_panes(dry_run=true)` to preview what would close
 2. Run `cleanup_panes()` to close all stale panes (closes done, blocked, unknown, stopped — not working or idle)
-3. Run `picode_purge()` to delete stale picode data (safe — only removes threads with no pending debts)
+3. Run `cleanup_panes(force=true)` to also close idle workers (when user says "close all")
+4. Run `picode_purge()` to delete stale picode data (safe — only removes threads with no pending debts)
 
 Two complement: `cleanup_panes` kills dead panes, `picode_purge` cleans picode data. `picode_panes` is your eyes — use it first to see what you're dealing with.
 

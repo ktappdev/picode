@@ -3,11 +3,16 @@ import { Type } from "typebox";
 import { execSync } from "child_process";
 import { err, extractRole } from "./shared";
 
-/** Worker role labels to clean up (case-insensitive, emoji prefix stripped). */
-const WORKER_ROLE_PATTERN = /^(builder|reviewer|tester|worker|scout|bug-hunter|designer)$/i;
+/** Worker role labels to clean up (case-insensitive, emoji prefix stripped).
+ *  Matches base role and suffixed variants (worker, worker-1, builder-2, etc.). */
+const WORKER_ROLE_PATTERN =
+  /^(builder|reviewer|tester|worker|scout|bug-hunter|designer|planner|runner|presenter|explorer)(-[0-9]+)?$/i;
 
 /** Statuses that mean the pane is still useful — don't close these. */
 const ACTIVE_STATUSES = new Set(["working", "idle"]);
+
+/** Statuses that are safe to close even without `force`. */
+const STALE_STATUSES = new Set(["done", "unknown", "blocked", "stopped"]);
 
 function herdr(args: string): string {
   return execSync(`herdr ${args}`, { encoding: "utf-8", timeout: 15_000 });
@@ -30,7 +35,7 @@ export function registerCleanupPanesTool(pi: ExtensionAPI) {
     name: "cleanup_panes",
     label: "Cleanup Panes",
     description:
-      "Close stale herdr worker panes spawned by the coordinator. Removes panes with role labels (builder, reviewer, tester, worker, scout, bug-hunter, designer) that are not working or idle. Use when the picode list is cluttered with dead workers. Pass pane_id to close a specific pane instead of bulk cleanup.",
+      "Close stale herdr worker panes spawned by the coordinator. Removes panes with role labels (builder, reviewer, tester, worker, scout, bug-hunter, designer, planner, runner, presenter, explorer) that are not working. Use when the picode list is cluttered with dead workers. Pass pane_id to close a specific pane. Pass force=true to close idle/done workers too (e.g. when user says 'close all').",
     promptSnippet:
       "Close stale herdr worker panes (use when workspace is cluttered with dead workers).",
     parameters: Type.Object({
@@ -43,6 +48,12 @@ export function registerCleanupPanesTool(pi: ExtensionAPI) {
         Type.String({
           description:
             "Close a specific pane by ID (e.g. w1:p2). When provided, only that pane is targeted — no bulk scan. Get the ID from picode_panes() or spawn_worker return.",
+        }),
+      ),
+      force: Type.Optional(
+        Type.Boolean({
+          description:
+            "If true, close idle/done workers too — not just stale ones. Use when user says 'close all' or 'close everything'. Default: false (only close stale/non-active panes).",
         }),
       ),
     }),
@@ -92,10 +103,14 @@ export function registerCleanupPanesTool(pi: ExtensionAPI) {
             );
           }
 
-          if (ACTIVE_STATUSES.has(agentStatus)) {
+          if (agentStatus === "working") {
             return err(
-              `Pane ${targetId} is ${agentStatus} — cleanup_panes does not close active (working/idle) panes. Wait for it to finish or use a different approach.`,
+              `Pane ${targetId} is working — cleanup_panes does not close working panes. Wait for it to finish.`,
             );
+          }
+
+          if (agentStatus === "idle" && !params.force) {
+            return err(`Pane ${targetId} is idle — pass force=true to close idle workers.`);
           }
 
           if (params.dry_run) {
@@ -180,9 +195,16 @@ export function registerCleanupPanesTool(pi: ExtensionAPI) {
             continue; // Not a worker role
           }
 
-          if (ACTIVE_STATUSES.has(agentStatus)) {
+          // Working panes are always protected (even with force)
+          if (agentStatus === "working") {
             skipped.push(paneId);
-            continue; // Still active
+            continue;
+          }
+
+          // Idle panes are protected unless force=true
+          if (agentStatus === "idle" && !params.force) {
+            skipped.push(paneId);
+            continue;
           }
 
           toClose.push(paneId);
