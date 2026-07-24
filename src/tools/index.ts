@@ -8,6 +8,7 @@ import { registerSpawnTool } from "./spawn";
 import { registerPurgeTool } from "./purge";
 import { registerCleanupPanesTool } from "./cleanup-panes";
 import { registerPanesTool } from "./panes";
+import { registerPaneReadTool } from "./pane-read";
 import { registerRunTool } from "./run";
 
 /** The model-facing picode_* tools: the five protocol tools (§14 — send,
@@ -22,5 +23,6 @@ export function registerTools(pi: ExtensionAPI, store: PicodeStore, inbox: Inbox
   registerPurgeTool(pi);
   registerCleanupPanesTool(pi);
   registerPanesTool(pi);
+  registerPaneReadTool(pi);
   registerRunTool(pi);
 }

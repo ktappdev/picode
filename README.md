@@ -131,19 +131,20 @@ Messages show up as `[<kind> from <sender> #<id>]`. The kind (request, reply, re
 
 ## Tools the model can use
 
-| Tool             | Purpose                                                                                                                                                      |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `picode_send`    | Send an envelope to one name, `a,b`, `*`, or `role:<role>`. Supports `expects`, `re`, `urgency`, `deliverAfterSeconds`, `wait=true` to arm a barrier inline. |
-| `picode_wait`    | Wait for all or any of several outstanding replies (a barrier). Accepts `deadlineSeconds` and an optional `message` injected on resolution.                  |
-| `picode_status`  | Read this picode's state, obligations, owed replies, barriers, and journal.                                                                                  |
-| `picode_list`    | List all known threads in the workspace.                                                                                                                     |
-| `picode_journal` | Read another picode's journal, filtered by `tail` or `lookbackMinutes`.                                                                                      |
-| `picode_suspend` | Mark this picode On Hold. The inbox queues until resume.                                                                                                     |
-| `picode_resume`  | Resume from On Hold and drain queued messages.                                                                                                               |
-| `picode_panes`   | Survey all Herdr panes: status, role, position, reuse/cleanup suggestions. Read-only workspace surveillance.                                                 |
-| `spawn_worker`   | Spawn a new worker pane: splits, names, launches pi, waits for idle. Auto-reuses idle workers.                                                               |
-| `cleanup_panes`  | Close stale herdr worker panes. Use `dry_run=true` to preview.                                                                                               |
-| `picode_purge`   | Delete stale picode data directories. Safe — only removes threads with no pending debts.                                                                     |
+| Tool               | Purpose                                                                                                                                                      |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `picode_send`      | Send an envelope to one name, `a,b`, `*`, or `role:<role>`. Supports `expects`, `re`, `urgency`, `deliverAfterSeconds`, `wait=true` to arm a barrier inline. |
+| `picode_wait`      | Wait for all or any of several outstanding replies (a barrier). Accepts `deadlineSeconds` and an optional `message` injected on resolution.                  |
+| `picode_status`    | Read this picode's state, obligations, owed replies, barriers, and journal.                                                                                  |
+| `picode_list`      | List all known threads in the workspace.                                                                                                                     |
+| `picode_journal`   | Read another picode's journal, filtered by `tail` or `lookbackMinutes`.                                                                                      |
+| `picode_suspend`   | Mark this picode On Hold. The inbox queues until resume.                                                                                                     |
+| `picode_resume`    | Resume from On Hold and drain queued messages.                                                                                                               |
+| `picode_panes`     | Survey all Herdr panes: status, role, position, reuse/cleanup suggestions. Read-only workspace surveillance.                                                 |
+| `picode_pane_read` | Read a worker pane's terminal output (scrollback). Use for silent worker recovery — when a worker owes a reply but hasn't sent via picode_send.              |
+| `spawn_worker`     | Spawn a new worker pane: splits, names, launches pi, waits for idle. Auto-reuses idle workers.                                                               |
+| `cleanup_panes`    | Close stale herdr worker panes. Use `dry_run=true` to preview. Pass `pane_id` to close a specific pane.                                                      |
+| `picode_purge`     | Delete stale picode data directories. Safe — only removes threads with no pending debts.                                                                     |
 
 ## Slash commands for humans
 
@@ -161,16 +162,16 @@ Messages show up as `[<kind> from <sender> #<id>]`. The kind (request, reply, re
 
 Each picode has a role that shapes its system prompt. The role is auto-detected from the name you give it.
 
-| Role                 | Subtype | Description                                                                                                                             |
-| -------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `coordinator`        | -       | Directs workers, delegates tasks, keeps project context. Cannot write or edit files.                                                    |
-| `builder`            | Worker  | Implements code changes, edits files, runs type checks.                                                                                 |
-| `reviewer`           | Worker  | Reviews diffs, audits for bugs, security, and quality. Read-only.                                                                       |
-| `scout` / `explorer` | Worker  | Explores the codebase, finds files, answers architecture questions. Read-only. Summarizes findings instead of dumping raw output.       |
-| `bug-hunter`         | Worker  | Hunts bugs by reading code, session entries, and journals. Reports root cause and a suggested fix but does not implement it. Read-only. |
-| `tester`             | Worker  | Writes and runs tests, reproduces bugs, checks coverage.                                                                                |
-| `designer`           | Worker  | Designs UI specs for the builder to implement. Read-only.                                                                               |
-| `presenter`          | Worker  | Presents completed work to users in clean format. Pure communication bridge — relays user messages back to coordinator. Read-only.                  |
+| Role                 | Subtype | Description                                                                                                                                 |
+| -------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `coordinator`        | -       | Directs workers, delegates tasks, keeps project context. Cannot write, edit, or run bash. Uses Hypa tools for quick lookups when installed. |
+| `builder`            | Worker  | Implements code changes, edits files, runs type checks.                                                                                     |
+| `reviewer`           | Worker  | Reviews diffs, audits for bugs, security, and quality. Read-only.                                                                           |
+| `scout` / `explorer` | Worker  | Explores the codebase, finds files, answers architecture questions. Read-only. Summarizes findings instead of dumping raw output.           |
+| `bug-hunter`         | Worker  | Hunts bugs by reading code, session entries, and journals. Reports root cause and a suggested fix but does not implement it. Read-only.     |
+| `tester`             | Worker  | Writes and runs tests, reproduces bugs, checks coverage.                                                                                    |
+| `designer`           | Worker  | Designs UI specs for the builder to implement. Read-only.                                                                                   |
+| `presenter`          | Worker  | Presents completed work to users in clean format. Pure communication bridge — relays user messages back to coordinator. Read-only.          |
 
 Prefix matching means `builder-1`, `builder-a`, `builder_foo`, and `builder.task` all resolve to the `builder` role. Any name that does not match a known role (or prefix) becomes a generic `worker` with base worker rules only.
 
@@ -184,8 +185,7 @@ If a worker goes silent (no `picode_send` reply within about 10 minutes), the co
 
 When a picode has the `coordinator` role (auto-detected from the name `coordinator`):
 
-- **Write and edit tools are disabled.** The coordinator reads, searches, and delegates only.
-- **Bash is read-only.** Allowed commands are things like `ls`, `grep`, `find`, and `cat`, plus `herdr` commands for pane management.
+- **Write, edit, and bash are disabled.** The coordinator cannot run shell commands or modify files. Quick targeted lookups (single grep, read known file path) go through [Hypa](https://github.com/earendil-works/hypa) tools when installed. Anything deeper — multi-file exploration, git operations, herdr commands — goes through workers via `spawn_worker` or `picode_send`.
 - **Auto-spawns workers via [herdr](https://github.com/earendil-works/herdr).** A terminal multiplexer that manages panes and tabs.
 - **Reuses panes.** It checks existing panes first and reuses idle or done workers instead of spawning duplicates.
 - **Adaptive layout.** Workers split in the direction that keeps new panes close to square. The coordinator stays at 50 percent on the left and the worker area fills the right half.

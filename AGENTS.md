@@ -25,7 +25,7 @@ picode/
 │   ├── adapter/          # Storage backends (local-fs.ts, restate)
 │   ├── core/             # System prompt loader, types, roles, time utilities
 │   ├── prompts/          # Role prompts as markdown files (coordinator, builder, reviewer, etc.)
-│   ├── tools/            # Picode tools (send, wait, status, list, journal, suspend, resume, purge, spawn, cleanup-panes)
+│   ├── tools/            # Picode tools (send, wait, status, list, journal, suspend, resume, purge, spawn, cleanup-panes, pane-read)
 │   ├── restate/          # Restate backend adapter + service
 │   ├── commands.ts       # Slash commands (/picode-status, /picode-journal, etc.)
 │   ├── inbox.ts          # Envelope delivery, barriers, obligations, injection gate
@@ -166,7 +166,7 @@ npm run mcp                   # Start MCP server
 | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `src/prompts/coordinator.md` | Coordinator rules + full herdr reference — **the prompt agents see at startup**                                                                                 |
 | `src/prompts/worker-base.md` | Shared worker communication contract — all workers inherit this                                                                                                 |
-| `src/prompts/<role>.md`      | Role-specific prompts (builder, reviewer, explorer, tester, designer, bug-hunter, scout, planner, presenter)                                                               |
+| `src/prompts/<role>.md`      | Role-specific prompts (builder, reviewer, explorer, tester, designer, bug-hunter, scout, planner, presenter)                                                    |
 | `src/core/system-prompt.ts`  | Prompt loader — reads markdown files, adds dynamic context, handles overrides                                                                                   |
 | `src/inbox.ts`               | Envelope delivery, barrier resolution, obligation tracking, dead-letter handling. **Injection gate blocks during compaction**                                   |
 | `src/lifecycle.ts`           | Picode startup, state machine, footer rendering, widget injection. **Auto-purges stale threads on coordinator startup. Footer shows model, ctx usage, io, t/s** |
@@ -174,8 +174,9 @@ npm run mcp                   # Start MCP server
 | `src/commands.ts`            | Slash command handlers (status, journal, send, models, suspend, resume)                                                                                         |
 | `src/journal.ts`             | Auto-journaling, compaction logic, duplicate suppression. **Fires at turn_end or agent_end depending on mode**                                                  |
 | `src/tools/spawn.ts`         | spawn_worker tool — splits pane, launches pi, waits for idle. **Reuses dead panes, validates role**                                                             |
-| `src/tools/cleanup-panes.ts` | cleanup_panes tool — closes stale herdr worker panes. **dry_run option available**                                                                              |
+| `src/tools/cleanup-panes.ts` | cleanup_panes tool — closes stale herdr worker panes. **dry_run + targeted pane_id option available**                                                           |
 | `src/tools/panes.ts`         | picode_panes tool — surveys all Herdr panes with status, role, position. **Read-only workspace surveillance**                                                   |
+| `src/tools/pane-read.ts`     | picode_pane_read tool — reads worker pane terminal output. **Silent worker recovery, inspect blocked workers**                                                  |
 | `src/tools/purge.ts`         | picode_purge tool + `purgeStalePcodes()` helper. **Called on coordinator startup**                                                                              |
 
 ### Storage & Backend

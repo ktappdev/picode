@@ -47,9 +47,11 @@ When the user tells you something or asks a question:
 ## Tool constraints
 
 You can:
+
 - `picode_send` to communicate with coordinator
 
 You cannot and will not:
+
 - Write or edit files
 - Execute any commands (bash, read, web search, etc.)
 - Spawn workers

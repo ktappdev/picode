@@ -1,242 +1,286 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en" data-theme="dark">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Picode — Main Features</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" />
-  <style>
-    .feature-card { transition: transform 0.2s, box-shadow 0.2s; }
-    .feature-card:hover { transform: translateY(-4px); box-shadow: 0 12px 24px rgba(0,0,0,0.3); }
-    .glow { box-shadow: 0 0 40px rgba(99, 102, 241, 0.15); }
-  </style>
-</head>
-<body class="min-h-screen bg-base-300 text-base-content">
-  <!-- Hero -->
-  <header class="hero min-h-[50vh] bg-gradient-to-br from-primary/20 via-base-300 to-secondary/20">
-    <div class="hero-content text-center">
-      <div class="max-w-3xl">
-        <h1 class="text-5xl font-bold mb-4">
-          <span class="text-primary">picode</span>
-        </h1>
-        <p class="text-xl text-base-content/80 mb-6">
-          Run multiple pi sessions at once. They talk to each other through durable mailboxes. One delegates, others build, review, explore, and test.
-        </p>
-        <div class="flex gap-4 justify-center flex-wrap">
-          <div class="badge badge-primary badge-lg gap-1">🔗 Durable Messages</div>
-          <div class="badge badge-secondary badge-lg gap-1">👷 Role-Based Workers</div>
-          <div class="badge badge-accent badge-lg gap-1">📋 Auto-Journaling</div>
-          <div class="badge badge-info badge-lg gap-1">🖥️ CLI Monitoring</div>
-        </div>
-      </div>
-    </div>
-  </header>
-
-  <main class="max-w-6xl mx-auto px-6 py-12 space-y-16">
-
-    <!-- Architecture Diagram -->
-    <section>
-      <h2 class="text-3xl font-bold mb-6 text-center">Architecture</h2>
-      <div class="card bg-base-100 glow border border-base-content/10">
-        <div class="card-body">
-          <div class="mermaid">
-graph LR
-  COORD["🖥️ Coordinator<br/>Delegates work<br/>Reads results"] --> W1["👷 Builder-1<br/>Implements code"]
-  COORD --> W2["🔍 Explorer-A<br/>Researches"]
-  COORD --> W3["🧪 Tester<br/>Runs tests"]
-  COORD --> W4["📋 Reviewer<br/>Reviews code"]
-  W1 -->|"envelope"| MAILBOX["📬 Durable Mailbox<br/>(disk or Restate)"]
-  W2 -->|"envelope"| MAILBOX
-  W3 -->|"envelope"| MAILBOX
-  W4 -->|"envelope"| MAILBOX
-  MAILBOX -->|"delivers"| COORD
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Picode — Main Features</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" />
+    <style>
+      .feature-card {
+        transition:
+          transform 0.2s,
+          box-shadow 0.2s;
+      }
+      .feature-card:hover {
+        transform: translateY(-4px);
+        box-shadow: 0 12px 24px rgba(0, 0, 0, 0.3);
+      }
+      .glow {
+        box-shadow: 0 0 40px rgba(99, 102, 241, 0.15);
+      }
+    </style>
+  </head>
+  <body class="min-h-screen bg-base-300 text-base-content">
+    <!-- Hero -->
+    <header
+      class="hero min-h-[50vh] bg-gradient-to-br from-primary/20 via-base-300 to-secondary/20"
+    >
+      <div class="hero-content text-center">
+        <div class="max-w-3xl">
+          <h1 class="text-5xl font-bold mb-4">
+            <span class="text-primary">picode</span>
+          </h1>
+          <p class="text-xl text-base-content/80 mb-6">
+            Run multiple pi sessions at once. They talk to each other through durable mailboxes. One
+            delegates, others build, review, explore, and test.
+          </p>
+          <div class="flex gap-4 justify-center flex-wrap">
+            <div class="badge badge-primary badge-lg gap-1">🔗 Durable Messages</div>
+            <div class="badge badge-secondary badge-lg gap-1">👷 Role-Based Workers</div>
+            <div class="badge badge-accent badge-lg gap-1">📋 Auto-Journaling</div>
+            <div class="badge badge-info badge-lg gap-1">🖥️ CLI Monitoring</div>
           </div>
         </div>
       </div>
-    </section>
+    </header>
 
-    <!-- Features Grid -->
-    <section>
-      <h2 class="text-3xl font-bold mb-6 text-center">Core Features</h2>
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-
-        <!-- Multi-agent Coordination -->
-        <div class="feature-card card bg-base-100 border border-base-content/10">
+    <main class="max-w-6xl mx-auto px-6 py-12 space-y-16">
+      <!-- Architecture Diagram -->
+      <section>
+        <h2 class="text-3xl font-bold mb-6 text-center">Architecture</h2>
+        <div class="card bg-base-100 glow border border-base-content/10">
           <div class="card-body">
-            <div class="text-3xl mb-2">🤝</div>
-            <h3 class="card-title text-lg">Multi-Agent Coordination</h3>
-            <p class="text-sm text-base-content/70">
-              Coordinator delegates work. Workers auto-detect role from name:
-              <code class="text-xs bg-base-200 px-1 rounded">builder-1</code> → <code class="text-xs bg-base-200 px-1 rounded">builder</code>,
-              <code class="text-xs bg-base-200 px-1 rounded">explorer-a</code> → <code class="text-xs bg-base-200 px-1 rounded">explorer</code>.
-              Generic workers for any name.
-            </p>
+            <div class="mermaid">
+              graph LR COORD["🖥️ Coordinator<br />Delegates work<br />Reads results"] --> W1["👷
+              Builder-1<br />Implements code"] COORD --> W2["🔍 Explorer-A<br />Researches"] COORD
+              --> W3["🧪 Tester<br />Runs tests"] COORD --> W4["📋 Reviewer<br />Reviews code"] W1
+              -->|"envelope"| MAILBOX["📬 Durable Mailbox<br />(disk or Restate)"] W2
+              -->|"envelope"| MAILBOX W3 -->|"envelope"| MAILBOX W4 -->|"envelope"| MAILBOX MAILBOX
+              -->|"delivers"| COORD
+            </div>
           </div>
         </div>
+      </section>
 
-        <!-- Durable Messaging -->
-        <div class="feature-card card bg-base-100 border border-base-content/10">
-          <div class="card-body">
-            <div class="text-3xl mb-2">📬</div>
-            <h3 class="card-title text-lg">Durable Envelope Messaging</h3>
-            <p class="text-sm text-base-content/70">
-              Single message shape: <code class="text-xs bg-base-200 px-1 rounded">Envelope</code> with
-              <code class="text-xs bg-base-200 px-1 rounded">expects</code>,
-              <code class="text-xs bg-base-200 px-1 rounded">re</code>,
-              <code class="text-xs bg-base-200 px-1 rounded">urgency</code>,
-              <code class="text-xs bg-base-200 px-1 rounded">deliverAfter</code>.
-              Requests tracked as debts. Nothing falls through the cracks.
-            </p>
+      <!-- Features Grid -->
+      <section>
+        <h2 class="text-3xl font-bold mb-6 text-center">Core Features</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <!-- Multi-agent Coordination -->
+          <div class="feature-card card bg-base-100 border border-base-content/10">
+            <div class="card-body">
+              <div class="text-3xl mb-2">🤝</div>
+              <h3 class="card-title text-lg">Multi-Agent Coordination</h3>
+              <p class="text-sm text-base-content/70">
+                Coordinator delegates work. Workers auto-detect role from name:
+                <code class="text-xs bg-base-200 px-1 rounded">builder-1</code> →
+                <code class="text-xs bg-base-200 px-1 rounded">builder</code>,
+                <code class="text-xs bg-base-200 px-1 rounded">explorer-a</code> →
+                <code class="text-xs bg-base-200 px-1 rounded">explorer</code>. Generic workers for
+                any name.
+              </p>
+            </div>
+          </div>
+
+          <!-- Durable Messaging -->
+          <div class="feature-card card bg-base-100 border border-base-content/10">
+            <div class="card-body">
+              <div class="text-3xl mb-2">📬</div>
+              <h3 class="card-title text-lg">Durable Envelope Messaging</h3>
+              <p class="text-sm text-base-content/70">
+                Single message shape:
+                <code class="text-xs bg-base-200 px-1 rounded">Envelope</code> with
+                <code class="text-xs bg-base-200 px-1 rounded">expects</code>,
+                <code class="text-xs bg-base-200 px-1 rounded">re</code>,
+                <code class="text-xs bg-base-200 px-1 rounded">urgency</code>,
+                <code class="text-xs bg-base-200 px-1 rounded">deliverAfter</code>. Requests tracked
+                as debts. Nothing falls through the cracks.
+              </p>
+            </div>
+          </div>
+
+          <!-- Worker Management -->
+          <div class="feature-card card bg-base-100 border border-base-content/10">
+            <div class="card-body">
+              <div class="text-3xl mb-2">⚙️</div>
+              <h3 class="card-title text-lg">Worker Management</h3>
+              <p class="text-sm text-base-content/70">
+                <code class="text-xs bg-base-200 px-1 rounded">spawn_worker</code> splits panes,
+                launches pi, waits idle. Auto-reuses dead workers.
+                <code class="text-xs bg-base-200 px-1 rounded">cleanup_panes</code> closes stale
+                ones.
+              </p>
+            </div>
+          </div>
+
+          <!-- Auto-Journaling -->
+          <div class="feature-card card bg-base-100 border border-base-content/10">
+            <div class="card-body">
+              <div class="text-3xl mb-2">📝</div>
+              <h3 class="card-title text-lg">Auto-Journaling</h3>
+              <p class="text-sm text-base-content/70">
+                Per-picode journal with compaction. Stays readable automatically. Read other
+                picodes' journals with
+                <code class="text-xs bg-base-200 px-1 rounded">picode_journal</code>.
+              </p>
+            </div>
+          </div>
+
+          <!-- Barriers -->
+          <div class="feature-card card bg-base-100 border border-base-content/10">
+            <div class="card-body">
+              <div class="text-3xl mb-2">🚧</div>
+              <h3 class="card-title text-lg">Barriers &amp; Waiting</h3>
+              <p class="text-sm text-base-content/70">
+                <code class="text-xs bg-base-200 px-1 rounded">picode_wait</code> blocks until
+                replies arrive. Supports deadlines and injected messages on resolution. Arm inline
+                with <code class="text-xs bg-base-200 px-1 rounded">wait=true</code>.
+              </p>
+            </div>
+          </div>
+
+          <!-- Suspend/Resume -->
+          <div class="feature-card card bg-base-100 border border-base-content/10">
+            <div class="card-body">
+              <div class="text-3xl mb-2">⏸️</div>
+              <h3 class="card-title text-lg">Suspend &amp; Resume</h3>
+              <p class="text-sm text-base-content/70">
+                Picode goes On Hold. Inbox queues messages until
+                <code class="text-xs bg-base-200 px-1 rounded">picode_resume</code> drains them.
+              </p>
+            </div>
+          </div>
+
+          <!-- Pluggable Storage -->
+          <div class="feature-card card bg-base-100 border border-base-content/10">
+            <div class="card-body">
+              <div class="text-3xl mb-2">💾</div>
+              <h3 class="card-title text-lg">Pluggable Storage</h3>
+              <p class="text-sm text-base-content/70">
+                Local filesystem by default — no broker, no services. Swap to Restate for durable
+                wake-on-message.
+              </p>
+            </div>
+          </div>
+
+          <!-- CLI Monitoring -->
+          <div class="feature-card card bg-base-100 border border-base-content/10">
+            <div class="card-body">
+              <div class="text-3xl mb-2">🖥️</div>
+              <h3 class="card-title text-lg">CLI Monitoring</h3>
+              <p class="text-sm text-base-content/70">
+                <code class="text-xs bg-base-200 px-1 rounded">picode-cli.mjs</code> — list, status,
+                watch, tail, send. Zero dependencies. Monitor from any terminal.
+              </p>
+            </div>
+          </div>
+
+          <!-- Slash Commands -->
+          <div class="feature-card card bg-base-100 border border-base-content/10">
+            <div class="card-body">
+              <div class="text-3xl mb-2">⚡</div>
+              <h3 class="card-title text-lg">Slash Commands</h3>
+              <p class="text-sm text-base-content/70">
+                <code class="text-xs bg-base-200 px-1 rounded">/picode-status</code>,
+                <code class="text-xs bg-base-200 px-1 rounded">/picode-list</code>,
+                <code class="text-xs bg-base-200 px-1 rounded">/picode-send</code>,
+                <code class="text-xs bg-base-200 px-1 rounded">/picode-journal</code>. Human
+                steering from inside pi.
+              </p>
+            </div>
           </div>
         </div>
+      </section>
 
-        <!-- Worker Management -->
-        <div class="feature-card card bg-base-100 border border-base-content/10">
-          <div class="card-body">
-            <div class="text-3xl mb-2">⚙️</div>
-            <h3 class="card-title text-lg">Worker Management</h3>
-            <p class="text-sm text-base-content/70">
-              <code class="text-xs bg-base-200 px-1 rounded">spawn_worker</code> splits panes, launches pi, waits idle.
-              Auto-reuses dead workers.
-              <code class="text-xs bg-base-200 px-1 rounded">cleanup_panes</code> closes stale ones.
-            </p>
-          </div>
+      <!-- Tools Table -->
+      <section>
+        <h2 class="text-3xl font-bold mb-6 text-center">Model Tools</h2>
+        <div class="overflow-x-auto">
+          <table class="table table-zebra border border-base-content/10">
+            <thead>
+              <tr class="bg-base-200">
+                <th>Tool</th>
+                <th>Purpose</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code class="text-sm">picode_send</code></td>
+                <td>
+                  Send envelope to name, group, wildcard, or role. Supports expects, re, urgency,
+                  wait.
+                </td>
+              </tr>
+              <tr>
+                <td><code class="text-sm">picode_wait</code></td>
+                <td>Wait for replies (barrier). Deadline + injected message on resolution.</td>
+              </tr>
+              <tr>
+                <td><code class="text-sm">picode_status</code></td>
+                <td>Read state, obligations, owed replies, barriers, journal.</td>
+              </tr>
+              <tr>
+                <td><code class="text-sm">picode_list</code></td>
+                <td>List all threads in workspace.</td>
+              </tr>
+              <tr>
+                <td><code class="text-sm">picode_journal</code></td>
+                <td>Read another picode's journal. Filter by tail or lookback.</td>
+              </tr>
+              <tr>
+                <td><code class="text-sm">picode_suspend</code></td>
+                <td>Mark On Hold. Inbox queues until resume.</td>
+              </tr>
+              <tr>
+                <td><code class="text-sm">picode_resume</code></td>
+                <td>Resume and drain queued messages.</td>
+              </tr>
+              <tr>
+                <td><code class="text-sm">spawn_worker</code></td>
+                <td>Split pane, launch pi, wait idle. Auto-reuses idle workers.</td>
+              </tr>
+              <tr>
+                <td><code class="text-sm">cleanup_panes</code></td>
+                <td>Close stale herdr worker panes. dry_run preview available.</td>
+              </tr>
+              <tr>
+                <td><code class="text-sm">picode_purge</code></td>
+                <td>Delete stale picode data directories. Safe — only removes no-debt threads.</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
+      </section>
 
-        <!-- Auto-Journaling -->
-        <div class="feature-card card bg-base-100 border border-base-content/10">
-          <div class="card-body">
-            <div class="text-3xl mb-2">📝</div>
-            <h3 class="card-title text-lg">Auto-Journaling</h3>
-            <p class="text-sm text-base-content/70">
-              Per-picode journal with compaction. Stays readable automatically.
-              Read other picodes' journals with
-              <code class="text-xs bg-base-200 px-1 rounded">picode_journal</code>.
-            </p>
-          </div>
+      <!-- Supported Roles -->
+      <section>
+        <h2 class="text-3xl font-bold mb-6 text-center">Supported Roles</h2>
+        <div class="flex flex-wrap gap-3 justify-center">
+          <span class="badge badge-primary badge-lg">🖥️ coordinator</span>
+          <span class="badge badge-secondary badge-lg">👷 builder</span>
+          <span class="badge badge-accent badge-lg">📋 reviewer</span>
+          <span class="badge badge-info badge-lg">🔍 explorer / scout</span>
+          <span class="badge badge-success badge-lg">🧪 tester</span>
+          <span class="badge badge-warning badge-lg">🎨 designer</span>
+          <span class="badge badge-error badge-lg">🐛 bug-hunter</span>
+          <span class="badge badge-lg">📐 planner</span>
+          <span class="badge badge-lg">🏃 runner</span>
+          <span class="badge badge-lg">🎤 presenter</span>
         </div>
+      </section>
+    </main>
 
-        <!-- Barriers -->
-        <div class="feature-card card bg-base-100 border border-base-content/10">
-          <div class="card-body">
-            <div class="text-3xl mb-2">🚧</div>
-            <h3 class="card-title text-lg">Barriers &amp; Waiting</h3>
-            <p class="text-sm text-base-content/70">
-              <code class="text-xs bg-base-200 px-1 rounded">picode_wait</code> blocks until replies arrive.
-              Supports deadlines and injected messages on resolution.
-              Arm inline with <code class="text-xs bg-base-200 px-1 rounded">wait=true</code>.
-            </p>
-          </div>
-        </div>
+    <footer class="footer footer-center p-6 bg-base-200 text-base-content/60 text-sm">
+      <p>
+        picode v0.5.19 · Built on
+        <a href="https://github.com/earendil-works/pi-coding-agent" class="link link-primary">pi</a>
+      </p>
+    </footer>
 
-        <!-- Suspend/Resume -->
-        <div class="feature-card card bg-base-100 border border-base-content/10">
-          <div class="card-body">
-            <div class="text-3xl mb-2">⏸️</div>
-            <h3 class="card-title text-lg">Suspend &amp; Resume</h3>
-            <p class="text-sm text-base-content/70">
-              Picode goes On Hold. Inbox queues messages until
-              <code class="text-xs bg-base-200 px-1 rounded">picode_resume</code> drains them.
-            </p>
-          </div>
-        </div>
-
-        <!-- Pluggable Storage -->
-        <div class="feature-card card bg-base-100 border border-base-content/10">
-          <div class="card-body">
-            <div class="text-3xl mb-2">💾</div>
-            <h3 class="card-title text-lg">Pluggable Storage</h3>
-            <p class="text-sm text-base-content/70">
-              Local filesystem by default — no broker, no services.
-              Swap to Restate for durable wake-on-message.
-            </p>
-          </div>
-        </div>
-
-        <!-- CLI Monitoring -->
-        <div class="feature-card card bg-base-100 border border-base-content/10">
-          <div class="card-body">
-            <div class="text-3xl mb-2">🖥️</div>
-            <h3 class="card-title text-lg">CLI Monitoring</h3>
-            <p class="text-sm text-base-content/70">
-              <code class="text-xs bg-base-200 px-1 rounded">picode-cli.mjs</code> — list, status, watch, tail, send.
-              Zero dependencies. Monitor from any terminal.
-            </p>
-          </div>
-        </div>
-
-        <!-- Slash Commands -->
-        <div class="feature-card card bg-base-100 border border-base-content/10">
-          <div class="card-body">
-            <div class="text-3xl mb-2">⚡</div>
-            <h3 class="card-title text-lg">Slash Commands</h3>
-            <p class="text-sm text-base-content/70">
-              <code class="text-xs bg-base-200 px-1 rounded">/picode-status</code>,
-              <code class="text-xs bg-base-200 px-1 rounded">/picode-list</code>,
-              <code class="text-xs bg-base-200 px-1 rounded">/picode-send</code>,
-              <code class="text-xs bg-base-200 px-1 rounded">/picode-journal</code>.
-              Human steering from inside pi.
-            </p>
-          </div>
-        </div>
-
-      </div>
-    </section>
-
-    <!-- Tools Table -->
-    <section>
-      <h2 class="text-3xl font-bold mb-6 text-center">Model Tools</h2>
-      <div class="overflow-x-auto">
-        <table class="table table-zebra border border-base-content/10">
-          <thead>
-            <tr class="bg-base-200">
-              <th>Tool</th>
-              <th>Purpose</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr><td><code class="text-sm">picode_send</code></td><td>Send envelope to name, group, wildcard, or role. Supports expects, re, urgency, wait.</td></tr>
-            <tr><td><code class="text-sm">picode_wait</code></td><td>Wait for replies (barrier). Deadline + injected message on resolution.</td></tr>
-            <tr><td><code class="text-sm">picode_status</code></td><td>Read state, obligations, owed replies, barriers, journal.</td></tr>
-            <tr><td><code class="text-sm">picode_list</code></td><td>List all threads in workspace.</td></tr>
-            <tr><td><code class="text-sm">picode_journal</code></td><td>Read another picode's journal. Filter by tail or lookback.</td></tr>
-            <tr><td><code class="text-sm">picode_suspend</code></td><td>Mark On Hold. Inbox queues until resume.</td></tr>
-            <tr><td><code class="text-sm">picode_resume</code></td><td>Resume and drain queued messages.</td></tr>
-            <tr><td><code class="text-sm">spawn_worker</code></td><td>Split pane, launch pi, wait idle. Auto-reuses idle workers.</td></tr>
-            <tr><td><code class="text-sm">cleanup_panes</code></td><td>Close stale herdr worker panes. dry_run preview available.</td></tr>
-            <tr><td><code class="text-sm">picode_purge</code></td><td>Delete stale picode data directories. Safe — only removes no-debt threads.</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-
-    <!-- Supported Roles -->
-    <section>
-      <h2 class="text-3xl font-bold mb-6 text-center">Supported Roles</h2>
-      <div class="flex flex-wrap gap-3 justify-center">
-        <span class="badge badge-primary badge-lg">🖥️ coordinator</span>
-        <span class="badge badge-secondary badge-lg">👷 builder</span>
-        <span class="badge badge-accent badge-lg">📋 reviewer</span>
-        <span class="badge badge-info badge-lg">🔍 explorer / scout</span>
-        <span class="badge badge-success badge-lg">🧪 tester</span>
-        <span class="badge badge-warning badge-lg">🎨 designer</span>
-        <span class="badge badge-error badge-lg">🐛 bug-hunter</span>
-        <span class="badge badge-lg">📐 planner</span>
-        <span class="badge badge-lg">🏃 runner</span>
-        <span class="badge badge-lg">🎤 presenter</span>
-      </div>
-    </section>
-
-  </main>
-
-  <footer class="footer footer-center p-6 bg-base-200 text-base-content/60 text-sm">
-    <p>picode v0.5.19 · Built on <a href="https://github.com/earendil-works/pi-coding-agent" class="link link-primary">pi</a></p>
-  </footer>
-
-  <script type="module">
-    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
-    mermaid.initialize({ startOnLoad: true, theme: 'dark' });
-  </script>
-</body>
+    <script type="module">
+      import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+      mermaid.initialize({ startOnLoad: true, theme: "dark" });
+    </script>
+  </body>
 </html>

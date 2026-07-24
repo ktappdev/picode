@@ -30,13 +30,19 @@ export function registerCleanupPanesTool(pi: ExtensionAPI) {
     name: "cleanup_panes",
     label: "Cleanup Panes",
     description:
-      "Close stale herdr worker panes spawned by the coordinator. Removes panes with role labels (builder, reviewer, tester, worker, scout, bug-hunter, designer) that are not working or idle. Use when the picode list is cluttered with dead workers.",
+      "Close stale herdr worker panes spawned by the coordinator. Removes panes with role labels (builder, reviewer, tester, worker, scout, bug-hunter, designer) that are not working or idle. Use when the picode list is cluttered with dead workers. Pass pane_id to close a specific pane instead of bulk cleanup.",
     promptSnippet:
       "Close stale herdr worker panes (use when workspace is cluttered with dead workers).",
     parameters: Type.Object({
       dry_run: Type.Optional(
         Type.Boolean({
           description: "If true, list what would be closed without actually closing them.",
+        }),
+      ),
+      pane_id: Type.Optional(
+        Type.String({
+          description:
+            "Close a specific pane by ID (e.g. w1:p2). When provided, only that pane is targeted — no bulk scan. Get the ID from picode_panes() or spawn_worker return.",
         }),
       ),
     }),
@@ -47,15 +53,112 @@ export function registerCleanupPanesTool(pi: ExtensionAPI) {
         return err("HERDR_WORKSPACE_ID not set — cleanup_panes only works inside Herdr panes.");
       }
 
+      const currentPaneId = process.env.HERDR_PANE_ID || "";
+
       try {
-        // 1. List all panes in the workspace
+        // --- Targeted mode: close a specific pane ---
+        if (params.pane_id) {
+          const targetId = params.pane_id.trim();
+
+          // Safety: never close our own pane
+          if (targetId === currentPaneId) {
+            return err(
+              `pane_id ${targetId} is this coordinator's own pane — refusing to close. Pass a worker pane ID.`,
+            );
+          }
+
+          // Fetch the pane to verify it exists and is a worker
+          let paneInfo: Record<string, unknown> | null = null;
+          try {
+            const result = herdrJson(`pane get ${targetId}`);
+            paneInfo = (result.result as Record<string, unknown> | undefined) || null;
+          } catch {
+            // pane get may fail if pane doesn't exist
+          }
+
+          if (!paneInfo) {
+            return err(
+              `Pane ${targetId} not found — it may already be closed. Run picode_panes() to see current panes.`,
+            );
+          }
+
+          const label = (paneInfo.label as string) || "";
+          const agentStatus = (paneInfo.agent_status as string) || "unknown";
+          const role = extractRole(label);
+
+          if (!WORKER_ROLE_PATTERN.test(role)) {
+            return err(
+              `Pane ${targetId} label "${label}" does not match a worker role — refusing to close non-worker pane.`,
+            );
+          }
+
+          if (ACTIVE_STATUSES.has(agentStatus)) {
+            return err(
+              `Pane ${targetId} is ${agentStatus} — cleanup_panes does not close active (working/idle) panes. Wait for it to finish or use a different approach.`,
+            );
+          }
+
+          if (params.dry_run) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: JSON.stringify({
+                    ok: true,
+                    action: "would close",
+                    closed: [targetId],
+                    skipped: [],
+                    count: 1,
+                  }),
+                },
+              ],
+              details: {
+                ok: true,
+                action: "would close",
+                closed: [targetId],
+                skipped: [],
+                count: 1,
+              },
+            };
+          }
+
+          try {
+            herdr(`pane close ${targetId}`);
+          } catch {
+            // Non-fatal — pane may already be closed
+          }
+
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify({
+                  ok: true,
+                  action: "closed",
+                  closed: [targetId],
+                  skipped: [],
+                  count: 1,
+                }),
+              },
+            ],
+            details: {
+              ok: true,
+              action: "closed",
+              closed: [targetId],
+              skipped: [],
+              count: 1,
+            },
+          };
+        }
+
+        // --- Bulk mode: scan and close all stale worker panes ---
         const result = herdrJson(`pane list --workspace ${workspaceId}`);
         const panes =
           ((result.result as Record<string, unknown> | undefined)?.panes as
             Record<string, unknown>[] | undefined) || [];
 
         // Current pane ID — never close ourselves, even if labeled as a worker.
-        const currentPaneId = process.env.HERDR_PANE_ID || "";
+        // (Already set above before the targeted-mode branch.)
 
         // 2. Filter to stale worker panes
         const toClose: string[] = [];

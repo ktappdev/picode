@@ -91,8 +91,7 @@ export const PicodeObject = restate.object({
       const inbox = (await ctx.get<Envelope[]>("inbox")) ?? [];
       const now = Date.now();
       const live = inbox.filter(m => !m.expiresAt || new Date(m.expiresAt).getTime() > now);
-      return live.filter(m => !m.deliverAfter || new Date(m.deliverAfter).getTime() <= now)
-        .length;
+      return live.filter(m => !m.deliverAfter || new Date(m.deliverAfter).getTime() <= now).length;
     }),
 
     drainInbox: async (ctx: ObjectContext): Promise<Envelope[]> => {

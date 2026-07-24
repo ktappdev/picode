@@ -3150,3 +3150,116 @@ describe("tools/messaging: checkBodySize (picode_send body-size guard)", () => {
     assert.equal(checkBodySize(""), null);
   });
 });
+
+describe("tools/pane-read: picode_pane_read validation (no herdr needed)", () => {
+  // These tests exercise the validation paths that fail before reaching
+  // execSync("herdr ..."), so they work without a real Herdr session.
+  // The happy path requires a live Herdr pane and is covered by E2E.
+
+  it("refuses to run outside Herdr (HERDR_ENV not set)", async () => {
+    const h = makeHarness(tmpDir);
+    const origEnv = process.env.HERDR_ENV;
+    delete process.env.HERDR_ENV;
+    try {
+      const r = await callTool(h, "picode_pane_read", { pane_id: "w1:p2" });
+      assert.strictEqual(r.details.ok, false);
+      assert.match(r.content[0].text, /HERDR_ENV not set/);
+    } finally {
+      if (origEnv !== undefined) process.env.HERDR_ENV = origEnv;
+    }
+  });
+
+  it("rejects empty pane_id", async () => {
+    const h = makeHarness(tmpDir);
+    process.env.HERDR_ENV = "1";
+    try {
+      const r = await callTool(h, "picode_pane_read", { pane_id: "" });
+      assert.strictEqual(r.details.ok, false);
+      assert.match(r.content[0].text, /pane_id is required/);
+    } finally {
+      delete process.env.HERDR_ENV;
+    }
+  });
+
+  it("rejects reading its own pane", async () => {
+    const h = makeHarness(tmpDir);
+    process.env.HERDR_ENV = "1";
+    process.env.HERDR_PANE_ID = "w1:p1";
+    try {
+      const r = await callTool(h, "picode_pane_read", { pane_id: "w1:p1" });
+      assert.strictEqual(r.details.ok, false);
+      assert.match(r.content[0].text, /own pane/);
+    } finally {
+      delete process.env.HERDR_ENV;
+      delete process.env.HERDR_PANE_ID;
+    }
+  });
+
+  it("rejects invalid source", async () => {
+    const h = makeHarness(tmpDir);
+    process.env.HERDR_ENV = "1";
+    process.env.HERDR_PANE_ID = "w1:p1";
+    try {
+      const r = await callTool(h, "picode_pane_read", {
+        pane_id: "w1:p2",
+        source: "bogus",
+      });
+      assert.strictEqual(r.details.ok, false);
+      assert.match(r.content[0].text, /source must be one of/);
+    } finally {
+      delete process.env.HERDR_ENV;
+      delete process.env.HERDR_PANE_ID;
+    }
+  });
+
+  it("rejects invalid format", async () => {
+    const h = makeHarness(tmpDir);
+    process.env.HERDR_ENV = "1";
+    process.env.HERDR_PANE_ID = "w1:p1";
+    try {
+      const r = await callTool(h, "picode_pane_read", {
+        pane_id: "w1:p2",
+        format: "xml",
+      });
+      assert.strictEqual(r.details.ok, false);
+      assert.match(r.content[0].text, /format must be/);
+    } finally {
+      delete process.env.HERDR_ENV;
+      delete process.env.HERDR_PANE_ID;
+    }
+  });
+
+  it("rejects lines out of range", async () => {
+    const h = makeHarness(tmpDir);
+    process.env.HERDR_ENV = "1";
+    process.env.HERDR_PANE_ID = "w1:p1";
+    try {
+      const r = await callTool(h, "picode_pane_read", {
+        pane_id: "w1:p2",
+        lines: 0,
+      });
+      assert.strictEqual(r.details.ok, false);
+      assert.match(r.content[0].text, /lines must be between/);
+    } finally {
+      delete process.env.HERDR_ENV;
+      delete process.env.HERDR_PANE_ID;
+    }
+  });
+});
+
+describe("tools/cleanup-panes: targeted pane_id validation (no herdr needed)", () => {
+  // Tests the targeted-mode validation paths that fail before execSync.
+  it("refuses to close its own pane even with pane_id", async () => {
+    const h = makeHarness(tmpDir);
+    process.env.HERDR_WORKSPACE_ID = "w1";
+    process.env.HERDR_PANE_ID = "w1:p1";
+    try {
+      const r = await callTool(h, "cleanup_panes", { pane_id: "w1:p1" });
+      assert.strictEqual(r.details.ok, false);
+      assert.match(r.content[0].text, /own pane/);
+    } finally {
+      delete process.env.HERDR_WORKSPACE_ID;
+      delete process.env.HERDR_PANE_ID;
+    }
+  });
+});
