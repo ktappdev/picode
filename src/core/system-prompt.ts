@@ -115,6 +115,31 @@ function loadPromptOverride(role: string): string | null {
   return raw.length > 0 ? raw : null;
 }
 
+/** Detect frontmatter `mode:` field in an override file.
+ *  Returns "extend" (default) or "replace".
+ *
+ *  Example frontmatter:
+ *  ```
+ *  ---
+ *  mode: replace
+ *  ---
+ *  ```
+ *
+ *  If no frontmatter or no `mode` field, defaults to "extend". */
+function parseOverrideMode(override: string): "extend" | "replace" {
+  const fmMatch = override.match(/^---\s*\n([\s\S]*?)\n---\s*\n/);
+  if (!fmMatch) return "extend";
+  const modeMatch = fmMatch[1].match(/^mode:\s*(\w+)/m);
+  const mode = modeMatch?.[1]?.toLowerCase();
+  return mode === "replace" ? "replace" : "extend";
+}
+
+/** Strip frontmatter from override content so it doesn't appear in the
+ *  final prompt. */
+function stripFrontmatter(override: string): string {
+  return override.replace(/^---\s*\n[\s\S]*?\n---\s*\n/, "").trim();
+}
+
 // ── Main export ─────────────────────────────────────────────────────
 
 export function threadModelPrompt(data: PicodeData): string {
@@ -124,12 +149,33 @@ export function threadModelPrompt(data: PicodeData): string {
   // Try per-project override first
   const override = loadPromptOverride(role);
   if (override !== null) {
-    // Override file replaces the entire bundled role block.
+    const mode = parseOverrideMode(override);
+    const overrideBody = stripFrontmatter(override);
+
+    // Determine the bundled role block (used in extend mode)
+    let bundledBlock = "";
+    if (mode === "extend") {
+      if (role === "coordinator") {
+        bundledBlock = COORDINATOR_RULES;
+      } else {
+        const subtype = workerSubtype(role);
+        bundledBlock = WORKER_BASE_RULES + (subtype ? SUBTYPE_PROMPTS[subtype] : "");
+      }
+    }
+
+    // In extend mode: bundled rules first, then user override wrapped in a
+    // clearly marked section so the model knows these take precedence.
+    // In replace mode: override replaces bundled entirely (legacy behavior).
+    const roleBlock =
+      mode === "extend"
+        ? bundledBlock +
+          "\n\n---\n\n### Project-Specific Rules (USER-ENFORCED — these override bundled defaults)\n\n" +
+          overrideBody
+        : overrideBody;
+
     return `## Picode Communication Model
 
-You are picode **${picodeId}** (role: ${displayRole})${parent ? `, child of **${parent}**` : ""} in a multi-picode workspace.
-
-${override}
+You are picode **${picodeId}** (role: ${displayRole})${parent ? `, child of **${parent}**` : ""} in a multi-picode workspace.${roleBlock}
 
 ### Communication Rules
 

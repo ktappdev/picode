@@ -156,7 +156,7 @@ npm run mcp                   # Start MCP server
 - Prompts live in `src/prompts/*.md` as plain markdown — no escaping needed
 - Edit markdown files directly; `system-prompt.ts` loads them at module init
 - Dynamic context (picodeId, parent, role) is added by the wrapper in `system-prompt.ts`
-- Per-project overrides (`.picode/prompts/<role>.md`) still replace the entire bundled prompt
+- Per-project overrides (`.picode/prompts/<role>.md`) extend the bundled prompt by default (append after bundled rules). Use `mode: replace` in frontmatter to replace entirely.
 
 ## Key Files
 
@@ -244,10 +244,16 @@ npm run mcp                   # Start MCP server
 ### Adding Prompt Overrides
 
 1. Create `.picode/prompts/<role>.md` in your project root
-2. The file replaces the bundled role prompt entirely (no merging)
-3. Supported roles: `coordinator`, `builder`, `reviewer`, `scout`, `explorer`, `designer`, `tester`, `bug-hunter`, `planner`, `runner`, `worker`
-4. Empty files are ignored; unknown roles fall back to `worker.md`
-5. Bundled prompts are in `src/prompts/*.md` — edit those to change defaults
+2. **Default mode (extend):** Your file is appended after the bundled role prompt, wrapped in a "Project-Specific Rules (USER-ENFORCED)" section. Bundled rules stay active; your rules take precedence.
+3. **Replace mode:** Add frontmatter `mode: replace` to fully swap the bundled prompt (legacy behavior):
+   ```
+   ---
+   mode: replace
+   ---
+   ```
+4. Supported roles: `coordinator`, `builder`, `reviewer`, `scout`, `explorer`, `designer`, `tester`, `bug-hunter`, `planner`, `runner`, `worker`
+5. Empty files are ignored; unknown roles fall back to `worker.md`
+6. Bundled prompts are in `src/prompts/*.md` — edit those to change defaults
 
 ### Adding Slash Commands
 
