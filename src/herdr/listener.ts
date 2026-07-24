@@ -77,6 +77,7 @@ function deliverAsUrgent(eventName: string): boolean {
 /** Start a persistent Herdr event subscription.
  *  Returns a stop function for shutdown cleanup. */
 export function startHerdrListener(pi: ExtensionAPI, workspaceId: string): () => void {
+  console.log(`[picode] startHerdrListener called for workspace ${workspaceId}`);
   if (process.env.HERDR_ENV !== "1") {
     console.log("[picode] HERDR_ENV not set, skipping Herdr event listener");
     return () => {};
@@ -87,18 +88,21 @@ export function startHerdrListener(pi: ExtensionAPI, workspaceId: string): () =>
     console.log("[picode] Herdr socket not found, skipping event listener");
     return () => {};
   }
+  console.log(`[picode] Herdr socket at ${socketPath}`);
 
   let stopped = false;
 
   function connectSocket() {
     if (stopped || activeSocket) return;
 
+    console.log("[picode] Connecting to Herdr socket...");
     const socket = connect(socketPath!);
     activeSocket = socket;
 
     let buffer = "";
 
     socket.on("connect", () => {
+      console.log("[picode] Herdr socket connected");
       requestId++;
       const req = {
         jsonrpc: "2.0",
@@ -108,11 +112,15 @@ export function startHerdrListener(pi: ExtensionAPI, workspaceId: string): () =>
         },
         id: `picode-${requestId}`,
       };
-      socket.write(JSON.stringify(req) + "\n");
+      const reqText = JSON.stringify(req) + "\n";
+      console.log("[picode] Sending subscribe:", reqText.trim());
+      socket.write(reqText);
     });
 
     socket.on("data", (chunk: Buffer) => {
-      buffer += chunk.toString("utf-8");
+      const chunkStr = chunk.toString("utf-8");
+      console.log("[picode] Herdr raw chunk:", chunkStr.replace(/\n/g, "\\n"));
+      buffer += chunkStr;
       let nl: number;
       while ((nl = buffer.indexOf("\n")) !== -1) {
         const line = buffer.slice(0, nl).trim();
@@ -121,15 +129,18 @@ export function startHerdrListener(pi: ExtensionAPI, workspaceId: string): () =>
 
         try {
           const msg = JSON.parse(line) as HerdrEvent | { result?: unknown; id?: string };
+          console.log("[picode] Herdr parsed msg:", msg);
           if ("event" in msg) {
             const text = formatEvent(msg, workspaceId);
+            console.log("[picode] Formatted text:", text);
             if (text) {
               const steer = deliverAsUrgent(msg.event);
+              console.log("[picode] Sending to pi, deliverAs:", steer ? "steer" : "followUp");
               pi.sendUserMessage(text, { deliverAs: steer ? "steer" : "followUp" });
             }
           }
         } catch {
-          // Ignore malformed lines
+          console.log("[picode] Failed to parse line:", line);
         }
       }
     });
