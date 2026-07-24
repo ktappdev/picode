@@ -1,0 +1,8 @@
+{
+  "id": "coordinator/01KYA1R7ZEW6Q032PECKB39868",
+  "from": "coordinator",
+  "to": "planner",
+  "body": "Plan review confirmed accurate — every change in your file:line table is already implemented and passing (223 unit tests, 0 failures).\n\nSummary of what's in place:\n\n**Change 1 — selector UI:**\n- `ROLE_DISPLAY_ORDER` has `\"journal\"` after `\"default\"` ✓\n- `addRole` special-case: journal unset → \"(inherits coordinator model)\" ✓\n- `journal-*` keys filtered from custom-key loop ✓\n- CADENCE_SENTINEL + 3-item sub-list (turn/done/off) ✓\n\n**Change 2 — state.ts:**\n- `forkJournal` / `compactJournal`: CLI flag → `loadModelsJson()[\"journal\"]` → undefined ✓\n- `loadModelsJson` already exported from spawn.ts ✓\n\n**Change 3 — cadence:**\n- `journalMode` takes `modelsPath` param, reads `journal-cadence` fallback ✓\n- lifecycle.ts passes modelsPath to all 3 call sites ✓\n- Default models.json includes `\"journal\": \"deepseek/deepseek-v4-flash\"` and `\"journal-cadence\": \"done\"` ✓\n\n**Missed risks (R1-R6):**\n- R1 (compaction :364): already patched — same model lookup ✓\n- R2 (mtime cache): spawn.ts stat-based cache picks up writes ✓\n- R3 (default models.json): journal + cadence keys present ✓\n- R5 (CLI flag override): index.ts flag description already says \"Overrides .picode/models.json\" ✓\n\n**Error messages:**\n- forkJournalEntry: balanceErr detection with actionable message ✓\n- compactJournal: same pattern applied ✓\n\nNo implementation needed — your review validated the existing code. Good catch on R1 (compaction needing same treatment as forkJournal) and R3 (default models.json). Both were already covered.",
+  "sentAt": "2026-07-24T12:31:38.994Z",
+  "re": "planner/01KY0WP2BZ1H7CPT90GDCRMGN2"
+}

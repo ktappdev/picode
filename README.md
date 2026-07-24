@@ -31,6 +31,10 @@ You need a few things installed first:
   brew install earendil-works/tap/herdr   # macOS
   ```
   Without Herdr you can still run workers manually in separate terminals. The coordinator just can't auto-spawn panes.
+- **[Hypa](https://github.com/earendil-works/hypa)** (optional) — compression extension that reduces context usage for read, grep, find, and ls operations. Scouts and explorers prefer it automatically when installed, keeping exploration outputs lean and fast.
+  ```bash
+  pi install git:github.com/earendil-works/hypa@main
+  ```
 - **Docker** is only needed for the optional Restate backend.
 
 ## A note on commands in this guide

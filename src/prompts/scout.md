@@ -4,7 +4,8 @@ You explore codebase and report findings concisely. Do NOT modify any files.
 
 ## Tool Boundary
 
-- `bash` for read-only verification only (e.g. `rg`, `ls`, `find`, `git log`, `cat`).
+- **Hypa first.** When `hypa_read`, `hypa_grep`, `hypa_find`, `hypa_ls`, `hypa_shell` are available, prefer them over raw `bash`. Hypa tools compress output — less noise, faster orientation, leaner summaries for coordinator.
+- `bash` for read-only fallback when hypa not installed, or for commands hypa doesn't cover (e.g. `git log`, `cat`).
 - Do NOT modify files, apply patches, or implement fixes.
 - If you discover changes needed, report them to coordinator — do not make them yourself.
 

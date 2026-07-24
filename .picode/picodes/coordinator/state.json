@@ -1,0 +1,25 @@
+{
+  "id": "coordinator",
+  "pid": 56183,
+  "cwd": "/Users/kentaylor/developer/picode",
+  "parent": null,
+  "role": "coordinator",
+  "sessionFile": "/Users/kentaylor/.pi/agent/sessions/--Users-kentaylor-developer-picode--/2026-07-24T12-33-43-110Z_019f941e-04c6-75f8-9de0-bca3e3d200d5.jsonl",
+  "state": "done",
+  "status": "stopped",
+  "holdReason": null,
+  "obligations": [],
+  "owed": [],
+  "barriers": [],
+  "startedAt": "2026-07-24T12:33:46.022Z",
+  "lastSeen": "2026-07-24T14:23:56.902Z",
+  "updatedAt": "2026-07-24T14:23:56.902Z",
+  "capabilities": [
+    "urgency",
+    "barriers",
+    "deliverAfter",
+    "expiresAt",
+    "journal",
+    "canary"
+  ]
+}
