@@ -1,7 +1,10 @@
 import type { Barrier, Obligation, OwedReply, PicodeSummary } from "./types";
 
 /** One picode per line — shared by picode_list and /picode-list. Coordination
- *  counts appear only when non-zero, so idle threads stay one short line. */
+ *  counts appear only when non-zero, so idle threads stay one short line.
+ *  A trailing `[ghost]` tag marks terminal state + stale heartbeat — a record
+ *  whose process is gone and whose `state` will never advance again without
+ *  an explicit revive. Don't route to ghosts; reap them with picode_purge. */
 export function formatThreadLine(t: PicodeSummary): string {
   const load = [
     t.obligations ? `obligations=${t.obligations}` : "",
@@ -10,7 +13,8 @@ export function formatThreadLine(t: PicodeSummary): string {
   ]
     .filter(Boolean)
     .join(" ");
-  return `${t.id.padEnd(16)} [${t.state}]  ${t.status}  role=${t.role ?? "-"}  parent=${t.parent ?? "-"}${load ? `  ${load}` : ""}  lastSeen=${t.lastSeen}`;
+  const ghost = t.ghost ? "  [ghost]" : "";
+  return `${t.id.padEnd(16)} [${t.state}]  ${t.status}  role=${t.role ?? "-"}  parent=${t.parent ?? "-"}${load ? `  ${load}` : ""}  lastSeen=${t.lastSeen}${ghost}`;
 }
 
 /** Status-section list: indented bullets, or " none" inline when empty. */

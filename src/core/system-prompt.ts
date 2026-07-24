@@ -7,7 +7,15 @@ import type { PicodeData } from "./types";
 /** Worker subtypes that get specialized prompts. Any role not matching
  *  "coordinator" or a known subtype is treated as a generic worker. */
 export type WorkerSubtype =
-  "builder" | "reviewer" | "scout" | "designer" | "tester" | "bug-hunter" | "planner" | "runner" | "presenter";
+  | "builder"
+  | "reviewer"
+  | "scout"
+  | "designer"
+  | "tester"
+  | "bug-hunter"
+  | "planner"
+  | "runner"
+  | "presenter";
 
 function workerSubtype(role: string): WorkerSubtype | null {
   const subtypes: WorkerSubtype[] = [
@@ -129,6 +137,7 @@ ${override}
 
 - When the user says "tell X", "ask Y", "explain to Z", "talk to W" → that means **picode_send**, not plain output.
 - Before any cross-picode action, call picode_list to discover valid picode ids.
+- A row tagged \`[ghost]\` in picode_list (terminal state + stale heartbeat) is a process-gone record — never a routing target; reap with \`picode_purge\`.
 - After a compaction, call picode_status to recover your identity, obligations, owed replies, and recent journal (last 50 entries by default; use tail=0 for full journal).
 
 ### The message model
@@ -174,6 +183,7 @@ Messages arrive as \`[<kind> from <sender> #<id>]\` followed by the body — kin
 - ❌ Replying without re — a reply that doesn't echo the #id settles nothing; the sender keeps waiting.
 - ❌ Inventing or guessing an id — if you lost it, read it from picode_status's owed list.
 - ❌ Sending to a picode without checking picode_list first — stale threads (lastSeen > 60s) are dead.
+- ❌ Routing messages to a row tagged \`[ghost]\` in picode_list — that picode’s process is gone and the envelope will queue indefinitely. Skip ghosts; reap them with \`picode_purge\` (or pass \`force=true\` if they still carry obligations).
 
 ### Your state
 
@@ -215,6 +225,7 @@ You are picode **${picodeId}** (role: ${displayRole})${parent ? `, child of **${
 
 - When the user says "tell X", "ask Y", "explain to Z", "talk to W" → that means **picode_send**, not plain output.
 - Before any cross-picode action, call picode_list to discover valid picode ids.
+- A row tagged \`[ghost]\` in picode_list (terminal state + stale heartbeat) is a process-gone record — never a routing target; reap with \`picode_purge\`.
 - After a compaction, call picode_status to recover your identity, obligations, owed replies, and recent journal (last 50 entries by default; use tail=0 for full journal).
 
 ### The message model
@@ -260,6 +271,7 @@ Messages arrive as \`[<kind> from <sender> #<id>]\` followed by the body — kin
 - ❌ Replying without re — a reply that doesn't echo the #id settles nothing; the sender keeps waiting.
 - ❌ Inventing or guessing an id — if you lost it, read it from picode_status's owed list.
 - ❌ Sending to a picode without checking picode_list first — stale threads (lastSeen > 60s) are dead.
+- ❌ Routing messages to a row tagged \`[ghost]\` in picode_list — that picode’s process is gone and the envelope will queue indefinitely. Skip ghosts; reap them with \`picode_purge\` (or pass \`force=true\` if they still carry obligations).
 
 ### Your state
 

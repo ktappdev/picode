@@ -66,6 +66,7 @@ import { createLocalFsAdapter } from "../src/adapter/local-fs";
 import type { StorageAdapter } from "../src/adapter/types";
 import type { StateFile, Envelope, PicodeSummary } from "../src/core/types";
 import { STALE_MS, PROCESSED_TTL_MS, CLIENT_CAPABILITIES, toSummary } from "../src/core/types";
+import { formatThreadLine } from "../src/core/format";
 import { ulid, mintEnvelopeId } from "../src/core/ids";
 
 // --- harness -----------------------------------------------------------
@@ -2642,6 +2643,140 @@ describe("core: toSummary() stale marking", () => {
     );
     assert.strictEqual(s.state, "open");
     assert.strictEqual(s.status, "stopped");
+  });
+});
+
+describe("core: toSummary() ghost detection", () => {
+  it("done + stale → ghost=true", () => {
+    const s = toSummary(
+      baseState("planner", {
+        state: "done",
+        lastSeen: new Date(Date.now() - STALE_MS - 1000).toISOString(),
+      }),
+    );
+    assert.strictEqual(s.ghost, true);
+    assert.strictEqual(s.state, "done");
+    assert.strictEqual(s.status, "stopped");
+  });
+
+  it("done + fresh → ghost=false", () => {
+    const s = toSummary(baseState("alive", { state: "done", lastSeen: new Date().toISOString() }));
+    assert.strictEqual(s.ghost, false);
+    assert.strictEqual(s.status, "running");
+  });
+
+  it("stopped + stale → ghost=true", () => {
+    const s = toSummary(
+      baseState("crashed", {
+        state: "stopped",
+        lastSeen: new Date(Date.now() - STALE_MS - 2000).toISOString(),
+      }),
+    );
+    assert.strictEqual(s.ghost, true);
+    assert.strictEqual(s.state, "stopped");
+  });
+
+  it("stopped + fresh → ghost=false", () => {
+    const s = toSummary(
+      baseState("just-stopped", {
+        state: "stopped",
+        status: "stopped",
+        lastSeen: new Date().toISOString(),
+      }),
+    );
+    assert.strictEqual(s.ghost, false);
+  });
+
+  it("idle + stale → ghost=false (transient state, not terminal)", () => {
+    const s = toSummary(
+      baseState("idler", {
+        state: "idle",
+        lastSeen: new Date(Date.now() - STALE_MS - 3000).toISOString(),
+      }),
+    );
+    assert.strictEqual(s.ghost, false);
+    assert.strictEqual(s.status, "stopped"); // still stale-flagged
+  });
+
+  it("open + stale → ghost=false", () => {
+    const s = toSummary(
+      baseState("worker", {
+        state: "open",
+        lastSeen: new Date(Date.now() - STALE_MS - 4000).toISOString(),
+      }),
+    );
+    assert.strictEqual(s.ghost, false);
+    assert.strictEqual(s.status, "stopped");
+  });
+
+  it("working + stale → ghost=false", () => {
+    const s = toSummary(
+      baseState("busy", {
+        state: "working",
+        lastSeen: new Date(Date.now() - STALE_MS - 5000).toISOString(),
+      }),
+    );
+    assert.strictEqual(s.ghost, false);
+    assert.strictEqual(s.status, "stopped");
+  });
+});
+
+describe("core: formatThreadLine ghost rendering", () => {
+  it("appends [ghost] when ghost=true", () => {
+    const summary: PicodeSummary = {
+      id: "planner",
+      pid: 1,
+      state: "done",
+      status: "stopped",
+      parent: "coordinator",
+      role: "worker",
+      lastSeen: "2026-07-20T23:12:05.943Z",
+      obligations: 1,
+      owed: 0,
+      barriers: 0,
+      ghost: true,
+    };
+    const line = formatThreadLine(summary);
+    assert.match(line, /ghost/);
+    assert.match(line, /obligations=1/); // existing fields intact
+  });
+
+  it("omits [ghost] when ghost=false", () => {
+    const summary: PicodeSummary = {
+      id: "alice",
+      pid: 2,
+      state: "idle",
+      status: "running",
+      parent: null,
+      role: "builder",
+      lastSeen: new Date().toISOString(),
+      obligations: 0,
+      owed: 0,
+      barriers: 0,
+      ghost: false,
+    };
+    const line = formatThreadLine(summary);
+    assert.doesNotMatch(line, /ghost/);
+    assert.doesNotMatch(line, /owed=/); // zero counts suppressed
+  });
+
+  it("done+fresh summary has no ghost in rendered line", () => {
+    const summary: PicodeSummary = {
+      id: "resting",
+      pid: 3,
+      state: "done",
+      status: "running",
+      parent: null,
+      role: "worker",
+      lastSeen: new Date().toISOString(),
+      obligations: 0,
+      owed: 0,
+      barriers: 0,
+      ghost: false,
+    };
+    const line = formatThreadLine(summary);
+    assert.doesNotMatch(line, /ghost/);
+    assert.match(line, /\[done\] {2}running/);
   });
 });
 

@@ -141,13 +141,23 @@ export interface PicodeSummary {
   owed: number;
   /** ...and armed reply barriers. */
   barriers: number;
+  /** True when state is terminal (done or stopped) AND no heartbeat has
+   *  landed in STALE_MS. Distinguishes a "done and clean-resting" picode
+   *  (fresh lastSeen — still resumable) from a "done and process-dead"
+   *  picode whose on-disk record will linger until picode_purge reaps it.
+   *  Routing agents should not target these; coordinators should reap them. */
+  ghost: boolean;
 }
 
 /** How every reader classifies another picode: a stale lastSeen overrides the
  *  stored status, so hard-killed processes (no session_shutdown) read as
- *  stopped (§8.2 — the one presence rule normative for every reader). */
+ *  stopped (§8.2 — the one presence rule normative for every reader).
+ *  A `ghost` is the stricter overlap: terminal state (done/stopped) AND stale
+ *  heartbeat — a record whose process is gone and whose `state` will never
+ *  advance again without an explicit revive. */
 export function toSummary(s: StateFile): PicodeSummary {
   const stale = Date.now() - new Date(s.lastSeen).getTime() > STALE_MS;
+  const ghost = stale && (s.state === "done" || s.state === "stopped");
   return {
     id: s.id,
     pid: s.pid,
@@ -159,6 +169,7 @@ export function toSummary(s: StateFile): PicodeSummary {
     obligations: s.obligations?.length ?? 0,
     owed: s.owed?.length ?? 0,
     barriers: s.barriers?.length ?? 0,
+    ghost,
   };
 }
 

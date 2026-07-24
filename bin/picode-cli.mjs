@@ -159,6 +159,11 @@ function effectiveStatus(state) {
   return state.status || "unknown";
 }
 
+function isGhost(state) {
+  const stale = state.lastSeen && Date.now() - Date.parse(state.lastSeen) > STALE_MS;
+  return stale && (state.state === "done" || state.state === "stopped");
+}
+
 function relTime(iso) {
   if (!iso) return "-";
   const ms = Date.now() - Date.parse(iso);
@@ -202,6 +207,7 @@ function collectPicodes(dir) {
       id,
       state: state.state ?? "unknown",
       status: effectiveStatus(state),
+      ghost: isGhost(state),
       role: state.role ?? "-",
       parent: state.parent ?? "-",
       obligations: Array.isArray(state.obligations) ? state.obligations.length : 0,
@@ -225,6 +231,7 @@ function renderTable(rows) {
     "ID",
     "STATE",
     "STATUS",
+    "GHOST",
     "ROLE",
     "PARENT",
     "OBLG",
@@ -237,6 +244,7 @@ function renderTable(rows) {
     r.id,
     r.state,
     r.status,
+    r.ghost ? "YES" : "-",
     r.role,
     r.parent,
     String(r.obligations),
