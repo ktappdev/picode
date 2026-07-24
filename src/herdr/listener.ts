@@ -1,16 +1,14 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { connect, Socket } from "node:net";
-import { readFileSync, existsSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-/** Event types we subscribe to from Herdr. */
-const WATCHED_EVENTS = [
-  "pane.closed",
-  "pane.exited",
-  "pane.agent_status_changed",
-  "pane.agent_detected",
-] as const;
+/** Event types we subscribe to from Herdr.
+ *  Note: pane.agent_status_changed requires a specific pane_id per subscription,
+ *  so global worker-death detection uses pane.closed/pane.exited for now.
+ *  Per-pane status tracking is a future enhancement. */
+const WATCHED_EVENTS = ["pane.closed", "pane.exited"] as const;
 
 type WatchedEvent = (typeof WATCHED_EVENTS)[number];
 
@@ -55,14 +53,6 @@ function formatEvent(event: HerdrEvent, workspaceId: string): string | null {
       return `[picode-system] Pane ${paneId} (${label || agent || "worker"}) was closed.`;
     case "pane.exited":
       return `[picode-system] Pane ${paneId} (${label || agent || "worker"}) process exited.`;
-    case "pane.agent_status_changed": {
-      const display = label || agent || `pane ${paneId}`;
-      return `[picode-system] ${display} is now ${agentStatus}.`;
-    }
-    case "pane.agent_detected": {
-      const display = label || agent || paneId;
-      return `[picode-system] Agent detected in ${display}.`;
-    }
     default:
       return null;
   }
@@ -77,32 +67,26 @@ function deliverAsUrgent(eventName: string): boolean {
 /** Start a persistent Herdr event subscription.
  *  Returns a stop function for shutdown cleanup. */
 export function startHerdrListener(pi: ExtensionAPI, workspaceId: string): () => void {
-  console.log(`[picode] startHerdrListener called for workspace ${workspaceId}`);
   if (process.env.HERDR_ENV !== "1") {
-    console.log("[picode] HERDR_ENV not set, skipping Herdr event listener");
     return () => {};
   }
 
   const socketPath = herdrSocketPath();
   if (!socketPath) {
-    console.log("[picode] Herdr socket not found, skipping event listener");
     return () => {};
   }
-  console.log(`[picode] Herdr socket at ${socketPath}`);
 
   let stopped = false;
 
   function connectSocket() {
     if (stopped || activeSocket) return;
 
-    console.log("[picode] Connecting to Herdr socket...");
     const socket = connect(socketPath!);
     activeSocket = socket;
 
     let buffer = "";
 
     socket.on("connect", () => {
-      console.log("[picode] Herdr socket connected");
       requestId++;
       const req = {
         jsonrpc: "2.0",
@@ -112,15 +96,11 @@ export function startHerdrListener(pi: ExtensionAPI, workspaceId: string): () =>
         },
         id: `picode-${requestId}`,
       };
-      const reqText = JSON.stringify(req) + "\n";
-      console.log("[picode] Sending subscribe:", reqText.trim());
-      socket.write(reqText);
+      socket.write(JSON.stringify(req) + "\n");
     });
 
     socket.on("data", (chunk: Buffer) => {
-      const chunkStr = chunk.toString("utf-8");
-      console.log("[picode] Herdr raw chunk:", chunkStr.replace(/\n/g, "\\n"));
-      buffer += chunkStr;
+      buffer += chunk.toString("utf-8");
       let nl: number;
       while ((nl = buffer.indexOf("\n")) !== -1) {
         const line = buffer.slice(0, nl).trim();
@@ -129,18 +109,15 @@ export function startHerdrListener(pi: ExtensionAPI, workspaceId: string): () =>
 
         try {
           const msg = JSON.parse(line) as HerdrEvent | { result?: unknown; id?: string };
-          console.log("[picode] Herdr parsed msg:", msg);
           if ("event" in msg) {
             const text = formatEvent(msg, workspaceId);
-            console.log("[picode] Formatted text:", text);
             if (text) {
               const steer = deliverAsUrgent(msg.event);
-              console.log("[picode] Sending to pi, deliverAs:", steer ? "steer" : "followUp");
               pi.sendUserMessage(text, { deliverAs: steer ? "steer" : "followUp" });
             }
           }
         } catch {
-          console.log("[picode] Failed to parse line:", line);
+          // Ignore malformed lines
         }
       }
     });
