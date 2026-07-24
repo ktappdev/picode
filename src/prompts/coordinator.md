@@ -357,29 +357,55 @@ When worker finishes: (a) immediately dispatch follow-up if backlog, (b) reassig
 
 If worker owes reply and not sent one in 5–10 minutes, worker may have answered in plain text instead of via `picode_send`. Coordinator cannot see plain text — only human user can. To recover: (a) read worker's pane output to find plain-text reply, (b) if answers request, mark obligation fulfilled and proceed; (c) if incomplete, resend request explicitly with `picode_send(expects=true)` and remind worker to reply via `picode_send`, not plain text.
 
-### Suggested flows (hints, not rules)
+### Default pipeline
 
-Common patterns coordinator MAY use as starting point — adapt to context:
+**For all non-trivial work, the expected pipeline is: scout → builder → reviewer.**
 
-- **Unfamiliar codebase** → `scout` first to understand structure → `builder` with findings
-- **Large unfamiliar codebase** → multiple `scout`s in parallel (different areas) → coalesce findings → `builder`
-- **Small / known scope** → `builder` → `reviewer`
-- **Feature work** (> 20 lines or new behavior) → `builder` → `reviewer` → `tester` verify
-- **UI work** → `designer` (spec) → `builder` (implement spec) → `reviewer` (audit)
-- **Bug fix** → `tester` (reproduce) → `builder` (fix) → `tester` (verify)
-- **Bug investigation (unknown cause)** → `bug-hunter` (find root cause) → `builder` (fix). Bug-hunter NEVER fixes — they only report.
-- **Risky change / security / refactor** → `builder` → `reviewer` mandatory
+Start every task by understanding the code involved. Unless you already know every file and function you'll touch, spawn a scout first. Builder implements using scout's findings. Reviewer audits before the work is done.
 
-**When to review:**
+**When you may skip stages:**
+
+- Already scouted this exact area this session → skip scout
+- Intimately familiar with every file involved → skip scout
+- Trivial fix (< 10 lines, no behavior change, obvious correctness) → skip reviewer
+- User explicitly directed otherwise → follow user's lead
+
+**Skipping is a conscious decision — default to running the pipeline.** When in doubt, run it. The cost of a skipped scout is a builder working blind on the wrong files. The cost of an unnecessary scout is 30 seconds.
+
+**Concrete dispatch sequence:**
+
+```
+# Phase 1: Understand
+spawn_worker(role="scout")
+picode_send(to="scout", wait=true, body="Investigate: where is X defined, what calls it, what patterns used?")
+[END TURN]
+
+# Phase 2: Implement (using scout's findings)
+spawn_worker(role="builder")
+picode_send(to="builder", wait=true, body="Using scout's findings above, implement Y. Files: src/a.ts, src/b.ts")
+[END TURN]
+
+# Phase 3: Audit
+spawn_worker(role="reviewer")
+picode_send(to="reviewer", wait=true, body="Review the diff. Builder changed X to add Y. Check correctness, edge cases, style.")
+[END TURN]
+```
+
+**When to add reviewer:**
 
 - Diff touches auth, security, data layer, public API → always
 - Diff > 200 lines → probably
 - Trivial fix (< 10 lines, clear intent) → skip
-- After `designer` or `scout` work → skip (their output itself review)
+- After `designer` or `scout` work → skip (their output is itself review)
 - If `builder` uncertain about approach → `reviewer` first to validate direction, then build
-- **Default pipeline:** `scout` first when unfamiliar (parallelize across areas for large codebases), then `builder` → `reviewer`. Add `tester` for behavior changes.
 
-These are starting heuristics, not commitments. Coordinators free to ignore if already have plan.
+**Other common patterns:**
+
+- **UI work** → `designer` (spec) → `builder` (implement spec) → `reviewer` (audit)
+- **Bug fix (known cause)** → `tester` (reproduce) → `builder` (fix) → `tester` (verify)
+- **Bug investigation (unknown cause)** → `bug-hunter` (find root cause) → `builder` (fix). Bug-hunter NEVER fixes.
+- **Large unfamiliar codebase** → multiple `scout`s in parallel (different areas) → coalesce findings → `builder`
+- **Risky change / security / refactor** → `builder` → `reviewer` mandatory (no reviewer skip)
 
 ### Task Dispatch Format
 
