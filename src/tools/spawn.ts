@@ -127,8 +127,8 @@ function getSplitTarget(currentPaneId: string, workspaceId: string, role: string
     const currentPane = panes.find(p => p.pane_id === currentPaneId);
     const currentTabId = (currentPane?.tab_id as string) || "";
 
-    // Build rect map: pane_id → {width, height}
-    const rectMap = new Map<string, { width: number; height: number }>();
+    // Build rect map: pane_id → {x, y, width, height}
+    const rectMap = new Map<string, { x: number; y: number; width: number; height: number }>();
     for (const layout of layouts) {
       const layoutPanes = (layout.panes as Record<string, unknown>[] | undefined) || [];
       for (const lp of layoutPanes) {
@@ -136,6 +136,8 @@ function getSplitTarget(currentPaneId: string, workspaceId: string, role: string
         const r = lp.rect as Record<string, unknown> | undefined;
         if (pid && r) {
           rectMap.set(pid, {
+            x: Number(r.x) || 0,
+            y: Number(r.y) || 0,
             width: Number(r.width) || 0,
             height: Number(r.height) || 0,
           });
@@ -202,7 +204,14 @@ function getSplitTarget(currentPaneId: string, workspaceId: string, role: string
 
     // Fallback to current pane if no valid candidate
     const targetPaneId = bestPaneId || currentPaneId;
-    const direction = computeDirection(targetPaneId, rectMap, wsWidth, wsHeight);
+    const direction = computeDirection(
+      targetPaneId,
+      rectMap,
+      wsWidth,
+      wsHeight,
+      panes,
+      currentTabId,
+    );
 
     return { paneId: targetPaneId, direction };
   } catch {
@@ -212,9 +221,11 @@ function getSplitTarget(currentPaneId: string, workspaceId: string, role: string
 
 function computeDirection(
   paneId: string,
-  rectMap: Map<string, { width: number; height: number }>,
+  rectMap: Map<string, { x: number; y: number; width: number; height: number }>,
   wsWidth: number,
   wsHeight: number,
+  panes: Array<Record<string, unknown>>,
+  currentTabId: string,
 ): "right" | "down" {
   const rect = rectMap.get(paneId);
   if (!rect) return "right";
@@ -235,6 +246,35 @@ function computeDirection(
   // If only one direction keeps panes usable, pick it
   if (rightOk && !downOk) return "right";
   if (downOk && !rightOk) return "down";
+
+  // Grid awareness: count panes that share the same x-range (vertical stack)
+  // vs same y-range (horizontal row) in the same tab. If we already have a
+  // tall stack, split right to start a new column. If we have a wide row,
+  // split down to start a new row.
+  const tolerance = Math.max(width, height) * 0.1; // 10% tolerance for alignment
+  let verticalStack = 0; // panes above/below each other (same x, different y)
+  let horizontalRow = 0; // panes side by side (same y, different x)
+
+  for (const pane of panes) {
+    if ((pane.tab_id as string) !== currentTabId) continue;
+    const pid = pane.pane_id as string;
+    const pr = rectMap.get(pid);
+    if (!pr) continue;
+
+    // Same x-range (within tolerance) → vertical stack neighbor
+    if (Math.abs(pr.x - rect.x) < tolerance) {
+      verticalStack++;
+    }
+    // Same y-range (within tolerance) → horizontal row neighbor
+    if (Math.abs(pr.y - rect.y) < tolerance) {
+      horizontalRow++;
+    }
+  }
+
+  // If 2+ panes already stacked vertically, split right to balance the grid
+  if (verticalStack >= 3 && rightOk) return "right";
+  // If 2+ panes already in a horizontal row, split down to balance the grid
+  if (horizontalRow >= 3 && downOk) return "down";
 
   // Both OK or both bad — prefer right for wide panes, down for square-ish
   return width > height * 1.5 ? "right" : "down";
@@ -304,6 +344,49 @@ function findExistingPane(workspaceId: string, role: string): string | null {
     // Ignore list errors — proceed to create new pane
   }
   return bestMatch;
+}
+
+/** Look for an empty pane (no agent, no label, but has a terminal) in the
+ *  same workspace and tab as the coordinator. Claiming an empty pane avoids
+ *  an unnecessary split and keeps the layout compact.
+ *
+ *  Criteria: agent is null, label is null/empty, terminal_id is set.
+ *  Must NOT be the coordinator's own pane.
+ *  Returns pane_id or null. */
+function findEmptyPane(workspaceId: string, currentPaneId: string): string | null {
+  try {
+    const snapshot = herdrJson("api snapshot");
+    const snap =
+      ((snapshot.result as Record<string, unknown> | undefined)?.snapshot as
+        Record<string, unknown> | undefined) || {};
+
+    const panes = ((snap.panes as Record<string, unknown>[] | undefined) || []) as Array<
+      Record<string, unknown>
+    >;
+
+    // Find current pane's tab_id so we only claim panes in the same tab
+    const currentPane = panes.find(p => p.pane_id === currentPaneId);
+    const currentTabId = (currentPane?.tab_id as string) || "";
+
+    for (const pane of panes) {
+      const paneId = (pane.pane_id as string) || "";
+      if (paneId === currentPaneId) continue; // never claim own pane
+      if (pane.workspace_id !== workspaceId) continue;
+      if ((pane.tab_id as string) !== currentTabId) continue;
+
+      const agent = pane.agent as string | null;
+      const label = (pane.label as string) || "";
+      const terminalId = (pane.terminal_id as string) || "";
+
+      // Empty = no agent, no label, but has a terminal we can run in
+      if (!agent && !label && terminalId) {
+        return paneId;
+      }
+    }
+  } catch {
+    // Ignore — fall through to split
+  }
+  return null;
 }
 
 export function registerSpawnTool(pi: ExtensionAPI) {
@@ -404,6 +487,7 @@ export function registerSpawnTool(pi: ExtensionAPI) {
         let direction: string | undefined;
         let splitTargetPaneId = paneId;
         let actualRole: string = params.role;
+        let claimedEmpty = false;
 
         if (paneIdToUse) {
           // Reuse existing pane — skip split, rename, and launch.
@@ -421,31 +505,39 @@ export function registerSpawnTool(pi: ExtensionAPI) {
             actualRole = params.role;
           }
         } else {
-          // 3. Determine split target and direction
-          if (params.direction) {
-            direction = params.direction;
-            splitTargetPaneId = paneId;
+          // 3a. Check for an empty pane (no agent, no label, has terminal)
+          //     Claiming it avoids an unnecessary split.
+          const emptyPaneId = findEmptyPane(workspaceId, paneId);
+          if (emptyPaneId) {
+            newPaneId = emptyPaneId;
+            claimedEmpty = true;
           } else {
-            const target = getSplitTarget(paneId, workspaceId, params.role);
-            splitTargetPaneId = target.paneId;
-            direction = target.direction;
-          }
-
-          // 4. Split pane
-          try {
-            const splitResult = herdrJson(
-              `pane split ${splitTargetPaneId} --direction ${direction} --no-focus`,
-            );
-            const splitPane = (splitResult.result as Record<string, unknown>)?.pane as
-              Record<string, unknown> | undefined;
-            newPaneId = splitPane?.pane_id as string;
-            if (!newPaneId) {
-              return err(
-                `herdr pane split succeeded but no pane_id in response: ${JSON.stringify(splitResult)}`,
-              );
+            // 3b. Determine split target and direction
+            if (params.direction) {
+              direction = params.direction;
+              splitTargetPaneId = paneId;
+            } else {
+              const target = getSplitTarget(paneId, workspaceId, params.role);
+              splitTargetPaneId = target.paneId;
+              direction = target.direction;
             }
-          } catch (e) {
-            return err(`herdr pane split failed: ${String(e)}`);
+
+            // 4. Split pane
+            try {
+              const splitResult = herdrJson(
+                `pane split ${splitTargetPaneId} --direction ${direction} --no-focus`,
+              );
+              const splitPane = (splitResult.result as Record<string, unknown>)?.pane as
+                Record<string, unknown> | undefined;
+              newPaneId = splitPane?.pane_id as string;
+              if (!newPaneId) {
+                return err(
+                  `herdr pane split succeeded but no pane_id in response: ${JSON.stringify(splitResult)}`,
+                );
+              }
+            } catch (e) {
+              return err(`herdr pane split failed: ${String(e)}`);
+            }
           }
 
           // 5. Rename pane (use uniqueId for label)
@@ -467,7 +559,7 @@ export function registerSpawnTool(pi: ExtensionAPI) {
         parts.push(`--picode-id ${uniqueId}`);
         const launchCmd = parts.join(" ");
 
-        // 9. Run launch command in new pane (only for new panes)
+        // 9. Run launch command in new/claimed pane (not for reused panes)
         if (!paneIdToUse) {
           try {
             herdr(`pane run ${newPaneId} "${launchCmd}"`);
@@ -475,7 +567,7 @@ export function registerSpawnTool(pi: ExtensionAPI) {
             return err(`herdr pane run failed: ${String(e)}`);
           }
 
-          // 10. Wait for agent to be idle (only for new panes)
+          // 10. Wait for agent to be idle (only for new/claimed panes)
           let warning: string | undefined;
           try {
             herdr(`wait agent-status ${newPaneId} --status idle --timeout 30000`);
@@ -490,6 +582,7 @@ export function registerSpawnTool(pi: ExtensionAPI) {
             model: model || "(pi default)",
             theme: theme || "(none)",
             reused,
+            ...(claimedEmpty ? { claimed_empty: true } : {}),
             ...(direction ? { direction } : {}),
             ...(splitTargetPaneId !== paneId ? { split_from: splitTargetPaneId } : {}),
             ...(warning ? { warning } : {}),

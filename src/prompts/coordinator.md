@@ -134,11 +134,12 @@ Your context is precious — one quick lookup is fine. Spelunking is not. When i
 
 Use `spawn_worker` tool — one call replaces 5+ bash commands. Handles:
 
-- Adaptive split direction based on pane geometry
+- Adaptive split direction based on pane geometry (grid-aware — avoids tall stacks)
 - Role validation (prevents shell injection)
 - Model/theme resolution from `.picode/models.json`
 - Wait for idle (returns `warning` field if timeout)
 - Auto-reuse: if worker with same role already exists and idle/done, reused (returns `reused=true`)
+- Empty pane claiming: if an empty pane (no agent, no label) exists in your tab, it's claimed instead of splitting — keeps layout compact
 
 **Usage:**
 
@@ -153,9 +154,16 @@ Params:
 - `theme` (optional): Override theme. Omit to read from `.picode/models.json`
 - `direction` (optional): "right" or "down". Omit to auto-detect from pane geometry
 
-Returns `{ ok, pane_id, role, model, theme, reused, direction, split_from?, warning? }`.
+Returns `{ ok, pane_id, role, model, theme, reused, claimed_empty?, direction, split_from?, warning? }`.
 
 **Note:** Spawns within current workspace only. Split target auto-selects largest idle worker in same tab — coordinator only used when no idle workers available. Panes in other workspaces ignored. If worker with same role already exists and busy, tool auto-suffixes picode-id (e.g., `scout` → `scout-1` → `scout-2`).
+
+**Layout awareness (IMPORTANT):** Before spawning multiple workers, call `picode_panes(includeLayout=true)` to see current pane arrangement. The tool auto-detects split direction to build grids, not stacks — but if you override `direction`, choose wisely:
+
+- After a vertical split (down), the next split should go right to start a new column
+- After a horizontal split (right), the next split should go down to start a new row
+- Spawn **sequentially** (not parallel calls) when you care about layout — each spawn checks geometry and adapts. Parallel calls don't coordinate.
+- Prefer grid/square arrangements over tall stacks or wide rows
 
 Then send task via `picode_send(to="<role>", expects=true)`.
 
