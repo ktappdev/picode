@@ -142,8 +142,8 @@ Messages show up as `[<kind> from <sender> #<id>]`. The kind (request, reply, re
 | `picode_resume`    | Resume from On Hold and drain queued messages.                                                                                                               |
 | `picode_panes`     | Survey all Herdr panes: status, role, position, reuse/cleanup suggestions. Read-only workspace surveillance.                                                 |
 | `picode_pane_read` | Read a worker pane's terminal output (scrollback). Use for silent worker recovery — when a worker owes a reply but hasn't sent via picode_send.              |
-| `spawn_worker`     | Spawn a new worker pane: splits, names, launches pi, waits for idle. Auto-reuses idle workers.                                                               |
-| `cleanup_panes`    | Close stale herdr worker panes. Use `dry_run=true` to preview. Pass `pane_id` to close a specific pane.                                                      |
+| `spawn_worker`     | Spawn a new worker pane: splits, names, launches pi, waits for idle. Auto-reuses idle workers, claims empty panes, grid-aware split direction.               |
+| `cleanup_panes`    | Close stale herdr worker panes. `dry_run=true` to preview. `pane_id="<id>"` to close one. `force=true` to close idle workers too (e.g. "close all").         |
 | `picode_purge`     | Delete stale picode data directories. Safe — only removes threads with no pending debts.                                                                     |
 
 ## Slash commands for humans
@@ -188,7 +188,7 @@ When a picode has the `coordinator` role (auto-detected from the name `coordinat
 - **Write, edit, and bash are disabled.** The coordinator cannot run shell commands or modify files. Quick targeted lookups (single grep, read known file path) go through [Hypa](https://github.com/earendil-works/hypa) tools when installed. Anything deeper — multi-file exploration, git operations, herdr commands — goes through workers via `spawn_worker` or `picode_send`.
 - **Auto-spawns workers via [herdr](https://github.com/earendil-works/herdr).** A terminal multiplexer that manages panes and tabs.
 - **Reuses panes.** It checks existing panes first and reuses idle or done workers instead of spawning duplicates.
-- **Adaptive layout.** Workers split in the direction that keeps new panes close to square. The coordinator stays at 50 percent on the left and the worker area fills the right half.
+- **Adaptive layout.** Workers split in the direction that keeps new panes close to square. Grid-aware splitting avoids tall stacks. Empty panes are claimed instead of splitting. The coordinator stays at 50 percent on the left and the worker area fills the right half.
 - **Structured dispatch.** Tasks go out as Objective, Context, Constraints, Action Steps, Deliverables, and Prerequisites.
 - **Self-improving.** When the coordinator finds a gap in its own rules, it writes the fix to a per-project prompt override file.
 
@@ -222,23 +222,38 @@ You can pick which LLM model each worker role uses with `.picode/models.json`:
 
 ## Customizing prompts
 
-Each role's system prompt ships as a bundled default in `src/core/system-prompt.ts`. You can replace a role's entire prompt block with a markdown file in your project. No code changes and no reinstall needed.
+Each role's system prompt ships as a bundled default in `src/core/system-prompt.ts`. You can extend or replace a role's prompt with a markdown file in your project. No code changes and no reinstall needed.
 
 Create `.picode/prompts/<role>.md` at your project root (the git repo root, or the cwd if you are not in a repo):
 
 ```
 .picode/
   prompts/
-    coordinator.md   # overrides the coordinator rules
-    builder.md       # overrides the builder rules
-    reviewer.md      # overrides the reviewer rules
+    coordinator.md   # extends or replaces the coordinator rules
+    builder.md       # extends or replaces the builder rules
+    reviewer.md      # extends or replaces the reviewer rules
     worker.md        # catch-all for any generic worker role
 ```
 
-A few things to know:
+### Extend mode (default)
 
-- The override file replaces the bundled role block entirely. There is no merging.
-- An empty file is ignored, so you get the bundled default.
+Your override file is **appended after** the bundled role prompt, wrapped in a `### Project-Specific Rules (USER-ENFORCED)` section. Bundled rules stay active; your rules take precedence. This is the default — no frontmatter needed.
+
+### Replace mode
+
+Add frontmatter to fully swap the bundled prompt (legacy behavior):
+
+```
+---
+mode: replace
+---
+
+Your custom prompt content here...
+```
+
+### Notes
+
+- Empty files are ignored, so you get the bundled default.
 - Unknown roles fall back to `worker.md`.
 - Prompts are loaded once at startup. Restart the picode after editing.
 - When a coordinator discovers a gap in its rules during operation, it writes to these override files rather than to the extension source. Those changes survive reinstalls and are safe to commit to your project.
