@@ -35,8 +35,8 @@ export const JOURNAL_MIN_INTERVAL_MS = 120_000;
 /** When journal entries exceed this, summarize the oldest (count - keepRecent)
  *  into a single block. Cooldown: 24h between compactions, enforced by the
  *  most-recent COMPACTION marker in the file. */
-export const JOURNAL_COMPACT_THRESHOLD = 500;
-export const JOURNAL_COMPACT_KEEP_RECENT = 100;
+export const JOURNAL_COMPACT_THRESHOLD = 200;
+export const JOURNAL_COMPACT_KEEP_RECENT = 50;
 export const JOURNAL_COMPACT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
 /** Detect a compaction marker: `<!-- COMPACTION <ts> -->`. Used to enforce

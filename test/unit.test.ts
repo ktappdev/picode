@@ -870,13 +870,28 @@ describe("tools: picode_list", () => {
 });
 
 describe("tools: picode_journal", () => {
-  it("returns the full journal with no filters", async () => {
+  it("returns the full journal when tail=0", async () => {
     const h = makeHarness(tmpDir);
     seedRemoteThread(h, "alice");
     writeJournal(h, "alice", journalEntry(nowStamp(), "task A") + journalEntry(nowStamp(), "B"));
-    const r = await callTool(h, "picode_journal", { id: "alice" });
+    const r = await callTool(h, "picode_journal", { id: "alice", tail: 0 });
     assert.match(r.content[0].text, /task A/);
     assert.match(r.content[0].text, /Working on: B/);
+  });
+
+  it("defaults tail to 15 entries", async () => {
+    const h = makeHarness(tmpDir);
+    seedRemoteThread(h, "alice");
+    const entries = Array.from({ length: 60 }, (_, i) =>
+      journalEntry(nowStamp(), `task ${i}`),
+    ).join("");
+    writeJournal(h, "alice", entries);
+    const r = await callTool(h, "picode_journal", { id: "alice" });
+    // Should only see last 15 (task 45 through task 59)
+    assert.doesNotMatch(r.content[0].text, /Working on: task 0/);
+    assert.doesNotMatch(r.content[0].text, /Working on: task 44/);
+    assert.match(r.content[0].text, /Working on: task 45/);
+    assert.match(r.content[0].text, /Working on: task 59/);
   });
 
   it("tail limits to the last N entries", async () => {
@@ -2808,12 +2823,12 @@ describe("state: watcher idempotency", () => {
   });
 });
 
-describe("journal: compaction (auto at 500 entries)", () => {
-  it("JOURNAL_COMPACT_THRESHOLD is 500", () => {
-    assert.strictEqual(JOURNAL_COMPACT_THRESHOLD, 500);
+describe("journal: compaction (auto at 200 entries)", () => {
+  it("JOURNAL_COMPACT_THRESHOLD is 200", () => {
+    assert.strictEqual(JOURNAL_COMPACT_THRESHOLD, 200);
   });
-  it("JOURNAL_COMPACT_KEEP_RECENT is 100", () => {
-    assert.strictEqual(JOURNAL_COMPACT_KEEP_RECENT, 100);
+  it("JOURNAL_COMPACT_KEEP_RECENT is 50", () => {
+    assert.strictEqual(JOURNAL_COMPACT_KEEP_RECENT, 50);
   });
   it("JOURNAL_COMPACT_COOLDOWN_MS is 24h", () => {
     assert.strictEqual(JOURNAL_COMPACT_COOLDOWN_MS, 24 * 60 * 60 * 1000);
@@ -2835,23 +2850,23 @@ describe("journal: compaction (auto at 500 entries)", () => {
   });
 
   it("decideCompaction splits oldest from newest when over the threshold", () => {
-    const entries = Array.from({ length: 510 }, (_, i) => `<!-- ${i} -->\nentry ${i}`);
+    const entries = Array.from({ length: 210 }, (_, i) => `<!-- ${i} -->\nentry ${i}`);
     const content = entries.join("\n");
     const plan = decideCompaction(content, Date.now());
     assert.ok(plan);
-    assert.strictEqual(plan.toSummarize.length, 510 - JOURNAL_COMPACT_KEEP_RECENT);
+    assert.strictEqual(plan.toSummarize.length, 210 - JOURNAL_COMPACT_KEEP_RECENT);
     assert.strictEqual(plan.toKeep.length, JOURNAL_COMPACT_KEEP_RECENT);
     // First summarized entry is index 0; first kept is the boundary.
     assert.ok(plan.toSummarize[0].startsWith("<!-- 0 -->"));
-    assert.ok(plan.toKeep[0].startsWith(`<!-- ${510 - JOURNAL_COMPACT_KEEP_RECENT} -->`));
-    assert.ok(plan.toKeep[plan.toKeep.length - 1].startsWith("<!-- 509 -->"));
+    assert.ok(plan.toKeep[0].startsWith(`<!-- ${210 - JOURNAL_COMPACT_KEEP_RECENT} -->`));
+    assert.ok(plan.toKeep[plan.toKeep.length - 1].startsWith("<!-- 209 -->"));
   });
 
   it("decideCompaction returns null when a recent COMPACTION marker is within cooldown", () => {
     const recent = new Date(Date.now() - 60_000); // 1 minute ago
     const ts = recent.toISOString().slice(0, 16).replace("T", " ");
     const entries = [
-      ...Array.from({ length: 509 }, (_, i) => `<!-- ${i} -->\nentry ${i}`),
+      ...Array.from({ length: 209 }, (_, i) => `<!-- ${i} -->\nentry ${i}`),
       `<!-- COMPACTION ${ts} -->\nold summary`,
     ];
     const plan = decideCompaction(entries.join("\n"), Date.now());
@@ -2862,7 +2877,7 @@ describe("journal: compaction (auto at 500 entries)", () => {
     const longAgo = new Date(Date.now() - JOURNAL_COMPACT_COOLDOWN_MS - 60_000);
     const ts = longAgo.toISOString().slice(0, 16).replace("T", " ");
     const entries = [
-      ...Array.from({ length: 509 }, (_, i) => `<!-- ${i} -->\nentry ${i}`),
+      ...Array.from({ length: 209 }, (_, i) => `<!-- ${i} -->\nentry ${i}`),
       `<!-- COMPACTION ${ts} -->\nancient summary`,
     ];
     const plan = decideCompaction(entries.join("\n"), Date.now());

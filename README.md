@@ -266,7 +266,7 @@ Every picode keeps a journal: a forked model call that summarizes its state. It 
 
 - **Cadence control.** Default is `done` — one entry per run at agent_end. Set to `turn` for one entry per turn (rate-limited to one per two minutes on same-task turns), or `off` to disable. Configure via `/picode-models` → `(journal cadence)`, `--picode-journal <turn|done|off>`, or the `"journal-cadence"` key in `.picode/models.json`.
 - **Journal model.** The model used for journal forks. Set via `/picode-models` → `journal`, `--picode-journal-model <model>`, or the `"journal"` key in `.picode/models.json`. If unset, inherits the picode's own model — which can fail (e.g. 402 balance errors) if that model is out of quota. Fresh installs default to a cheap model (`deepseek/deepseek-v4-flash`).
-- **Compaction.** When the journal passes 500 entries, the oldest ones are summarized into a single block, keeping the most recent 100 verbatim. There is a 24-hour cooldown between compactions.
+- **Compaction.** When the journal passes 200 entries, the oldest ones are summarized into a single block, keeping the most recent 50 verbatim. There is a 24-hour cooldown between compactions.
 - **Duplicate suppression.** An entry is skipped when its Working on or Done line matches the previous one.
 
 Manage it through the slash command:
@@ -278,7 +278,7 @@ Manage it through the slash command:
 | `/picode-journal status`  | Entry count, file size, oldest and newest timestamps.     |
 | `/picode-journal trim N`  | Keep only the last N entries.                             |
 | `/picode-journal clear`   | Delete the journal file.                                  |
-| `/picode-journal compact` | Force compaction now, even under the 500-entry threshold. |
+| `/picode-journal compact` | Force compaction now, even under the 200-entry threshold. |
 
 ## Human monitoring and steering
 

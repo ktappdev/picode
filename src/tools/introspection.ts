@@ -31,7 +31,7 @@ export function registerIntrospectionTools(pi: ExtensionAPI, store: PicodeStore)
     async execute(_id, params) {
       let journal =
         (await store.readJournal(store.picodeId)) ?? "(no journal yet — this is the first turn)";
-      // Apply filters if specified, or default tail=50 for context recovery
+      // Apply filters if specified, or default tail=15 to cap context
       const tail = params.tail !== undefined ? params.tail : 15;
       if ((tail > 0 || params.lookbackMinutes) && journal) {
         let entries = splitJournalEntries(journal);
@@ -105,7 +105,7 @@ export function registerIntrospectionTools(pi: ExtensionAPI, store: PicodeStore)
       tail: Type.Optional(
         Type.Number({
           description:
-            "Only return the last N journal entries (each entry is one turn/session). Default: all.",
+            "Only return the last N journal entries (each entry is one turn/session). Default: 15. Set 0 for full journal.",
         }),
       ),
       lookbackMinutes: Type.Optional(
@@ -123,7 +123,9 @@ export function registerIntrospectionTools(pi: ExtensionAPI, store: PicodeStore)
         return err(`No picode "${params.id}" found. Call picode_list to see known ids.`);
       }
       let journal = (await store.readJournal(params.id)) ?? "(no journal entries yet)";
-      if ((params.tail || params.lookbackMinutes) && journal) {
+      // Apply filters if specified, or default tail=15 to cap context
+      const tail = params.tail !== undefined ? params.tail : 15;
+      if ((tail > 0 || params.lookbackMinutes) && journal) {
         let entries = splitJournalEntries(journal);
         if (params.lookbackMinutes) {
           const cutoff = Date.now() - params.lookbackMinutes * 60_000;
@@ -134,7 +136,7 @@ export function registerIntrospectionTools(pi: ExtensionAPI, store: PicodeStore)
             return !Number.isFinite(ts) || ts >= cutoff;
           });
         }
-        if (params.tail) entries = entries.slice(-params.tail);
+        if (tail > 0) entries = entries.slice(-tail);
         journal = entries.join("\n") || "(no entries in range)";
       }
       return {
