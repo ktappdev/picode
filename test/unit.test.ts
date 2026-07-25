@@ -2995,9 +2995,20 @@ describe("lifecycle: extractFirstLine (current-task widget)", () => {
     );
   });
 
-  it("strips markdown headers", () => {
-    assert.equal(extractFirstLine("## Context\n\nbody"), "Context");
-    assert.equal(extractFirstLine("# Header"), "Header");
+  it("skips markdown headings, returns first content line", () => {
+    assert.equal(extractFirstLine("## Context\n\nbody"), "body");
+    assert.equal(
+      extractFirstLine("## Objective\nThis is a test objective"),
+      "This is a test objective",
+    );
+  });
+
+  it("skips all heading levels", () => {
+    assert.equal(extractFirstLine("# Header\n## Sub\n### Deep\nactual content"), "actual content");
+  });
+
+  it("falls back to raw body when only headings present", () => {
+    assert.equal(extractFirstLine("# Header"), "# Header".slice(0, 80));
   });
 
   it("returns the first non-empty line when there is no markdown", () => {
@@ -3008,9 +3019,9 @@ describe("lifecycle: extractFirstLine (current-task widget)", () => {
     assert.equal(extractFirstLine("\n\nactual line"), "actual line");
   });
 
-  it("falls back to first 80 chars when every line strips to empty", () => {
+  it("falls back to first 80 chars when every line is heading or blank", () => {
     const long = "x".repeat(100);
-    assert.equal(extractFirstLine("#\n**\n" + long), long.slice(0, 80));
+    assert.equal(extractFirstLine("# h\n## h2\n" + long), long.slice(0, 80));
   });
 
   it("truncates to 80 chars when the first line is longer", () => {
@@ -3021,7 +3032,13 @@ describe("lifecycle: extractFirstLine (current-task widget)", () => {
     assert.equal(extractFirstLine(""), "");
   });
 
-  it("handles a realistic picode_send task body", () => {
+  it("handles a realistic picode_send task body with ## Objective heading", () => {
+    const body =
+      "## Objective\nAdd a current-task widget.\n\n## Context\nUser wants workers to see their task.\n\n## Steps\n1. Implement\n2. Test";
+    assert.equal(extractFirstLine(body), "Add a current-task widget.");
+  });
+
+  it("handles a realistic picode_send task body with bold objective", () => {
     const body =
       "**Objective:** Add a current-task widget.\n\n## Context\nUser wants workers to see their task.\n\n## Steps\n1. Implement\n2. Test";
     assert.equal(extractFirstLine(body), "Objective: Add a current-task widget.");

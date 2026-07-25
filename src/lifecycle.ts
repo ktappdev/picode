@@ -89,8 +89,9 @@ function extractBodyFromRendered(rendered: string): string {
   return body;
 }
 
-/** First non-empty line of a task body, with leading markdown noise
- *  (`#` headers, `**` bold wrappers) stripped. Falls back to the first
+/** First non-empty content line of a task body, with leading markdown noise
+ *  (`**` bold wrappers) stripped. Markdown headings (`#`, `##`, etc.) are
+ *  skipped — they're structural, not content. Falls back to the first
  *  80 chars of the raw body when every line strips to empty. */
 export function extractFirstLine(body: string): string {
   if (!body) return "";
@@ -98,10 +99,9 @@ export function extractFirstLine(body: string): string {
   for (const line of lines) {
     const trimmed = line.trim();
     if (!trimmed) continue;
-    const cleaned = trimmed
-      .replace(/^#+\s*/, "")
-      .replace(/\*\*/g, "")
-      .trim();
+    // Skip markdown headings — they're structural, not the task description
+    if (/^#+\s/.test(trimmed)) continue;
+    const cleaned = trimmed.replace(/\*\*/g, "").trim();
     if (cleaned) return cleaned.slice(0, 80);
   }
   return body.slice(0, 80);
