@@ -392,7 +392,8 @@ function findExistingPane(workspaceId: string, role: string): string | null {
  *  same workspace and tab as the coordinator. Claiming an empty pane avoids
  *  an unnecessary split and keeps the layout compact.
  *
- *  Criteria: agent is null, label is null/empty, terminal_id is set.
+ *  Criteria: agent is null, label is null/empty, terminal_id is set,
+ *  AND no foreground process running (stale scripts block pane run).
  *  Must NOT be the coordinator's own pane.
  *  Returns pane_id or null. */
 function findEmptyPane(workspaceId: string, currentPaneId: string): string | null {
@@ -422,6 +423,22 @@ function findEmptyPane(workspaceId: string, currentPaneId: string): string | nul
 
       // Empty = no agent, no label, but has a terminal we can run in
       if (!agent && !label && terminalId) {
+        // Check for foreground processes — a stale script (e.g. picode_run
+        // temp .sh) would intercept pane run text instead of letting pi
+        // launch. Skip panes with running foreground processes.
+        try {
+          const procInfo = herdrJson(`pane process-info --pane ${paneId}`);
+          const info = (procInfo.result as Record<string, unknown> | undefined)?.process_info as
+            Record<string, unknown> | undefined;
+          const fgProcs = (info?.foreground_processes as Array<Record<string, unknown>>) || [];
+          if (fgProcs.length > 0) {
+            // Has a running process — not truly empty, skip
+            continue;
+          }
+        } catch {
+          // Can't check process info — skip to be safe
+          continue;
+        }
         return paneId;
       }
     }
@@ -603,6 +620,17 @@ export function registerSpawnTool(pi: ExtensionAPI) {
 
         // 9. Run launch command in new/claimed pane (not for reused panes)
         if (!paneIdToUse) {
+          // Safety net: if we claimed an empty pane, send Ctrl-C first to
+          // kill any stale process that might intercept pane run text.
+          // findEmptyPane checks for foreground processes, but race
+          // conditions can leave a process running between check and claim.
+          if (claimedEmpty) {
+            try {
+              herdr(`pane send-keys ${newPaneId} C-c`);
+            } catch {
+              // Non-fatal — may not have a process to interrupt
+            }
+          }
           try {
             herdr(`pane run ${newPaneId} "${launchCmd}"`);
           } catch (e) {

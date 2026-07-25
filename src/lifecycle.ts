@@ -315,7 +315,7 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
       // except write/edit. This lets extension tools (todo, grep, find, ls,
       // code_search, future extensions) stay active without a hardcoded
       // allowlist that drifts from what's actually registered.
-      const DENIED = new Set(["write", "edit", "bash"]);
+      const DENIED = new Set(["write", "edit", "bash", "picode_run"]);
       const filtered = pi.getActiveTools().filter(name => !DENIED.has(name));
       pi.setActiveTools(filtered);
     }
