@@ -4,6 +4,7 @@ import { execSync } from "child_process";
 import { readFileSync, existsSync, statSync } from "fs";
 import { join } from "path";
 import { err, extractRole } from "./shared";
+import { trackPane } from "../herdr/listener";
 
 /** Module-level cache for .picode/models.json */
 let modelsJson: Record<string, string> | null = null;
@@ -588,6 +589,7 @@ export function registerSpawnTool(pi: ExtensionAPI) {
             ...(warning ? { warning } : {}),
           };
 
+          trackPane(newPaneId);
           return {
             content: [
               {
@@ -609,6 +611,7 @@ export function registerSpawnTool(pi: ExtensionAPI) {
           reused: true,
         };
 
+        trackPane(newPaneId);
         return {
           content: [
             {

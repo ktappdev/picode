@@ -57,12 +57,46 @@ const MAX_RECONNECT_ATTEMPTS = 10;
 const BASE_BACKOFF_MS = 1_000;
 const MAX_BACKOFF_MS = 30_000;
 const HEARTBEAT_INTERVAL_MS = 60_000;
-/** Ignore events for this many ms after startup — avoids flooding the
- *  coordinator with stale pane-close events from auto-purge/cleanup. */
+/** Ignore events for this many ms after startup — belt-and-suspenders
+ *  alongside the tracked-panes filter to catch any async stale closes. */
 const STARTUP_GRACE_MS = 5_000;
 
+/** Handle for a running Herdr event listener. */
+export interface HerdrListenerHandle {
+  stop: () => void;
+  /** Register a pane ID as tracked — only events for tracked panes are
+   *  injected into the coordinator session. Called by spawn_worker. */
+  trackPane: (paneId: string) => void;
+  /** Stop tracking a pane ID. */
+  untrackPane: (paneId: string) => void;
+}
+
+/** Module-level singleton — set by lifecycle.ts on coordinator startup,
+ *  read by spawn_worker to track newly spawned panes. */
+let activeHandle: HerdrListenerHandle | null = null;
+
+/** Set the active listener handle (called by lifecycle.ts). */
+export function setListenerHandle(handle: HerdrListenerHandle | null): void {
+  activeHandle = handle;
+}
+
+/** Track a pane ID on the active listener (called by spawn_worker).
+ *  No-op if no listener is running. */
+export function trackPane(paneId: string): void {
+  activeHandle?.trackPane(paneId);
+}
+
+/** Untrack a pane ID on the active listener. */
+export function untrackPane(paneId: string): void {
+  activeHandle?.untrackPane(paneId);
+}
+
 /** Start a persistent Herdr event subscription.
- *  Returns a stop function for shutdown cleanup.
+ *  Returns a handle with stop() and pane tracking functions.
+ *
+ *  Only close/exit events for **tracked** pane IDs are injected — this
+ *  prevents stale panes from previous sessions from flooding the coordinator.
+ *  spawn_worker calls trackPane() for each pane it creates or reuses.
  *
  *  Resilience features:
  *  - All state in closure (no module globals — safe with multiple instances)
@@ -71,21 +105,24 @@ const STARTUP_GRACE_MS = 5_000;
  *  - Heartbeat: if no data received within HEARTBEAT_INTERVAL_MS, force reconnect
  *  - Socket destroyed on error before close handler
  *  - Debug logging via HERDR_LISTENER_DEBUG env var (off by default) */
-export function startHerdrListener(pi: ExtensionAPI, workspaceId: string): () => void {
+export function startHerdrListener(pi: ExtensionAPI, workspaceId: string): HerdrListenerHandle {
   const debug = process.env.HERDR_LISTENER_DEBUG === "1";
   const log = (msg: string) => {
     if (debug) console.log(`[picode] herdr-listener: ${msg}`);
   };
 
+  // Tracked pane IDs — only events for these panes are injected
+  const trackedPanes = new Set<string>();
+
   if (process.env.HERDR_ENV !== "1") {
     log("HERDR_ENV not set, skipping");
-    return () => {};
+    return { stop: () => {}, trackPane: () => {}, untrackPane: () => {} };
   }
 
   const socketPath = herdrSocketPath();
   if (!socketPath) {
     log("socket not found, skipping");
-    return () => {};
+    return { stop: () => {}, trackPane: () => {}, untrackPane: () => {} };
   }
   log(`socket at ${socketPath}`);
 
@@ -98,8 +135,7 @@ export function startHerdrListener(pi: ExtensionAPI, workspaceId: string): () =>
   let subscribed = false;
   const startTime = Date.now();
 
-  /** True during the startup grace period — stale pane closes from
-   *  auto-purge arrive here and should not flood the coordinator. */
+  /** True during the startup grace period. */
   function inStartupGrace(): boolean {
     return Date.now() - startTime < STARTUP_GRACE_MS;
   }
@@ -186,19 +222,32 @@ export function startHerdrListener(pi: ExtensionAPI, workspaceId: string): () =>
         try {
           const msg = JSON.parse(line) as HerdrEvent | { result?: unknown; id?: string };
           if ("event" in msg) {
-            log(`event=${msg.event} data=${JSON.stringify(msg.data)}`);
-            if (inStartupGrace()) {
-              log(`ignored (startup grace)`);
+            const paneId = (msg.data.pane_id as string) || "";
+
+            // Only notify for panes the coordinator spawned this session
+            if (!trackedPanes.has(paneId)) {
+              log(`ignored (not tracked: ${paneId})`);
               continue;
             }
+
+            // Belt-and-suspenders: also skip during startup grace
+            if (inStartupGrace()) {
+              log(`ignored (startup grace): ${paneId}`);
+              continue;
+            }
+
+            log(`event=${msg.event} pane=${paneId}`);
             const text = formatEvent(msg, workspaceId);
             if (text) {
               const steer = deliverAsUrgent(msg.event);
               log(`injecting deliverAs=${steer ? "steer" : "followUp"}`);
+              // Auto-untrack on close/exit — pane is gone
+              if (msg.event === "pane_closed" || msg.event === "pane_exited") {
+                trackedPanes.delete(paneId);
+              }
               pi.sendUserMessage(text, { deliverAs: steer ? "steer" : "followUp" });
             }
           } else if ("result" in msg) {
-            // Subscribe succeeded — reset backoff
             subscribed = true;
             reconnectAttempts = 0;
             log("subscription confirmed");
@@ -213,7 +262,6 @@ export function startHerdrListener(pi: ExtensionAPI, workspaceId: string): () =>
 
     s.on("error", (err: Error) => {
       log(`socket error: ${err.message}`);
-      // Destroy here — close event may not fire after error
       destroySocket();
     });
 
@@ -226,8 +274,18 @@ export function startHerdrListener(pi: ExtensionAPI, workspaceId: string): () =>
 
   connectSocket();
 
-  return () => {
-    stopped = true;
-    destroySocket();
+  return {
+    stop: () => {
+      stopped = true;
+      destroySocket();
+    },
+    trackPane: (paneId: string) => {
+      trackedPanes.add(paneId);
+      log(`tracking pane ${paneId} (${trackedPanes.size} total)`);
+    },
+    untrackPane: (paneId: string) => {
+      trackedPanes.delete(paneId);
+      log(`untracking pane ${paneId} (${trackedPanes.size} total)`);
+    },
   };
 }

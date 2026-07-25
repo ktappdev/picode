@@ -5,7 +5,7 @@ import { threadModelPrompt } from "./core/system-prompt";
 import { journalMode, shouldJournal } from "./journal";
 import { roleEmoji } from "./core/roles";
 import { purgeStalePcodes } from "./tools/purge";
-import { startHerdrListener } from "./herdr/listener";
+import { startHerdrListener, setListenerHandle, type HerdrListenerHandle } from "./herdr/listener";
 import { execSync } from "node:child_process";
 import { basename, dirname, join } from "node:path";
 import * as path from "node:path";
@@ -106,7 +106,7 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
   // children, which never inherit participation) never gets a .picode/ dir,
   // a random identity, the picode_* tools, or the picode-model system prompt.
   let active = false;
-  let stopHerdrListener: (() => void) | null = null;
+  let stopHerdrListener: HerdrListenerHandle | null = null;
 
   pi.on("session_start", async (_event, ctx) => {
     // Export bundled themes dir so worker spawn commands can resolve
@@ -199,6 +199,7 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
       process.env.HERDR_WORKSPACE_ID
     ) {
       stopHerdrListener = startHerdrListener(pi, process.env.HERDR_WORKSPACE_ID);
+      setListenerHandle(stopHerdrListener);
     }
 
     // Auto-purge stale picode data on coordinator startup (fire-and-forget)
@@ -302,8 +303,9 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
 
   pi.on("session_shutdown", async event => {
     if (stopHerdrListener) {
-      stopHerdrListener();
+      stopHerdrListener.stop();
       stopHerdrListener = null;
+      setListenerHandle(null);
     }
     if (active) await store.shutdown(event.reason);
   });
