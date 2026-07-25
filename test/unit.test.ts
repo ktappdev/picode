@@ -820,7 +820,7 @@ describe("tools: picode_status", () => {
     assert.match(r.content[0].text, /Barriers: none/);
   });
 
-  it("defaults tail to 50 entries for journal", async () => {
+  it("defaults tail to 15 entries for journal", async () => {
     const h = makeHarness(tmpDir);
     // Write 60 entries
     const entries = Array.from({ length: 60 }, (_, i) =>
@@ -828,10 +828,10 @@ describe("tools: picode_status", () => {
     ).join("");
     writeJournal(h, h.store.picodeId, entries);
     const r = await callTool(h, "picode_status");
-    // Should only see last 50 (task 10 through task 59)
+    // Should only see last 15 (task 45 through task 59)
     assert.doesNotMatch(r.content[0].text, /Working on: task 0/);
-    assert.doesNotMatch(r.content[0].text, /Working on: task 9/);
-    assert.match(r.content[0].text, /Working on: task 10/);
+    assert.doesNotMatch(r.content[0].text, /Working on: task 44/);
+    assert.match(r.content[0].text, /Working on: task 45/);
     assert.match(r.content[0].text, /Working on: task 59/);
   });
 

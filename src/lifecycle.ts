@@ -253,7 +253,7 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
         }
         // Inject sit-rep as followUp (non-interrupting — waits for current turn)
         pi.sendUserMessage(
-          "[picode-system] Periodic sit-rep: run picode_panes() and picode_status(). Check for: (1) zombie workers — working but no recent activity, (2) stale barriers — expired deadlines, (3) idle workers that could be reused or closed. Act on findings — close zombies, purge stale barriers, reassign idle workers. Don't just report.",
+          "[picode-system] Periodic sit-rep: run picode_panes() and picode_status(tail=5). Check for: (1) zombie workers — working but no recent activity, (2) stale barriers — expired deadlines, (3) idle workers that could be reused or closed. Act on findings — close zombies, purge stale barriers, reassign idle workers. Don't just report.",
           { deliverAs: "followUp" },
         );
       }, SITREP_INTERVAL_MS);

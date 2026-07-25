@@ -18,7 +18,7 @@ export function registerIntrospectionTools(pi: ExtensionAPI, store: PicodeStore)
       tail: Type.Optional(
         Type.Number({
           description:
-            "Only return the last N journal entries. Default: 50. Set 0 for full journal.",
+            "Only return the last N journal entries. Default: 15. Set 0 for full journal.",
         }),
       ),
       lookbackMinutes: Type.Optional(
@@ -32,7 +32,7 @@ export function registerIntrospectionTools(pi: ExtensionAPI, store: PicodeStore)
       let journal =
         (await store.readJournal(store.picodeId)) ?? "(no journal yet — this is the first turn)";
       // Apply filters if specified, or default tail=50 for context recovery
-      const tail = params.tail !== undefined ? params.tail : 50;
+      const tail = params.tail !== undefined ? params.tail : 15;
       if ((tail > 0 || params.lookbackMinutes) && journal) {
         let entries = splitJournalEntries(journal);
         if (params.lookbackMinutes) {
