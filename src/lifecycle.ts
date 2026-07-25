@@ -157,9 +157,42 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
       return;
     }
 
-    // Start Herdr real-time event listener for coordinators. Events are
-    // pushed into the session as [picode-system] messages so the coordinator
-    // learns about pane closes/exits and agent status changes without polling.
+    // Clean up stale worker panes BEFORE starting the event listener,
+    // so their close events don't flood the coordinator on startup.
+    if (
+      store.role === "coordinator" &&
+      process.env.HERDR_ENV === "1" &&
+      process.env.HERDR_WORKSPACE_ID
+    ) {
+      try {
+        // List panes and close stale workers synchronously
+        const listRaw = execSync(`herdr api snapshot`, {
+          encoding: "utf-8",
+          timeout: 10_000,
+          stdio: ["pipe", "pipe", "pipe"],
+        });
+        const snap = JSON.parse(listRaw).result?.snapshot;
+        const panes = snap?.panes || [];
+        const ws = process.env.HERDR_WORKSPACE_ID;
+        const myPane = process.env.HERDR_PANE_ID;
+        for (const p of panes) {
+          if (p.workspace_id !== ws) continue;
+          if (p.pane_id === myPane) continue;
+          const status = p.agent_status;
+          if (status === "working" || status === "idle") continue;
+          try {
+            execSync(`herdr pane close ${p.pane_id}`, { stdio: "pipe", timeout: 5_000 });
+          } catch {
+            // Non-fatal — pane may already be gone
+          }
+        }
+      } catch {
+        // Non-fatal — snapshot or close failed
+      }
+    }
+
+    // Start Herdr real-time event listener AFTER stale cleanup so close
+    // events from dead panes don't flood the coordinator.
     if (
       store.role === "coordinator" &&
       process.env.HERDR_ENV === "1" &&

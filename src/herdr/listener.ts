@@ -57,6 +57,9 @@ const MAX_RECONNECT_ATTEMPTS = 10;
 const BASE_BACKOFF_MS = 1_000;
 const MAX_BACKOFF_MS = 30_000;
 const HEARTBEAT_INTERVAL_MS = 60_000;
+/** Ignore events for this many ms after startup — avoids flooding the
+ *  coordinator with stale pane-close events from auto-purge/cleanup. */
+const STARTUP_GRACE_MS = 5_000;
 
 /** Start a persistent Herdr event subscription.
  *  Returns a stop function for shutdown cleanup.
@@ -93,6 +96,13 @@ export function startHerdrListener(pi: ExtensionAPI, workspaceId: string): () =>
   let reconnectAttempts = 0;
   let requestId = 0;
   let subscribed = false;
+  const startTime = Date.now();
+
+  /** True during the startup grace period — stale pane closes from
+   *  auto-purge arrive here and should not flood the coordinator. */
+  function inStartupGrace(): boolean {
+    return Date.now() - startTime < STARTUP_GRACE_MS;
+  }
 
   function clearTimers() {
     if (reconnectTimer) {
@@ -177,6 +187,10 @@ export function startHerdrListener(pi: ExtensionAPI, workspaceId: string): () =>
           const msg = JSON.parse(line) as HerdrEvent | { result?: unknown; id?: string };
           if ("event" in msg) {
             log(`event=${msg.event} data=${JSON.stringify(msg.data)}`);
+            if (inStartupGrace()) {
+              log(`ignored (startup grace)`);
+              continue;
+            }
             const text = formatEvent(msg, workspaceId);
             if (text) {
               const steer = deliverAsUrgent(msg.event);
