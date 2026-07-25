@@ -120,6 +120,28 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
   let stopHerdrListener: HerdrListenerHandle | null = null;
   let sitRepTimer: NodeJS.Timeout | null = null;
 
+  // Targeted guard: upstream extensions (e.g. pi-windsurf) can throw
+  // ERR_INVALID_STATE when cancelling a locked ReadableStream on idle
+  // timeout. The error escapes as an uncaughtException because the
+  // cancel() Promise rejection isn't awaited. Pi has no global handler,
+  // so the process dies. Catch only this specific error — let everything
+  // else crash normally so real bugs surface.
+  const streamGuard = (err: Error) => {
+    if (
+      err instanceof Error &&
+      (err as NodeJS.ErrnoException).code === "ERR_INVALID_STATE" &&
+      /ReadableStream|cancel/i.test(err.message)
+    ) {
+      console.error(
+        `[picode] Suppressed upstream stream error (likely pi-windsurf idle timeout): ${err.message}`,
+      );
+      return;
+    }
+    // Re-throw — not ours to handle
+    throw err;
+  };
+  process.on("uncaughtException", streamGuard);
+
   pi.on("session_start", async (_event, ctx) => {
     // Export bundled themes dir so worker spawn commands can resolve
     // --theme <name> to an absolute file path (pi treats --theme as a
@@ -341,6 +363,7 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
       clearInterval(sitRepTimer);
       sitRepTimer = null;
     }
+    process.off("uncaughtException", streamGuard);
     if (stopHerdrListener) {
       stopHerdrListener.stop();
       stopHerdrListener = null;
