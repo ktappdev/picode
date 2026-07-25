@@ -8,12 +8,6 @@ import { err, extractRole } from "./shared";
 const WORKER_ROLE_PATTERN =
   /^(builder|reviewer|tester|worker|scout|bug-hunter|designer|planner|runner|presenter|explorer)(-[0-9]+)?$/i;
 
-/** Statuses that mean the pane is still useful — don't close these. */
-const ACTIVE_STATUSES = new Set(["working", "idle"]);
-
-/** Statuses that are safe to close even without `force`. */
-const STALE_STATUSES = new Set(["done", "unknown", "blocked", "stopped"]);
-
 function herdr(args: string): string {
   return execSync(`herdr ${args}`, { encoding: "utf-8", timeout: 15_000 });
 }
@@ -93,16 +87,11 @@ export function registerCleanupPanesTool(pi: ExtensionAPI) {
             );
           }
 
-          const label = (paneInfo.label as string) || "";
           const agentStatus = (paneInfo.agent_status as string) || "unknown";
-          const role = extractRole(label);
 
-          if (!WORKER_ROLE_PATTERN.test(role)) {
-            return err(
-              `Pane ${targetId} label "${label}" does not match a worker role — refusing to close non-worker pane.`,
-            );
-          }
-
+          // When pane_id is explicitly provided, skip the worker-role label check.
+          // Dead panes often lose their labels — the coordinator knows what it's
+          // targeting and we only need to protect working panes and our own pane.
           if (agentStatus === "working") {
             return err(
               `Pane ${targetId} is working — cleanup_panes does not close working panes. Wait for it to finish.`,

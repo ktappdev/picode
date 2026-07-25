@@ -1,5 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { connect, Socket } from "node:net";
+import { connect, type Socket } from "node:net";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -132,7 +132,6 @@ export function startHerdrListener(pi: ExtensionAPI, workspaceId: string): Herdr
   let heartbeatTimer: NodeJS.Timeout | null = null;
   let reconnectAttempts = 0;
   let requestId = 0;
-  let subscribed = false;
   const startTime = Date.now();
 
   /** True during the startup grace period. */
@@ -197,7 +196,6 @@ export function startHerdrListener(pi: ExtensionAPI, workspaceId: string): Herdr
     s.on("connect", () => {
       log("connected, subscribing");
       requestId++;
-      subscribed = false;
       const req = {
         jsonrpc: "2.0",
         method: "events.subscribe",
@@ -248,7 +246,6 @@ export function startHerdrListener(pi: ExtensionAPI, workspaceId: string): Herdr
               pi.sendUserMessage(text, { deliverAs: steer ? "steer" : "followUp" });
             }
           } else if ("result" in msg) {
-            subscribed = true;
             reconnectAttempts = 0;
             log("subscription confirmed");
           } else if ("error" in msg) {

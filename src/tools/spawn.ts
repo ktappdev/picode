@@ -6,6 +6,19 @@ import { join } from "path";
 import { err, extractRole } from "./shared";
 import { trackPane } from "../herdr/listener";
 
+/** Check if a PID is alive (same logic as state.ts). */
+function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e: unknown) {
+    if (e instanceof Error && (e as NodeJS.ErrnoException).code === "ESRCH") {
+      return false;
+    }
+    return true; // EPERM or other — process exists
+  }
+}
+
 /** Module-level cache for .picode/models.json */
 let modelsJson: Record<string, string> | null = null;
 let modelsJsonMtime: number | null = null;
@@ -104,7 +117,10 @@ const MIN_RESULT_RATIO = 0.15; // resulting pane must be ≥15% of workspace dim
 
 function isCoordinatorLabel(label: string): boolean {
   const stripped = label
-    .replace(/[🧭🔨🔍🧪🎨🐛📋⚙️🏃]\s*/, "")
+    .replace(
+      /[\u{1F9ED}\u{1F528}\u{1F50D}\u{1F9EA}\u{1F3A8}\u{1F41B}\u{1F4CB}\u{2699}\u{1F3C3}]\s*/u,
+      "",
+    )
     .trim()
     .toLowerCase();
   return stripped === "coordinator";
@@ -282,8 +298,13 @@ function computeDirection(
 }
 
 /** Check if a picode-id already exists in the workspace.
- *  Returns true if a pane with that exact picode-id label exists. */
+ *  Checks two sources:
+ *  1. Pane labels (visible live workers)
+ *  2. .picode/picodes/<id>/state.json with status=running and live PID
+ *     (catches dead panes with lost labels that still hold picode-id registration)
+ *  Returns true if a live picode with that exact id exists. */
 function threadIdExists(workspaceId: string, picodeId: string): boolean {
+  // 1. Check pane labels
   try {
     const result = herdrJson(`pane list --workspace ${workspaceId}`);
     const panes =
@@ -298,6 +319,26 @@ function threadIdExists(workspaceId: string, picodeId: string): boolean {
   } catch {
     // Ignore list errors
   }
+
+  // 2. Check picode state directory for running picodes with live PIDs
+  const picodesRoot = join(process.cwd(), ".picode", "picodes");
+  const statePath = join(picodesRoot, picodeId, "state.json");
+  if (existsSync(statePath)) {
+    try {
+      const s = JSON.parse(readFileSync(statePath, "utf8"));
+      if (s.status === "running") {
+        // Verify PID is alive — stale state from crashed process doesn't count
+        if (typeof s.pid === "number" && !isPidAlive(s.pid)) {
+          // Stale — previous instance crashed, don't count it
+        } else {
+          return true;
+        }
+      }
+    } catch {
+      // Corrupt state file — ignore
+    }
+  }
+
   return false;
 }
 
