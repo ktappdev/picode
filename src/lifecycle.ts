@@ -5,11 +5,22 @@ import { threadModelPrompt } from "./core/system-prompt";
 import { journalMode, shouldJournal } from "./journal";
 import { roleEmoji } from "./core/roles";
 import { purgeStalePcodes } from "./tools/purge";
-import { startHerdrListener, setListenerHandle, type HerdrListenerHandle } from "./herdr/listener";
+import {
+  startHerdrListener,
+  setListenerHandle,
+  getTrackedPaneCount,
+  type HerdrListenerHandle,
+} from "./herdr/listener";
 import { execSync } from "node:child_process";
 import { basename, dirname, join } from "node:path";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+
+/** Interval for periodic coordinator sit-rep injections (ms).
+ *  Every N minutes, if the coordinator is idle and has tracked panes,
+ *  inject a sit-rep prompt so it checks worker health and stale barriers.
+ *  Override with PICODE_SITREP_INTERVAL_MS env var. */
+const SITREP_INTERVAL_MS = Number(process.env.PICODE_SITREP_INTERVAL_MS) || 600_000; // 10 min default
 
 /** Wiring into pi's event stream: state transitions across the turn cycle,
  *  the silent-debtor nudge, journal cadence triggers, and the picode-model
@@ -107,6 +118,7 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
   // a random identity, the picode_* tools, or the picode-model system prompt.
   let active = false;
   let stopHerdrListener: HerdrListenerHandle | null = null;
+  let sitRepTimer: NodeJS.Timeout | null = null;
 
   pi.on("session_start", async (_event, ctx) => {
     // Export bundled themes dir so worker spawn commands can resolve
@@ -200,6 +212,29 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
     ) {
       stopHerdrListener = startHerdrListener(pi, process.env.HERDR_WORKSPACE_ID);
       setListenerHandle(stopHerdrListener);
+
+      // Start periodic sit-rep timer — wakes coordinator every SITREP_INTERVAL_MS
+      // to check worker health and stale barriers. Only fires when coordinator
+      // is idle (done/open state), not during active work, compaction, or suspend.
+      sitRepTimer = setInterval(() => {
+        // Skip if coordinator is actively working or thinking
+        if (store.state === "thinking" || store.state === "working" || store.state === "on-hold") {
+          return;
+        }
+        // Skip if compaction is in progress — injection would race context rewrite
+        if (!inbox.canInject()) {
+          return;
+        }
+        // Skip if no tracked panes — nothing to sit-rep about
+        if (getTrackedPaneCount() === 0) {
+          return;
+        }
+        // Inject sit-rep as followUp (non-interrupting — waits for current turn)
+        pi.sendUserMessage(
+          "[picode-system] Periodic sit-rep: run picode_panes() and picode_status(). Check for: (1) zombie workers — working but no recent activity, (2) stale barriers — expired deadlines, (3) idle workers that could be reused or closed. Act on findings — close zombies, purge stale barriers, reassign idle workers. Don't just report.",
+          { deliverAs: "followUp" },
+        );
+      }, SITREP_INTERVAL_MS);
     }
 
     // Auto-purge stale picode data on coordinator startup (fire-and-forget)
@@ -302,6 +337,10 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
   });
 
   pi.on("session_shutdown", async event => {
+    if (sitRepTimer) {
+      clearInterval(sitRepTimer);
+      sitRepTimer = null;
+    }
     if (stopHerdrListener) {
       stopHerdrListener.stop();
       stopHerdrListener = null;

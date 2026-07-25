@@ -69,6 +69,8 @@ export interface HerdrListenerHandle {
   trackPane: (paneId: string) => void;
   /** Stop tracking a pane ID. */
   untrackPane: (paneId: string) => void;
+  /** Get the count of currently tracked panes. */
+  trackedPaneCount: () => number;
 }
 
 /** Module-level singleton — set by lifecycle.ts on coordinator startup,
@@ -89,6 +91,11 @@ export function trackPane(paneId: string): void {
 /** Untrack a pane ID on the active listener. */
 export function untrackPane(paneId: string): void {
   activeHandle?.untrackPane(paneId);
+}
+
+/** Get the count of currently tracked panes (for sit-rep timer gating). */
+export function getTrackedPaneCount(): number {
+  return activeHandle?.trackedPaneCount() ?? 0;
 }
 
 /** Start a persistent Herdr event subscription.
@@ -116,13 +123,23 @@ export function startHerdrListener(pi: ExtensionAPI, workspaceId: string): Herdr
 
   if (process.env.HERDR_ENV !== "1") {
     log("HERDR_ENV not set, skipping");
-    return { stop: () => {}, trackPane: () => {}, untrackPane: () => {} };
+    return {
+      stop: () => {},
+      trackPane: () => {},
+      untrackPane: () => {},
+      trackedPaneCount: () => 0,
+    };
   }
 
   const socketPath = herdrSocketPath();
   if (!socketPath) {
     log("socket not found, skipping");
-    return { stop: () => {}, trackPane: () => {}, untrackPane: () => {} };
+    return {
+      stop: () => {},
+      trackPane: () => {},
+      untrackPane: () => {},
+      trackedPaneCount: () => 0,
+    };
   }
   log(`socket at ${socketPath}`);
 
@@ -284,5 +301,6 @@ export function startHerdrListener(pi: ExtensionAPI, workspaceId: string): Herdr
       trackedPanes.delete(paneId);
       log(`untracking pane ${paneId} (${trackedPanes.size} total)`);
     },
+    trackedPaneCount: () => trackedPanes.size,
   };
 }

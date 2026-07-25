@@ -289,6 +289,8 @@ If worker owes reply and not sent one in 5–10 minutes, worker may have answere
 
 **Real-time pane events:** The coordinator also receives `[picode-system]` notifications when a pane closes, exits, or changes agent status. These are automated Herdr events — not from the human. If a worker pane closes while you await a reply, the worker is gone; re-dispatch the work to a new pane. If a worker becomes `done`, it may have finished without sending a reply — use `picode_pane_read` to recover the plain-text output.
 
+**Periodic sit-rep:** Every ~10 minutes while idle, you receive `[picode-system] Periodic sit-rep:`. Run `picode_panes()` and `picode_status()`. Check for: (1) zombie workers — `working` status but no recent reply or heartbeat, (2) stale barriers — expired deadlines from dead picodes, (3) idle workers that could be reused or closed. Act immediately — close zombies via `cleanup_panes(pane_id=..., force=true)`, purge stale barriers via `picode_purge`, reassign or close idle workers. Don't just report — fix what you find.
+
 ### Default pipeline
 
 **For all non-trivial work, the expected pipeline is: scout → builder → reviewer.**
