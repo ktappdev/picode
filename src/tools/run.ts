@@ -57,6 +57,7 @@ function writeCommandScript(command: string, cwd: string, sentinel: string): str
   // Script: cd to cwd, run command, capture exit, print sentinel + exit code.
   // The sentinel only appears in script output — never in the `bash <script>` command echo.
   const script = `#!/bin/bash
+trap 'rm -f -- "$0"' EXIT
 cd ${JSON.stringify(cwd)} 2>/dev/null || cd /tmp
 ${command}
 __EXIT_CODE=$?
@@ -377,7 +378,9 @@ export function registerRunTool(pi: ExtensionAPI) {
         };
       } finally {
         // Clean up temp script
-        if (scriptPath && existsSync(scriptPath)) {
+        // Non-blocking scripts clean themselves via the EXIT trap after the
+        // shell opens them. Deleting here would race pane run startup.
+        if (wait && scriptPath && existsSync(scriptPath)) {
           try {
             unlinkSync(scriptPath);
           } catch {

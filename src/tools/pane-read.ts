@@ -1,7 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { execSync } from "child_process";
-import { err } from "./shared";
+import { err, isValidPaneId } from "./shared";
 
 /** Valid herdr pane read sources. */
 const VALID_SOURCES = new Set(["visible", "recent", "recent-unwrapped", "detection"]);
@@ -58,6 +58,10 @@ export function registerPaneReadTool(pi: ExtensionAPI) {
         return err(
           "pane_id is required — get it from picode_panes(), spawn_worker return, or worker's picode_send reply.",
         );
+      }
+
+      if (!isValidPaneId(paneId)) {
+        return err(`Invalid pane_id "${paneId}" — expected Herdr format like w1:p2.`);
       }
 
       // Safety: never read our own pane — the coordinator's output is not

@@ -68,6 +68,8 @@ import type { StateFile, Envelope, PicodeSummary } from "../src/core/types";
 import { STALE_MS, PROCESSED_TTL_MS, CLIENT_CAPABILITIES, toSummary } from "../src/core/types";
 import { formatThreadLine } from "../src/core/format";
 import { ulid, mintEnvelopeId } from "../src/core/ids";
+import { detectWorkerRole } from "../src/core/roles";
+import { threadModelPrompt } from "../src/core/system-prompt";
 
 // --- harness -----------------------------------------------------------
 
@@ -3102,6 +3104,41 @@ describe("core/time: deadlineFromSeconds", () => {
   });
 });
 
+describe("role and prompt contracts", () => {
+  it("detects planner and runner IDs, and aliases explorer to scout", () => {
+    assert.equal(detectWorkerRole("planner"), "planner");
+    assert.equal(detectWorkerRole("runner-1"), "runner");
+    assert.equal(detectWorkerRole("explorer"), "scout");
+    assert.equal(detectWorkerRole("explorer-2"), "scout");
+    assert.equal(detectWorkerRole("helper-1"), "worker");
+  });
+
+  it("separates worker role prompt from communication model", () => {
+    const prompt = threadModelPrompt({
+      picodeId: "planner",
+      picodeDir: "",
+      picodesRootDir: "",
+      parent: "coordinator",
+      role: "planner",
+      sessionFile: null,
+      startedAt: "",
+      state: "open",
+      status: "running",
+      holdReason: null,
+      obligations: [],
+      owed: [],
+      barriers: [],
+      owedNudgePending: false,
+      owedSilentStreak: 0,
+      lastJournalSignature: null,
+      lastJournalAt: 0,
+      journalDebt: false,
+    });
+    assert.match(prompt, /workspace\.\n\n### Role: Worker/);
+    assert.match(prompt, /work lost\.\n\n### Subtype: Planner/);
+  });
+});
+
 describe("system-prompt: picode_send contract is in every worker template", () => {
   // Regression guard: the contract must live in the shared worker base
   // block so it reaches builder, reviewer, explorer, tester, designer,
@@ -3283,6 +3320,7 @@ describe("tools/cleanup-panes: targeted pane_id validation (no herdr needed)", (
   // Tests the targeted-mode validation paths that fail before execSync.
   it("refuses to close its own pane even with pane_id", async () => {
     const h = makeHarness(tmpDir);
+    h.store.role = "coordinator";
     process.env.HERDR_WORKSPACE_ID = "w1";
     process.env.HERDR_PANE_ID = "w1:p1";
     try {
@@ -3351,6 +3389,7 @@ describe("tools/cleanup-panes: targeted close skips role check", () => {
   // non-existent pane is "not found" (not "does not match").
   it("does not check WORKER_ROLE_PATTERN for targeted pane_id", async () => {
     const h = makeHarness(tmpDir);
+    h.store.role = "coordinator";
     process.env.HERDR_WORKSPACE_ID = "w1";
     process.env.HERDR_PANE_ID = "w1:p1";
     try {

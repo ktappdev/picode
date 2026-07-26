@@ -1,7 +1,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { execSync } from "child_process";
-import { err, extractRole } from "./shared";
+import { err, extractRole, isValidPaneId } from "./shared";
+import type { PicodeStore } from "../core/types";
 
 /** Worker role labels to clean up (case-insensitive, emoji prefix stripped).
  *  Matches base role and suffixed variants (worker, worker-1, builder-2, etc.). */
@@ -24,7 +25,7 @@ function herdrJson(args: string): Record<string, unknown> {
 
 // extractRole imported from shared.ts
 
-export function registerCleanupPanesTool(pi: ExtensionAPI) {
+export function registerCleanupPanesTool(pi: ExtensionAPI, store: PicodeStore) {
   pi.registerTool({
     name: "cleanup_panes",
     label: "Cleanup Panes",
@@ -52,6 +53,10 @@ export function registerCleanupPanesTool(pi: ExtensionAPI) {
       ),
     }),
     async execute(_id, params, _signal, _onUpdate, _ctx) {
+      if (store.role !== "coordinator") {
+        return err("cleanup_panes is coordinator-only — report pane problems to your coordinator.");
+      }
+
       const workspaceId = process.env.HERDR_WORKSPACE_ID;
 
       if (!workspaceId) {
@@ -64,6 +69,9 @@ export function registerCleanupPanesTool(pi: ExtensionAPI) {
         // --- Targeted mode: close a specific pane ---
         if (params.pane_id) {
           const targetId = params.pane_id.trim();
+          if (!isValidPaneId(targetId)) {
+            return err(`Invalid pane_id "${targetId}" — expected Herdr format like w1:p2.`);
+          }
 
           // Safety: never close our own pane
           if (targetId === currentPaneId) {
@@ -92,9 +100,9 @@ export function registerCleanupPanesTool(pi: ExtensionAPI) {
           // When pane_id is explicitly provided, skip the worker-role label check.
           // Dead panes often lose their labels — the coordinator knows what it's
           // targeting and we only need to protect working panes and our own pane.
-          if (agentStatus === "working") {
+          if (agentStatus === "working" || agentStatus === "blocked") {
             return err(
-              `Pane ${targetId} is working — cleanup_panes does not close working panes. Wait for it to finish.`,
+              `Pane ${targetId} is ${agentStatus} — cleanup_panes protects active/blocked workers. Inspect or unblock it first.`,
             );
           }
 
@@ -128,8 +136,8 @@ export function registerCleanupPanesTool(pi: ExtensionAPI) {
 
           try {
             herdr(`pane close ${targetId}`);
-          } catch {
-            // Non-fatal — pane may already be closed
+          } catch (e) {
+            return err(`Pane ${targetId} close failed: ${String(e)}`);
           }
 
           return {
@@ -184,8 +192,9 @@ export function registerCleanupPanesTool(pi: ExtensionAPI) {
             continue; // Not a worker role
           }
 
-          // Working panes are always protected (even with force)
-          if (agentStatus === "working") {
+          // Working and blocked panes are always protected. Blocked workers
+          // need inspection/input, not automatic cleanup.
+          if (agentStatus === "working" || agentStatus === "blocked") {
             skipped.push(paneId);
             continue;
           }
@@ -207,8 +216,7 @@ export function registerCleanupPanesTool(pi: ExtensionAPI) {
               herdr(`pane close ${paneId}`);
               closed.push(paneId);
             } catch {
-              // Non-fatal — pane may already be closed
-              closed.push(paneId);
+              // Do not claim a failed close succeeded.
             }
           }
         }

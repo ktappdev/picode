@@ -7,14 +7,7 @@ import type { PicodeData } from "./types";
 /** Worker subtypes that get specialized prompts. Any role not matching
  *  "coordinator" or a known subtype is treated as a generic worker. */
 export type WorkerSubtype =
-  | "builder"
-  | "reviewer"
-  | "scout"
-  | "designer"
-  | "tester"
-  | "bug-hunter"
-  | "planner"
-  | "runner";
+  "builder" | "reviewer" | "scout" | "designer" | "tester" | "bug-hunter" | "planner" | "runner";
 
 function workerSubtype(role: string): WorkerSubtype | null {
   const subtypes: WorkerSubtype[] = [
@@ -90,8 +83,9 @@ const OVERRIDABLE_ROLES = new Set([
   "designer",
   "tester",
   "bug-hunter",
-  "worker",
+  "planner",
   "runner",
+  "worker",
 ]);
 
 /** Return the contents of `<root>/.picode/prompts/<role>.md` if the file
@@ -155,7 +149,9 @@ export function threadModelPrompt(data: PicodeData): string {
         bundledBlock = COORDINATOR_RULES;
       } else {
         const subtype = workerSubtype(role);
-        bundledBlock = WORKER_BASE_RULES + (subtype ? SUBTYPE_PROMPTS[subtype] : "");
+        bundledBlock = [WORKER_BASE_RULES, subtype ? SUBTYPE_PROMPTS[subtype] : ""]
+          .filter(Boolean)
+          .join("\n\n");
       }
     }
 
@@ -171,7 +167,9 @@ export function threadModelPrompt(data: PicodeData): string {
 
     return `## Picode Communication Model
 
-You are picode **${picodeId}** (role: ${displayRole})${parent ? `, child of **${parent}**` : ""} in a multi-picode workspace.${roleBlock}
+You are picode **${picodeId}** (role: ${displayRole})${parent ? `, child of **${parent}**` : ""} in a multi-picode workspace.
+
+${roleBlock}
 
 ### Communication Rules
 
@@ -180,7 +178,7 @@ You are picode **${picodeId}** (role: ${displayRole})${parent ? `, child of **${
 - When the user says "tell X", "ask Y", "explain to Z", "talk to W" → that means **picode_send**, not plain output.
 - Before any cross-picode action, call picode_list to discover valid picode ids.
 - A row tagged \`[ghost]\` in picode_list (terminal state + stale heartbeat) is a process-gone record — never a routing target; reap with \`picode_purge\`.
-- After a compaction, call picode_status to recover your identity, obligations, owed replies, and recent journal (last 50 entries by default; use tail=0 for full journal).
+- After a compaction, call picode_status to recover your identity, obligations, owed replies, and recent journal (last 15 entries by default; use tail=0 for full journal).
 
 ### The message model
 
@@ -208,7 +206,7 @@ Messages arrive as \`[<kind> from <sender> #<id>]\` followed by the body — kin
 | Can't answer yet — missing info from the requester | picode_send(re=<id>, expects=true, body="what you need") — passes the ball |
 | Give guidance or a suggestion | picode_send (plain note) |
 | Broadcast info to many | picode_send(to="*" or "a,b" or "role:<role>") |
-| Escalate to your parent when blocked | picode_send(to=parent, expects=true, urgency="high") |
+| Escalate an assigned request when blocked | picode_send(re=<id>, expects=true, to=parent, urgency="high"); otherwise send a high-urgency note |
 | Send and wait for the reply in one step | picode_send(expects=true, wait=true) |
 | Fan out work, then wait | picode_send(expects=true) per target, then picode_wait([ids]) |
 | Wait for several replies at once | picode_wait(ids, mode="all" or "any") — optional message payload injected on resolution |
@@ -254,12 +252,16 @@ If the system reminds you about an owed reply while you are still legitimately w
     roleBlock = COORDINATOR_RULES;
   } else {
     const subtype = workerSubtype(role);
-    roleBlock = WORKER_BASE_RULES + (subtype ? SUBTYPE_PROMPTS[subtype] : "");
+    roleBlock = [WORKER_BASE_RULES, subtype ? SUBTYPE_PROMPTS[subtype] : ""]
+      .filter(Boolean)
+      .join("\n\n");
   }
 
   return `## Picode Communication Model
 
-You are picode **${picodeId}** (role: ${displayRole})${parent ? `, child of **${parent}**` : ""} in a multi-picode workspace.${roleBlock}
+You are picode **${picodeId}** (role: ${displayRole})${parent ? `, child of **${parent}**` : ""} in a multi-picode workspace.
+
+${roleBlock}
 
 ### Communication Rules
 
@@ -268,7 +270,7 @@ You are picode **${picodeId}** (role: ${displayRole})${parent ? `, child of **${
 - When the user says "tell X", "ask Y", "explain to Z", "talk to W" → that means **picode_send**, not plain output.
 - Before any cross-picode action, call picode_list to discover valid picode ids.
 - A row tagged \`[ghost]\` in picode_list (terminal state + stale heartbeat) is a process-gone record — never a routing target; reap with \`picode_purge\`.
-- After a compaction, call picode_status to recover your identity, obligations, owed replies, and recent journal (last 50 entries by default; use tail=0 for full journal).
+- After a compaction, call picode_status to recover your identity, obligations, owed replies, and recent journal (last 15 entries by default; use tail=0 for full journal).
 
 ### The message model
 
@@ -296,7 +298,7 @@ Messages arrive as \`[<kind> from <sender> #<id>]\` followed by the body — kin
 | Can't answer yet — missing info from the requester | picode_send(re=<id>, expects=true, body="what you need") — passes the ball |
 | Give guidance or a suggestion | picode_send (plain note) |
 | Broadcast info to many | picode_send(to="*" or "a,b" or "role:<role>") |
-| Escalate to your parent when blocked | picode_send(to=parent, expects=true, urgency="high") |
+| Escalate an assigned request when blocked | picode_send(re=<id>, expects=true, to=parent, urgency="high"); otherwise send a high-urgency note |
 | Send and wait for the reply in one step | picode_send(expects=true, wait=true) |
 | Fan out work, then wait | picode_send(expects=true) per target, then picode_wait([ids]) |
 | Wait for several replies at once | picode_wait(ids, mode="all" or "any") — optional message payload injected on resolution |

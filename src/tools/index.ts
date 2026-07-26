@@ -19,9 +19,9 @@ export function registerTools(pi: ExtensionAPI, store: PicodeStore, inbox: Inbox
   registerIntrospectionTools(pi, store);
   registerMessagingTools(pi, store, inbox);
   registerControlTools(pi, store, inbox);
-  registerSpawnTool(pi);
-  registerPurgeTool(pi);
-  registerCleanupPanesTool(pi);
+  registerSpawnTool(pi, store);
+  registerPurgeTool(pi, store);
+  registerCleanupPanesTool(pi, store);
   registerPanesTool(pi);
   registerPaneReadTool(pi);
   registerRunTool(pi);

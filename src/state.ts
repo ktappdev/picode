@@ -6,7 +6,7 @@ import type { PicodeStore, PicodeState, PicodeSummary, StateFile } from "./core/
 import { HEARTBEAT_MS, CLIENT_CAPABILITIES } from "./core/types";
 import { nowIso } from "./core/time";
 import { forkJournalEntry, compactJournal as compactJournalFn } from "./journal";
-import { roleEmoji } from "./core/roles";
+import { detectWorkerRole, roleEmoji } from "./core/roles";
 import type { PicodeAdapter } from "./adapter/types";
 import { createLocalFsAdapter } from "./adapter/local-fs";
 import { loadModelsJson } from "./tools/spawn";
@@ -156,16 +156,10 @@ export function createPicodeStore(
       } else if (store.picodeId === "coordinator") {
         store.role = "coordinator";
       } else {
-        // Auto-detect worker subtype from picode-id if it matches a known role
-        const KNOWN_ROLES = ["builder", "reviewer", "scout", "designer", "tester", "bug-hunter"];
-        const prefix = KNOWN_ROLES.find(
-          r =>
-            store.picodeId === r ||
-            store.picodeId.startsWith(r + "-") ||
-            store.picodeId.startsWith(r + "_") ||
-            store.picodeId.startsWith(r + "."),
-        );
-        store.role = prefix ?? "worker";
+        // Auto-detect canonical worker role from picode-id. Explorer is a
+        // legacy alias for scout; planner/runner must also work when the
+        // zshrc `picode` helper passes only --picode-id.
+        store.role = detectWorkerRole(store.picodeId);
       }
 
       // Auto-create default models config for coordinator
