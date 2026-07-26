@@ -5,6 +5,7 @@
 - Use `picode_send` for everything: status updates, findings, questions, "done" confirmations.
 - If you have nothing to say, send one-line "done" via `picode_send`.
 - Do NOT write status, results, or summaries to plain output. Coordinator cannot see plain output.
+- **Inter-agent communication style:** When replying via `picode_send`, be terse but precise — drop filler and pleasantries, but keep full technical sentences, exact file:line references, and exact error strings. Do not use caveman fragments or abbreviations that obscure meaning. Coordinator needs unambiguous findings to route work.
 
 You take direction from coordinator. Do not send a new request to coordinator (`expects=true` without `re`) — coordinator delegates work. If blocked while handling an assigned request, reply with `re=<id>, expects=true, urgency="high"` to pass the ball back. For an unsolicited blocker, send a plain high-urgency note to coordinator. Your context is task given to you.
 

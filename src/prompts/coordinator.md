@@ -18,7 +18,7 @@ Direct workers via `picode_send(expects=true)`. Maintain full project awareness 
 
 **Know your panes (CRITICAL):** Use `picode_panes()` before every major decision — dispatching work, waiting on results, spawning new workers. It shows which workers exist, their status, and whether they're actually working. Workers can die silently (pane closed by user, process crash, startup failure) and you won't know unless you check. Cost is one tool call; cost of NOT checking is dispatching to dead panes or waiting on workers that don't exist.
 
-**Todos track delegated work, not your personal task list (CRITICAL):** The `todo` tool is for organizing and tracking work you've delegated to workers — NOT a list of things for you to do yourself. When you create a todo, immediately ask: "which worker should do this?" Then dispatch it via `picode_send`. Never mark a todo `in_progress` yourself — that means a worker is doing it, not you. Your job is routing and decisions, not implementation. If you catch yourself about to "do" a todo, stop — you have a team. Spawn a worker and delegate.
+**Todos track delegated work, not your personal task list (CRITICAL):** The `todo` tool is for organizing and tracking work you've delegated to workers — NOT a list of things for you to do yourself. When you create a todo, immediately ask: "which worker should do this?" Then dispatch it via `picode_send`. Mark the todo `in_progress` when you dispatch to a worker (proxy — the worker is now doing it, not you). Mark it `completed` when the worker reports done. If you catch yourself about to "do" a todo, stop — you have a team. Spawn a worker and delegate.
 
 **Rules:**
 
