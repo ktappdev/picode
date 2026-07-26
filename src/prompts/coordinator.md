@@ -123,6 +123,8 @@ Returns `{ ok, pane_id, role, model, theme, reused, claimed_empty?, direction, s
 - Spawn **sequentially** (not parallel calls) when you care about layout — each spawn checks geometry and adapts. Parallel calls don't coordinate.
 - Prefer grid/square arrangements over tall stacks or wide rows
 
+**Never split your own pane (CRITICAL):** Your pane is the command center — keep it large and readable. The `spawn_worker` tool auto-selects the best pane to split (largest idle worker, never the coordinator). **Always omit `direction`** unless you have a specific layout reason — even then, the tool still picks the split target smartly. Splitting your own pane shrinks the command center and makes it hard to see project state. Let the tool decide.
+
 Then send task via `picode_send(to="<role>", expects=true)`.
 
 ### Running commands

@@ -172,7 +172,7 @@ function getSplitTarget(currentPaneId: string, workspaceId: string, role: string
     const minWidth = wsWidth * MIN_PANE_RATIO;
     const minHeight = wsHeight * MIN_PANE_RATIO;
 
-    // Score candidates
+    // Score candidates — never split coordinator if any other pane exists
     let bestPaneId: string | null = null;
     let bestScore = -1;
 
@@ -191,20 +191,29 @@ function getSplitTarget(currentPaneId: string, workspaceId: string, role: string
       // Must have an agent
       if (!agentStatus) continue;
 
-      // Must be idle or done (safe to split)
-      if (agentStatus !== "idle" && agentStatus !== "done") continue;
+      // NEVER split coordinator — hard exclusion, not just a penalty.
+      // Coordinator pane is the command center; keep it large.
+      if (isCoordinatorLabel(label)) continue;
 
-      // Check minimum size (ratio-based)
+      // Never split own pane (safety — coordinator is own pane)
+      if (paneId === currentPaneId) continue;
+
       const rect = rectMap.get(paneId);
       if (!rect) continue;
-      if (rect.width < minWidth || rect.height < minHeight) continue;
 
       // Score by area
       let score = rect.width * rect.height;
 
-      // Strong penalty for coordinator — only use if no workers available
-      if (isCoordinatorLabel(label)) {
-        score = score * 0.1;
+      // Penalize panes below minimum size — still prefer over coordinator,
+      // but deprioritize so we pick the largest usable worker first
+      if (rect.width < minWidth || rect.height < minHeight) {
+        score = score * 0.3;
+      }
+
+      // Prefer idle/done (safe to split) over working (disruptive but better
+      // than shrinking coordinator)
+      if (agentStatus !== "idle" && agentStatus !== "done") {
+        score = score * 0.5;
       }
 
       // Bonus for same role — groups same workers together
@@ -219,7 +228,8 @@ function getSplitTarget(currentPaneId: string, workspaceId: string, role: string
       }
     }
 
-    // Fallback to current pane if no valid candidate
+    // Only split coordinator (currentPaneId) when no other panes exist in tab
+    // — i.e. spawning the very first worker. After that, always split a worker.
     const targetPaneId = bestPaneId || currentPaneId;
     const direction = computeDirection(
       targetPaneId,
@@ -572,14 +582,12 @@ export function registerSpawnTool(pi: ExtensionAPI) {
             claimedEmpty = true;
           } else {
             // 3b. Determine split target and direction
-            if (params.direction) {
-              direction = params.direction;
-              splitTargetPaneId = paneId;
-            } else {
-              const target = getSplitTarget(paneId, workspaceId, params.role);
-              splitTargetPaneId = target.paneId;
-              direction = target.direction;
-            }
+            // Always run getSplitTarget for pane selection (never split
+            // coordinator). If direction is overridden, use it but still
+            // pick the smart split target — don't force coordinator pane.
+            const target = getSplitTarget(paneId, workspaceId, params.role);
+            splitTargetPaneId = target.paneId;
+            direction = params.direction || target.direction;
 
             // 4. Split pane
             try {
