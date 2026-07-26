@@ -171,7 +171,6 @@ Each picode has a role that shapes its system prompt. The role is auto-detected 
 | `bug-hunter`         | Worker  | Hunts bugs by reading code, session entries, and journals. Reports root cause and a suggested fix but does not implement it. Read-only.     |
 | `tester`             | Worker  | Writes and runs tests, reproduces bugs, checks coverage.                                                                                    |
 | `designer`           | Worker  | Designs UI specs for the builder to implement. Read-only.                                                                                   |
-| `presenter`          | Worker  | Presents completed work to users in clean format. Pure communication bridge — relays user messages back to coordinator. Read-only.          |
 
 Prefix matching means `builder-1`, `builder-a`, `builder_foo`, and `builder.task` all resolve to the `builder` role. Any name that does not match a known role (or prefix) becomes a generic `worker` with base worker rules only.
 
@@ -390,7 +389,7 @@ There is no waiting state. Debts and barriers are durable records rather than st
 
 ## Visual identification
 
-- **Role emoji in the pane label.** Each herdr pane label shows the role with an emoji: `🧭 coordinator`, `🔨 builder`, `🔍 explorer`, `🛡️ reviewer`, `🎨 designer`, `🧪 tester`, `🐛 bug-hunter`, `📺 presenter`, `👷 worker`.
+- **Role emoji in the pane label.** Each herdr pane label shows the role with an emoji: `🧭 coordinator`, `🔨 builder`, `🔍 explorer`, `🛡️ reviewer`, `🎨 designer`, `🧪 tester`, `🐛 bug-hunter`, `👷 worker`.
 - **Role in the terminal title.** The terminal title shows `pi · <emoji> <role> · <cwd>`, which is useful when you are not running inside herdr.
 - **Coordination with herdr.** Herdr's pane label and the terminal title carry the same role info, so identification is consistent across surfaces.
 

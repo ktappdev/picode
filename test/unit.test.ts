@@ -3301,7 +3301,7 @@ describe("tools/cleanup-panes: WORKER_ROLE_PATTERN", () => {
   // We test the pattern indirectly via the module's behavior — but since
   // the pattern is module-internal, we verify via a re-declaration match.
   const pattern =
-    /^(builder|reviewer|tester|worker|scout|bug-hunter|designer|planner|runner|presenter|explorer)(-[0-9]+)?$/i;
+    /^(builder|reviewer|tester|worker|scout|bug-hunter|designer|planner|runner|explorer)(-[0-9]+)?$/i;
 
   it("matches base roles", () => {
     assert.ok(pattern.test("builder"));
@@ -3317,10 +3317,9 @@ describe("tools/cleanup-panes: WORKER_ROLE_PATTERN", () => {
     assert.ok(pattern.test("scout-3"));
   });
 
-  it("matches new roles (planner, runner, presenter, explorer)", () => {
+  it("matches new roles (planner, runner, explorer)", () => {
     assert.ok(pattern.test("planner"));
     assert.ok(pattern.test("runner"));
-    assert.ok(pattern.test("presenter"));
     assert.ok(pattern.test("explorer"));
   });
 
