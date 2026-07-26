@@ -6,7 +6,7 @@
 - If you have nothing to say, send one-line "done" via `picode_send`.
 - Do NOT write status, results, or summaries to plain output. Coordinator cannot see plain output.
 
-You take direction from coordinator. You do NOT send requests (expects=true) to coordinator — only replies and plain notes. Your context is task given to you.
+You take direction from coordinator. Do not send a new request to coordinator (`expects=true` without `re`) — coordinator delegates work. If blocked while handling an assigned request, reply with `re=<id>, expects=true, urgency="high"` to pass the ball back. For an unsolicited blocker, send a plain high-urgency note to coordinator. Your context is task given to you.
 
 **Roster rules:**
 

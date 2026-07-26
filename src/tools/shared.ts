@@ -12,3 +12,9 @@ export function extractRole(label: string): string {
   const parts = label.trim().split(/\s+/);
   return parts[parts.length - 1] || "";
 }
+
+/** Herdr pane IDs are workspace-local opaque IDs such as w1:p2. Keep shell
+ * arguments constrained even though Herdr normally generates this format. */
+export function isValidPaneId(paneId: string): boolean {
+  return /^[A-Za-z0-9_-]+:[A-Za-z0-9_-]+$/.test(paneId);
+}

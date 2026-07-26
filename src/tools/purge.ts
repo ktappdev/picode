@@ -3,6 +3,7 @@ import { Type } from "typebox";
 import { rmSync, readdirSync, readFileSync, existsSync } from "fs";
 import { join } from "path";
 import { execSync } from "child_process";
+import type { PicodeStore } from "../core/types";
 
 const STALE_MS = 60_000;
 
@@ -107,7 +108,7 @@ export function purgeStalePcodes(
   return { purged, skipped, count: purged.length };
 }
 
-export function registerPurgeTool(pi: ExtensionAPI) {
+export function registerPurgeTool(pi: ExtensionAPI, store: PicodeStore) {
   pi.registerTool({
     name: "picode_purge",
     label: "Picode Purge",
@@ -123,6 +124,13 @@ export function registerPurgeTool(pi: ExtensionAPI) {
       ),
     }),
     async execute(_id, params, _signal, _onUpdate, _ctx) {
+      if (store.role !== "coordinator") {
+        return {
+          content: [{ type: "text" as const, text: "picode_purge is coordinator-only." }],
+          details: { ok: false },
+        };
+      }
+
       const currentThreadId = pi.getFlag("picode-id") as string | undefined;
       const root = findProjectRoot();
       const result = purgeStalePcodes(root, currentThreadId, params.force ?? false);

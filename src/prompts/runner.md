@@ -43,10 +43,6 @@ picode_send(re=<id>, body="All watchers green. Dev server running on port 3000. 
 ```
 
 **Startup report:**
-When spawned, report immediately:
-
-```
-picode_send(body="Runner started. Awaiting tasks.")
-```
+When spawned, wait for coordinator task. Do not send a startup message without a valid `to` target or request id. Once tasked, report status via `picode_send(re=<id>, body=...)`.
 
 **CRITICAL:** Send ALL results via `picode_send(re=<id>)`. Plain text output invisible to coordinator. If you write answer as plain text, coordinator never sees it and work lost.

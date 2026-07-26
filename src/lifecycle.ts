@@ -165,7 +165,22 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
       // Keep the picode_* tools out of this session's active set entirely —
       // an unrelated session shouldn't see them offered, let alone have the
       // model attempt one against an uninitialized store.
-      pi.setActiveTools(pi.getActiveTools().filter(name => !name.startsWith("picode_")));
+      const PICODE_TOOLS = new Set([
+        "picode_send",
+        "picode_wait",
+        "picode_status",
+        "picode_list",
+        "picode_journal",
+        "picode_suspend",
+        "picode_resume",
+        "picode_purge",
+        "picode_panes",
+        "picode_pane_read",
+        "spawn_worker",
+        "cleanup_panes",
+        "picode_run",
+      ]);
+      pi.setActiveTools(pi.getActiveTools().filter(name => !PICODE_TOOLS.has(name)));
       return;
     }
 
@@ -300,8 +315,8 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
     );
     setHerdrPaneLabel(store);
 
-    // Read-only roles: coordinator + read-only subtypes (reviewer, scout,
-    // designer). Builder and generic worker keep full tools.
+    // Read-only roles keep inspection tools but cannot modify files. Runner
+    // still needs bash for long-lived processes; coordinator does not.
     const READ_ONLY_ROLES = new Set([
       "coordinator",
       "reviewer",
@@ -309,13 +324,11 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
       "designer",
       "bug-hunter",
       "planner",
+      "runner",
     ]);
     if (READ_ONLY_ROLES.has(store.role)) {
-      // Denylist, not allowlist: read-only roles keep every registered tool
-      // except write/edit. This lets extension tools (todo, grep, find, ls,
-      // code_search, future extensions) stay active without a hardcoded
-      // allowlist that drifts from what's actually registered.
-      const DENIED = new Set(["write", "edit", "bash", "picode_run"]);
+      const DENIED = new Set(["write", "edit", "picode_run"]);
+      if (store.role === "coordinator") DENIED.add("bash");
       const filtered = pi.getActiveTools().filter(name => !DENIED.has(name));
       pi.setActiveTools(filtered);
     }

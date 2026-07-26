@@ -4,6 +4,7 @@ import { execSync } from "child_process";
 import { readFileSync, existsSync, statSync } from "fs";
 import { join } from "path";
 import { err, extractRole } from "./shared";
+import type { PicodeStore } from "../core/types";
 import { trackPane } from "../herdr/listener";
 
 /** Check if a PID is alive (same logic as state.ts). */
@@ -25,6 +26,10 @@ let modelsJsonMtime: number | null = null;
 
 function herdr(args: string): string {
   return execSync(`herdr ${args}`, { encoding: "utf-8", timeout: 15_000 });
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
 function herdrJson(args: string): Record<string, unknown> {
@@ -118,7 +123,7 @@ const MIN_RESULT_RATIO = 0.15; // resulting pane must be ≥15% of workspace dim
 function isCoordinatorLabel(label: string): boolean {
   const stripped = label
     .replace(
-      /[\u{1F9ED}\u{1F528}\u{1F50D}\u{1F9EA}\u{1F3A8}\u{1F41B}\u{1F4CB}\u{2699}\u{1F3C3}]\s*/u,
+      /[\u{26AA}\u{1F9ED}\u{1F528}\u{1F50D}\u{1F9EA}\u{1F3A8}\u{1F41B}\u{1F4CB}\u{2699}\u{1F3C3}]\s*/u,
       "",
     )
     .trim()
@@ -458,7 +463,7 @@ function findEmptyPane(workspaceId: string, currentPaneId: string): string | nul
   return null;
 }
 
-export function registerSpawnTool(pi: ExtensionAPI) {
+export function registerSpawnTool(pi: ExtensionAPI, store: PicodeStore) {
   pi.registerTool({
     name: "spawn_worker",
     label: "Spawn Worker",
@@ -493,6 +498,10 @@ export function registerSpawnTool(pi: ExtensionAPI) {
       ),
     }),
     async execute(_id, params, _signal, _onUpdate, _ctx) {
+      if (store.role !== "coordinator") {
+        return err("spawn_worker is coordinator-only — send work to your coordinator instead.");
+      }
+
       const paneId = process.env.HERDR_PANE_ID;
       const workspaceId = process.env.HERDR_WORKSPACE_ID;
 
@@ -523,13 +532,10 @@ export function registerSpawnTool(pi: ExtensionAPI) {
               const agentStatus = (paneInfo.agent_status as string) || "unknown";
 
               if (agentStatus === "working" || agentStatus === "blocked") {
-                return err(
-                  `worker already active in pane ${existingPaneId} (status: ${agentStatus})`,
-                );
-              }
-              // idle/done — safe to reuse
-              // unknown/stopped — only reuse if pane has no running process
-              if (agentStatus === "idle" || agentStatus === "done") {
+                // Busy same-role pane is not reusable. Continue to unique ID
+                // generation so parallel work becomes role-1, role-2, etc.
+              } else if (agentStatus === "idle" || agentStatus === "done") {
+                // Safe to reuse.
                 paneIdToUse = existingPaneId;
                 reused = true;
               } else {
@@ -621,9 +627,9 @@ export function registerSpawnTool(pi: ExtensionAPI) {
 
         // 8. Build launch command (only for new panes)
         const parts = ["pi"];
-        if (model) parts.push(`--model ${model}`);
-        if (theme) parts.push(`--theme ${theme}`);
-        parts.push(`--picode-id ${uniqueId}`);
+        if (model) parts.push(`--model ${shellQuote(model)}`);
+        if (theme) parts.push(`--theme ${shellQuote(theme)}`);
+        parts.push(`--picode-id ${shellQuote(uniqueId)}`);
         const launchCmd = parts.join(" ");
 
         // 9. Run launch command in new/claimed pane (not for reused panes)
