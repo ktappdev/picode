@@ -3,7 +3,7 @@ import { Type } from "typebox";
 import { execSync } from "child_process";
 import { readFileSync, existsSync, statSync } from "fs";
 import { join } from "path";
-import { err, extractRole } from "./shared";
+import { err, extractRole, effectiveAgentStatus } from "./shared";
 import type { PicodeStore } from "../core/types";
 import { trackPane } from "../herdr/listener";
 
@@ -529,7 +529,13 @@ export function registerSpawnTool(pi: ExtensionAPI, store: PicodeStore) {
             try {
               const paneResult = herdrJson(`pane get ${existingPaneId}`);
               const paneInfo = (paneResult.result as Record<string, unknown> | undefined) || {};
-              const agentStatus = (paneInfo.agent_status as string) || "unknown";
+              const label = (paneInfo.label as string) || "";
+              const picodeId = extractRole(label);
+              const herdrStatus = (paneInfo.agent_status as string) || "unknown";
+              // Cross-check picode heartbeat: herdr may report working/
+              // blocked for a dead process. A stale heartbeat → treat as
+              // unknown so we reuse (or skip) based on truth, not a lie.
+              const agentStatus = effectiveAgentStatus(herdrStatus, picodeId);
 
               if (agentStatus === "working" || agentStatus === "blocked") {
                 // Busy same-role pane is not reusable. Continue to unique ID

@@ -1,7 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { execSync } from "child_process";
-import { err } from "./shared";
+import { err, extractRole, effectiveAgentStatus } from "./shared";
 
 /** Statuses that mean the pane is still useful — don't close these. */
 const ACTIVE_STATUSES = new Set(["working", "idle", "done"]);
@@ -105,8 +105,14 @@ export function registerPanesTool(pi: ExtensionAPI) {
         // Build summaries with suggestions
         const summaries: PaneSummary[] = filtered.map(p => {
           const label = (p.label as string) || "";
-          const status = (p.agent_status as string) || "unknown";
+          const herdrStatus = (p.agent_status as string) || "unknown";
           const paneId = (p.pane_id as string) || "";
+          // Cross-check picode heartbeat: herdr's working/blocked can be a
+          // lie when the worker process died without a clean shutdown.
+          // A stale heartbeat → override to unknown so the coordinator
+          // doesn't protect a zombie or skip reusing a dead pane.
+          const picodeId = extractRole(label);
+          const status = effectiveAgentStatus(herdrStatus, picodeId);
 
           // Suggestion for coordinator
           let suggestion: string | undefined;

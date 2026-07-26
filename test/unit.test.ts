@@ -33,6 +33,8 @@ import type {
 import { createPicodeStore } from "../src/state";
 import { createInbox } from "../src/inbox";
 import type { Injection } from "../src/inbox";
+import { DEADLINE_EXPIRY_GRACE_MS } from "../src/inbox";
+import { effectiveAgentStatus } from "../src/tools/shared";
 import { registerLifecycle, extractFirstLine } from "../src/lifecycle";
 import { deadlineFromSeconds } from "../src/core/time";
 import { checkBodySize, MAX_BODY_BYTES } from "../src/tools/messaging";
@@ -1262,6 +1264,141 @@ describe("inbox: checkDeadlines (§9.2)", () => {
     });
     await h.inbox.checkDeadlines(h.ctx);
     assert.strictEqual(h.calls.length, 0);
+  });
+});
+
+describe("inbox: checkDeadlines auto-expire (barriers + obligations)", () => {
+  it("an obligation past deadline + grace is removed from the store and emits an expired notice", async () => {
+    const h = makeHarness(tmpDir);
+    const overdueBy = DEADLINE_EXPIRY_GRACE_MS + 5_000;
+    h.store.obligations.push({
+      id: "t1/dead",
+      to: "alice",
+      summary: "the report",
+      sentAt: new Date().toISOString(),
+      deadline: new Date(Date.now() - overdueBy).toISOString(),
+    });
+    assert.strictEqual(h.store.obligations.length, 1);
+    await h.inbox.checkDeadlines(h.ctx);
+    assert.strictEqual(h.store.obligations.length, 0, "obligation reaped after grace");
+    assert.strictEqual(h.calls.length, 1);
+    assert.match(h.calls[0].content, /obligation expired #t1\/dead/);
+  });
+
+  it("a barrier past deadline + grace is removed from the store and emits an expired notice", async () => {
+    const h = makeHarness(tmpDir);
+    const overdueBy = DEADLINE_EXPIRY_GRACE_MS + 5_000;
+    h.store.barriers.push({
+      id: "b.dead",
+      pending: ["t1/x"],
+      mode: "all",
+      createdAt: new Date().toISOString(),
+      deadline: new Date(Date.now() - overdueBy).toISOString(),
+    });
+    assert.strictEqual(h.store.barriers.length, 1);
+    await h.inbox.checkDeadlines(h.ctx);
+    assert.strictEqual(h.store.barriers.length, 0, "barrier reaped after grace");
+    assert.strictEqual(h.calls.length, 1);
+    assert.match(h.calls[0].content, /barrier expired "b\.dead"/);
+  });
+
+  it("nudges once at the deadline, then expires on a later tick after grace", async () => {
+    const h = makeHarness(tmpDir);
+    // Deadline 1s ago — past deadline, but not yet past grace.
+    h.store.obligations.push({
+      id: "t1/aging",
+      to: "bob",
+      summary: "slow thing",
+      sentAt: new Date().toISOString(),
+      deadline: new Date(Date.now() - 1_000).toISOString(),
+    });
+    await h.inbox.checkDeadlines(h.ctx);
+    assert.strictEqual(h.calls.length, 1, "nudge fires at deadline");
+    assert.match(h.calls[0].content, /obligation overdue #t1\/aging/);
+    assert.strictEqual(h.store.obligations.length, 1, "still in store between nudge and grace");
+    // Second tick before grace elapses → no second nudge, still in store.
+    await h.inbox.checkDeadlines(h.ctx);
+    assert.strictEqual(h.calls.length, 1, "no double nudge");
+    assert.strictEqual(h.store.obligations.length, 1);
+  });
+
+  it("an obligation with no deadline is never expired or nudged", async () => {
+    const h = makeHarness(tmpDir);
+    h.store.obligations.push({
+      id: "t1/nodeadline",
+      to: "alice",
+      summary: "no SLA",
+      sentAt: new Date().toISOString(),
+    });
+    await h.inbox.checkDeadlines(h.ctx);
+    assert.strictEqual(h.calls.length, 0);
+    assert.strictEqual(h.store.obligations.length, 1, "no-deadline obligations are immortal");
+  });
+});
+
+describe("tools/shared: effectiveAgentStatus heartbeat cross-check", () => {
+  // effectiveAgentStatus reads .picode/picodes/<id>/state.json from
+  // process.cwd(); the harness seeds state.json under tmpDir, so chdir
+  // into tmpDir for these tests and restore after.
+  let origCwd: string;
+  beforeEach(() => {
+    origCwd = process.cwd();
+  });
+  afterEach(() => {
+    process.chdir(origCwd);
+  });
+
+  it("overrides working → unknown when the picode heartbeat is stale (zombie)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "eff-1-"));
+    process.chdir(dir);
+    const picodeDir = join(dir, ".picode", "picodes", "scout", "inbox", "processed");
+    mkdirSync(picodeDir, { recursive: true });
+    const statePath = join(dir, ".picode", "picodes", "scout", "state.json");
+    writeFileSync(
+      statePath,
+      JSON.stringify(
+        baseState("scout", { lastSeen: new Date(Date.now() - STALE_MS - 5_000).toISOString() }),
+      ),
+    );
+    assert.strictEqual(effectiveAgentStatus("working", "scout"), "unknown");
+  });
+
+  it("keeps working when the heartbeat is fresh (live worker)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "eff-2-"));
+    process.chdir(dir);
+    const picodeDir = join(dir, ".picode", "picodes", "builder", "inbox", "processed");
+    mkdirSync(picodeDir, { recursive: true });
+    const statePath = join(dir, ".picode", "picodes", "builder", "state.json");
+    writeFileSync(
+      statePath,
+      JSON.stringify(baseState("builder", { lastSeen: new Date().toISOString() })),
+    );
+    assert.strictEqual(effectiveAgentStatus("working", "builder"), "working");
+  });
+
+  it("passes idle/done/unknown/stopped through unchanged (no heartbeat check needed)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "eff-3-"));
+    process.chdir(dir);
+    // No state.json at all — fail-open must still pass these through.
+    for (const s of ["idle", "done", "unknown", "stopped"]) {
+      assert.strictEqual(effectiveAgentStatus(s, "ghost"), s);
+    }
+  });
+
+  it("fail-open: returns herdr status when state.json is missing for working", () => {
+    const dir = mkdtempSync(join(tmpdir(), "eff-4-"));
+    process.chdir(dir);
+    // No state.json — can't prove stale, so don't override.
+    assert.strictEqual(effectiveAgentStatus("working", "missing"), "working");
+  });
+
+  it("fail-open: returns herdr status when state.json is corrupt", () => {
+    const dir = mkdtempSync(join(tmpdir(), "eff-5-"));
+    process.chdir(dir);
+    const picodeDir = join(dir, ".picode", "picodes", "broken", "inbox", "processed");
+    mkdirSync(picodeDir, { recursive: true });
+    writeFileSync(join(dir, ".picode", "picodes", "broken", "state.json"), "{ not json");
+    assert.strictEqual(effectiveAgentStatus("working", "broken"), "working");
   });
 });
 

@@ -1,7 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { execSync } from "child_process";
-import { err, extractRole, isValidPaneId } from "./shared";
+import { err, extractRole, isValidPaneId, effectiveAgentStatus } from "./shared";
 import type { PicodeStore } from "../core/types";
 
 /** Worker role labels to clean up (case-insensitive, emoji prefix stripped).
@@ -95,7 +95,12 @@ export function registerCleanupPanesTool(pi: ExtensionAPI, store: PicodeStore) {
             );
           }
 
-          const agentStatus = (paneInfo.agent_status as string) || "unknown";
+          const label = (paneInfo.label as string) || "";
+          const herdrStatus = (paneInfo.agent_status as string) || "unknown";
+          // Cross-check picode heartbeat: a zombie worker (process dead,
+          // herdr still says working/blocked) should be cleanupable, not
+          // protected by a stale status lie.
+          const agentStatus = effectiveAgentStatus(herdrStatus, extractRole(label));
 
           // When pane_id is explicitly provided, skip the worker-role label check.
           // Dead panes often lose their labels — the coordinator knows what it's
@@ -178,8 +183,12 @@ export function registerCleanupPanesTool(pi: ExtensionAPI, store: PicodeStore) {
 
         for (const pane of panes) {
           const label = (pane.label as string) || "";
-          const agentStatus = (pane.agent_status as string) || "unknown";
+          const herdrStatus = (pane.agent_status as string) || "unknown";
           const paneId = (pane.pane_id as string) || "";
+          // Cross-check picode heartbeat: herdr may report working/blocked
+          // for a dead process. A stale heartbeat → treat as unknown so
+          // zombies get cleaned up, not protected.
+          const agentStatus = effectiveAgentStatus(herdrStatus, extractRole(label));
 
           // Safety: never close the pane running this tool (the coordinator).
           if (paneId === currentPaneId) {

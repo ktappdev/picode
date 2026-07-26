@@ -1,6 +1,6 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { PicodeStore, Envelope, Urgency } from "./core/types";
-import { STALE_MS } from "./core/types";
+import { STALE_MS, DEFAULT_OBLIGATION_DEADLINE_MS } from "./core/types";
 import { mintEnvelopeId } from "./core/ids";
 import { nowIso } from "./core/time";
 
@@ -11,6 +11,16 @@ import { nowIso } from "./core/time";
 /** How long after an idle-time injection we assume pi's prompt preflight is
  *  still running (it ends at turn_start, which clears the hold early). */
 export const INJECTION_GRACE_MS = 3_000;
+
+/** Grace period after a barrier/obligation deadline passes before we
+ *  expire and drop it. checkDeadlines first nudges (one-time reminder) at
+ *  the deadline; if still unresolved this long after the deadline, the
+ *  record is removed from the store so it doesn't linger forever waiting
+ *  for a reply that will never come. The coordinator gets one nudge to
+ *  follow up; if it doesn't (or can't), the record is reaped rather than
+ *  silently pinning state. Equal to the default obligation deadline so a
+ *  standard 15m SLA gives ~15m to reply + ~15m to act on the nudge. */
+export const DEADLINE_EXPIRY_GRACE_MS = DEFAULT_OBLIGATION_DEADLINE_MS;
 /** How long a compaction may hold the inbox shut before we assume its end
  *  event was swallowed (compaction failures emit no extension event). */
 export const COMPACTION_HOLD_MAX_MS = 180_000;
@@ -352,24 +362,81 @@ export function createInbox(store: PicodeStore, pi: ExtensionAPI): Inbox {
     if (!canInject()) return; // nudges re-arm on a later heartbeat tick
     const now = Date.now();
     const parts: Injection[] = [];
+    let mutated = false;
+
+    // Obligations: nudge once at the deadline, then expire + remove after
+    // DEADLINE_EXPIRY_GRACE_MS so a forgotten request doesn't linger
+    // forever. A late reply that arrives after expiry still discharges via
+    // the owed-reply side; only the sender-side bookkeeping is reaped.
+    const liveObligations: typeof store.obligations = [];
     for (const ob of store.obligations) {
-      if (!ob.deadline || ob.nudged || new Date(ob.deadline).getTime() > now) continue;
-      ob.nudged = true;
-      parts.push({
-        text: `[obligation overdue #${ob.id}]: your request to ${ob.to} ("${ob.summary}") passed its deadline with no reply. Follow up with ${ob.to}${store.parent ? `, or escalate to ${store.parent}` : ""}.`,
-        urgency: "high",
-      });
+      if (!ob.deadline) {
+        liveObligations.push(ob);
+        continue;
+      }
+      const dueAt = new Date(ob.deadline).getTime();
+      if (dueAt > now) {
+        liveObligations.push(ob);
+        continue;
+      }
+      const expired = dueAt + DEADLINE_EXPIRY_GRACE_MS <= now;
+      if (expired) {
+        mutated = true;
+        parts.push({
+          text: `[obligation expired #${ob.id}]: your request to ${ob.to} ("${ob.summary}") is past its deadline by ${Math.round((now - dueAt) / 1000)}s with no reply. Dropping the obligation — if a reply still arrives, it will render as a plain note. Follow up with ${ob.to}${store.parent ? `, or escalate to ${store.parent}` : ""} if still needed.`,
+          urgency: "high",
+        });
+        continue; // drop from liveObligations
+      }
+      if (!ob.nudged) {
+        ob.nudged = true;
+        mutated = true;
+        parts.push({
+          text: `[obligation overdue #${ob.id}]: your request to ${ob.to} ("${ob.summary}") passed its deadline with no reply. Follow up with ${ob.to}${store.parent ? `, or escalate to ${store.parent}` : ""}.`,
+          urgency: "high",
+        });
+      }
+      liveObligations.push(ob);
     }
+    if (liveObligations.length !== store.obligations.length) store.obligations = liveObligations;
+
+    // Barriers: same lifecycle — nudge at deadline, expire + remove after
+    // the grace period. An expired barrier stops blocking the coordinator;
+    // a late reply that would have resolved it still delivers as a note.
+    const liveBarriers: typeof store.barriers = [];
     for (const b of store.barriers) {
-      if (!b.deadline || b.nudged || new Date(b.deadline).getTime() > now) continue;
-      b.nudged = true;
-      parts.push({
-        text: `[barrier overdue "${b.id}"]: still waiting on ${b.mode} of ${b.pending.length} repl${b.pending.length === 1 ? "y" : "ies"} (${b.pending.join(", ")}) — none arrived by the deadline. Check in with the target picode(s), or the barrier will keep waiting silently.`,
-        urgency: "high",
-      });
+      if (!b.deadline) {
+        liveBarriers.push(b);
+        continue;
+      }
+      const dueAt = new Date(b.deadline).getTime();
+      if (dueAt > now) {
+        liveBarriers.push(b);
+        continue;
+      }
+      const expired = dueAt + DEADLINE_EXPIRY_GRACE_MS <= now;
+      if (expired) {
+        mutated = true;
+        parts.push({
+          text: `[barrier expired "${b.id}"]: waited on ${b.mode} of ${b.pending.length} repl${b.pending.length === 1 ? "y" : "ies"} (${b.pending.join(", ")}) past the deadline by ${Math.round((now - dueAt) / 1000)}s. Dropping the barrier — you're no longer blocked on it. If a reply still arrives, it will render as a plain note.`,
+          urgency: "high",
+        });
+        continue; // drop from liveBarriers
+      }
+      if (!b.nudged) {
+        b.nudged = true;
+        mutated = true;
+        parts.push({
+          text: `[barrier overdue "${b.id}"]: still waiting on ${b.mode} of ${b.pending.length} repl${b.pending.length === 1 ? "y" : "ies"} (${b.pending.join(", ")}) — none arrived by the deadline. Check in with the target picode(s), or the barrier will keep waiting silently.`,
+          urgency: "high",
+        });
+      }
+      liveBarriers.push(b);
     }
+    if (liveBarriers.length !== store.barriers.length) store.barriers = liveBarriers;
+
     if (parts.length === 0) return;
-    await store.persist();
+    if (mutated) await store.persist();
     emit(parts, ctx, collect);
   }
 
