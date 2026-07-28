@@ -817,14 +817,15 @@ describe("tools: picode_status", () => {
     );
   });
 
-  it("shows 'none' for empty obligations and barriers", async () => {
+  it("omits empty obligations and barriers sections (no 'none' noise)", async () => {
     const h = makeHarness(tmpDir);
     const r = await callTool(h, "picode_status");
-    assert.match(r.content[0].text, /Obligations: none/);
-    assert.match(r.content[0].text, /Barriers: none/);
+    assert.doesNotMatch(r.content[0].text, /Obligations:/);
+    assert.doesNotMatch(r.content[0].text, /Barriers:/);
+    assert.doesNotMatch(r.content[0].text, /Owed replies:/);
   });
 
-  it("defaults tail to 15 entries for journal", async () => {
+  it("defaults tail to 15 entries for journal (compact one-liners)", async () => {
     const h = makeHarness(tmpDir);
     // Write 60 entries
     const entries = Array.from({ length: 60 }, (_, i) =>
@@ -832,34 +833,36 @@ describe("tools: picode_status", () => {
     ).join("");
     writeJournal(h, h.store.picodeId, entries);
     const r = await callTool(h, "picode_status");
-    // Should only see last 15 (task 45 through task 59)
-    assert.doesNotMatch(r.content[0].text, /Working on: task 0/);
-    assert.doesNotMatch(r.content[0].text, /Working on: task 44/);
-    assert.match(r.content[0].text, /Working on: task 45/);
-    assert.match(r.content[0].text, /Working on: task 59/);
+    // Compact mode: one line per entry, no "Working on:" prefix
+    assert.doesNotMatch(r.content[0].text, /task 0\b/);
+    assert.doesNotMatch(r.content[0].text, /task 44\b/);
+    assert.match(r.content[0].text, /task 45/);
+    assert.match(r.content[0].text, /task 59/);
+    // Should NOT contain full multi-line entry bodies
+    assert.doesNotMatch(r.content[0].text, /Working on: task/);
   });
 
-  it("tail=0 returns full journal", async () => {
+  it("tail=0 + compact=false returns full multi-line journal", async () => {
     const h = makeHarness(tmpDir);
     const entries = Array.from({ length: 10 }, (_, i) =>
       journalEntry(nowStamp(), `task ${i}`),
     ).join("");
     writeJournal(h, h.store.picodeId, entries);
-    const r = await callTool(h, "picode_status", { tail: 0 });
+    const r = await callTool(h, "picode_status", { tail: 0, compact: false });
     assert.match(r.content[0].text, /Working on: task 0/);
     assert.match(r.content[0].text, /Working on: task 9/);
   });
 
-  it("explicit tail overrides default", async () => {
+  it("explicit tail overrides default (compact one-liners)", async () => {
     const h = makeHarness(tmpDir);
     const entries = Array.from({ length: 20 }, (_, i) =>
       journalEntry(nowStamp(), `task ${i}`),
     ).join("");
     writeJournal(h, h.store.picodeId, entries);
     const r = await callTool(h, "picode_status", { tail: 5 });
-    assert.doesNotMatch(r.content[0].text, /Working on: task 14/);
-    assert.match(r.content[0].text, /Working on: task 15/);
-    assert.match(r.content[0].text, /Working on: task 19/);
+    assert.doesNotMatch(r.content[0].text, /task 14\b/);
+    assert.match(r.content[0].text, /task 15/);
+    assert.match(r.content[0].text, /task 19/);
   });
 });
 
@@ -874,16 +877,16 @@ describe("tools: picode_list", () => {
 });
 
 describe("tools: picode_journal", () => {
-  it("returns the full journal when tail=0", async () => {
+  it("returns the full journal when tail=0 + compact=false", async () => {
     const h = makeHarness(tmpDir);
     seedRemoteThread(h, "alice");
     writeJournal(h, "alice", journalEntry(nowStamp(), "task A") + journalEntry(nowStamp(), "B"));
-    const r = await callTool(h, "picode_journal", { id: "alice", tail: 0 });
+    const r = await callTool(h, "picode_journal", { id: "alice", tail: 0, compact: false });
     assert.match(r.content[0].text, /task A/);
     assert.match(r.content[0].text, /Working on: B/);
   });
 
-  it("defaults tail to 15 entries", async () => {
+  it("defaults tail to 15 entries (compact one-liners)", async () => {
     const h = makeHarness(tmpDir);
     seedRemoteThread(h, "alice");
     const entries = Array.from({ length: 60 }, (_, i) =>
@@ -891,30 +894,31 @@ describe("tools: picode_journal", () => {
     ).join("");
     writeJournal(h, "alice", entries);
     const r = await callTool(h, "picode_journal", { id: "alice" });
-    // Should only see last 15 (task 45 through task 59)
-    assert.doesNotMatch(r.content[0].text, /Working on: task 0/);
-    assert.doesNotMatch(r.content[0].text, /Working on: task 44/);
-    assert.match(r.content[0].text, /Working on: task 45/);
-    assert.match(r.content[0].text, /Working on: task 59/);
+    // Compact mode: one line per entry, no "Working on:" prefix
+    assert.doesNotMatch(r.content[0].text, /task 0\b/);
+    assert.doesNotMatch(r.content[0].text, /task 44\b/);
+    assert.match(r.content[0].text, /task 45/);
+    assert.match(r.content[0].text, /task 59/);
+    assert.doesNotMatch(r.content[0].text, /Working on: task/);
   });
 
-  it("tail limits to the last N entries", async () => {
+  it("tail limits to the last N entries (compact)", async () => {
     const h = makeHarness(tmpDir);
     seedRemoteThread(h, "alice");
     writeJournal(h, "alice", journalEntry(nowStamp(), "old") + journalEntry(nowStamp(), "newest"));
     const r = await callTool(h, "picode_journal", { id: "alice", tail: 1 });
-    assert.doesNotMatch(r.content[0].text, /Working on: old/);
-    assert.match(r.content[0].text, /Working on: newest/);
+    assert.doesNotMatch(r.content[0].text, /\bold\b/);
+    assert.match(r.content[0].text, /newest/);
   });
 
-  it("lookbackMinutes excludes entries older than the cutoff", async () => {
+  it("lookbackMinutes excludes entries older than the cutoff (compact)", async () => {
     const h = makeHarness(tmpDir);
     seedRemoteThread(h, "alice");
     const oldTs = stamp(new Date(Date.now() - 3 * 60 * 60_000));
     writeJournal(h, "alice", journalEntry(oldTs, "ancient") + journalEntry(nowStamp(), "fresh"));
     const r = await callTool(h, "picode_journal", { id: "alice", lookbackMinutes: 60 });
-    assert.doesNotMatch(r.content[0].text, /Working on: ancient/);
-    assert.match(r.content[0].text, /Working on: fresh/);
+    assert.doesNotMatch(r.content[0].text, /ancient/);
+    assert.match(r.content[0].text, /fresh/);
   });
 
   it("errors for an unknown picode id", async () => {

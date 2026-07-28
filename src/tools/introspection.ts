@@ -2,7 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { PicodeStore } from "../core/types";
 import { barrierLines, formatThreadLine, obligationLines, owedLines } from "../core/format";
-import { splitJournalEntries } from "../journal";
+import { splitJournalEntries, compactEntry } from "../journal";
 import { err } from "./shared";
 
 /** Read-only tools: this picode's status, the workspace roster, journals. */
@@ -27,10 +27,17 @@ export function registerIntrospectionTools(pi: ExtensionAPI, store: PicodeStore)
             "Only return entries timestamped within the last N minutes. Combine with tail to cap both age and count.",
         }),
       ),
+      compact: Type.Optional(
+        Type.Boolean({
+          description:
+            "Compact each journal entry to a one-line summary (default true). Set false to see full multi-line entries.",
+        }),
+      ),
     }),
     async execute(_id, params) {
       let journal =
         (await store.readJournal(store.picodeId)) ?? "(no journal yet — this is the first turn)";
+      const compact = params.compact !== false;
       // Apply filters if specified, or default tail=15 to cap context
       const tail = params.tail !== undefined ? params.tail : 15;
       if ((tail > 0 || params.lookbackMinutes) && journal) {
@@ -45,13 +52,31 @@ export function registerIntrospectionTools(pi: ExtensionAPI, store: PicodeStore)
           });
         }
         if (tail > 0) entries = entries.slice(-tail);
-        journal = entries.join("\n") || "(no entries in range)";
+        journal = compact
+          ? entries.map(compactEntry).join("\n") || "(no entries in range)"
+          : entries.join("\n") || "(no entries in range)";
+      } else if (compact && journal) {
+        // tail=0 + compact → still compact the full journal
+        const entries = splitJournalEntries(journal);
+        journal = entries.map(compactEntry).join("\n") || "(no entries)";
       }
+      // Build status header — only include sections that have content, so
+      // an idle picode doesn't get six "none" lines of noise.
+      const sections: string[] = [
+        `Id: ${store.picodeId}`,
+        `Role: ${store.role ?? "-"}`,
+        `State: ${store.state}${store.holdReason ? ` (${store.holdReason})` : ""}`,
+        `Status: ${store.status}`,
+      ];
+      if (store.barriers.length) sections.push(`Barriers:${barrierLines(store.barriers)}`);
+      if (store.obligations.length)
+        sections.push(`Obligations:${obligationLines(store.obligations)}`);
+      if (store.owed.length) sections.push(`Owed replies:${owedLines(store.owed)}`);
       return {
         content: [
           {
             type: "text" as const,
-            text: `Id: ${store.picodeId}\nRole: ${store.role ?? "-"}\nState: ${store.state}${store.holdReason ? ` (${store.holdReason})` : ""}\nStatus: ${store.status}\nBarriers:${barrierLines(store.barriers)}\nObligations:${obligationLines(store.obligations)}\nOwed replies:${owedLines(store.owed)}\n\n${journal}`,
+            text: `${sections.join("\n")}\n\n${journal}`,
           },
         ],
         details: {
@@ -114,6 +139,12 @@ export function registerIntrospectionTools(pi: ExtensionAPI, store: PicodeStore)
             "Only return entries timestamped within the last N minutes. Combine with tail to cap both age and count.",
         }),
       ),
+      compact: Type.Optional(
+        Type.Boolean({
+          description:
+            "Compact each entry to a one-line summary (default true). Set false to see full multi-line entries.",
+        }),
+      ),
     }),
     async execute(_id, params) {
       if (!store.adapter.readJournal) {
@@ -123,6 +154,7 @@ export function registerIntrospectionTools(pi: ExtensionAPI, store: PicodeStore)
         return err(`No picode "${params.id}" found. Call picode_list to see known ids.`);
       }
       let journal = (await store.readJournal(params.id)) ?? "(no journal entries yet)";
+      const compact = params.compact !== false;
       // Apply filters if specified, or default tail=15 to cap context
       const tail = params.tail !== undefined ? params.tail : 15;
       if ((tail > 0 || params.lookbackMinutes) && journal) {
@@ -137,7 +169,12 @@ export function registerIntrospectionTools(pi: ExtensionAPI, store: PicodeStore)
           });
         }
         if (tail > 0) entries = entries.slice(-tail);
-        journal = entries.join("\n") || "(no entries in range)";
+        journal = compact
+          ? entries.map(compactEntry).join("\n") || "(no entries in range)"
+          : entries.join("\n") || "(no entries in range)";
+      } else if (compact && journal) {
+        const entries = splitJournalEntries(journal);
+        journal = entries.map(compactEntry).join("\n") || "(no entries)";
       }
       return {
         content: [{ type: "text" as const, text: `Journal for ${params.id}:\n\n${journal}` }],
