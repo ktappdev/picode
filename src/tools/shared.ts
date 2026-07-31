@@ -54,7 +54,13 @@ export function effectiveAgentStatus(
 }
 
 /** Herdr pane IDs are workspace-local opaque IDs such as w1:p2. Keep shell
- * arguments constrained even though Herdr normally generates this format. */
+ *  arguments constrained even though Herdr normally generates this format. */
 export function isValidPaneId(paneId: string): boolean {
   return /^[A-Za-z0-9_-]+:[A-Za-z0-9_-]+$/.test(paneId);
+}
+
+/** Shell-quote a value for safe inclusion in a herdr CLI argument. Single-quote
+ *  wrapping with embedded single-quote escaping — standard POSIX sh quoting. */
+export function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
 }

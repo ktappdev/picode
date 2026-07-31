@@ -35,6 +35,8 @@ import { createInbox } from "../src/inbox";
 import type { Injection } from "../src/inbox";
 import { DEADLINE_EXPIRY_GRACE_MS } from "../src/inbox";
 import { effectiveAgentStatus } from "../src/tools/shared";
+import { countPanesInTab, solePaneInTab } from "../src/tools/spawn";
+import { validateLabel } from "../src/tools/tab-create";
 import { registerLifecycle, extractFirstLine } from "../src/lifecycle";
 import { deadlineFromSeconds } from "../src/core/time";
 import { checkBodySize, MAX_BODY_BYTES } from "../src/tools/messaging";
@@ -3590,5 +3592,103 @@ describe("tools/spawn: threadIdExists checks picode state", () => {
       }
     }
     assert.strictEqual(alive, false, "PID 999999 should not be alive");
+  });
+});
+
+// ── Multi-tab helpers: countPanesInTab, solePaneInTab ──────────────
+
+describe("spawn: countPanesInTab", () => {
+  const ws = "w1";
+  const panes = [
+    { pane_id: "w1:p1", workspace_id: ws, tab_id: "w1:t1", agent_status: "working" },
+    { pane_id: "w1:p2", workspace_id: ws, tab_id: "w1:t1", agent_status: "idle" },
+    { pane_id: "w1:p3", workspace_id: ws, tab_id: "w1:t1", agent_status: "done" },
+    { pane_id: "w1:p4", workspace_id: ws, tab_id: "w1:t2", agent_status: "working" },
+    { pane_id: "w1:p5", workspace_id: ws, tab_id: "w1:t2", agent_status: undefined },
+    { pane_id: "w2:p1", workspace_id: "w2", tab_id: "w2:t1", agent_status: "idle" },
+  ] as Array<Record<string, unknown>>;
+
+  it("counts agent panes in w1:t1 (3)", () => {
+    assert.strictEqual(countPanesInTab(panes, ws, "w1:t1"), 3);
+  });
+
+  it("counts agent panes in w1:t2 (1 — undefined agent excluded)", () => {
+    assert.strictEqual(countPanesInTab(panes, ws, "w1:t2"), 1);
+  });
+
+  it("returns 0 for empty tab", () => {
+    assert.strictEqual(countPanesInTab(panes, ws, "w1:t9"), 0);
+  });
+
+  it("excludes panes from other workspaces", () => {
+    assert.strictEqual(countPanesInTab(panes, ws, "w2:t1"), 0);
+  });
+});
+
+describe("spawn: solePaneInTab", () => {
+  const ws = "w1";
+  it("returns pane_id when tab has exactly 1 pane", () => {
+    const panes = [
+      { pane_id: "w1:p1", workspace_id: ws, tab_id: "w1:t5" },
+      { pane_id: "w1:p2", workspace_id: ws, tab_id: "w1:t1" },
+      { pane_id: "w1:p3", workspace_id: ws, tab_id: "w1:t1" },
+    ] as Array<Record<string, unknown>>;
+    assert.strictEqual(solePaneInTab(panes, ws, "w1:t5"), "w1:p1");
+  });
+
+  it("returns null when tab has 2+ panes", () => {
+    const panes = [
+      { pane_id: "w1:p1", workspace_id: ws, tab_id: "w1:t1" },
+      { pane_id: "w1:p2", workspace_id: ws, tab_id: "w1:t1" },
+    ] as Array<Record<string, unknown>>;
+    assert.strictEqual(solePaneInTab(panes, ws, "w1:t1"), null);
+  });
+
+  it("returns null when tab has 0 panes", () => {
+    const panes = [{ pane_id: "w1:p1", workspace_id: ws, tab_id: "w1:t1" }] as Array<
+      Record<string, unknown>
+    >;
+    assert.strictEqual(solePaneInTab(panes, ws, "w1:t9"), null);
+  });
+});
+
+// ── Tab tool validation: validateLabel ─────────────────────────────
+
+describe("tab-create: validateLabel", () => {
+  it("accepts empty label", () => {
+    assert.strictEqual(validateLabel(""), null);
+  });
+
+  it("accepts valid labels", () => {
+    assert.strictEqual(validateLabel("frontend"), null);
+    assert.strictEqual(validateLabel("workers-2"), null);
+    assert.strictEqual(validateLabel("back_end"), null);
+    assert.strictEqual(validateLabel("tab3"), null);
+  });
+
+  it("rejects label too long (>32 chars)", () => {
+    const long = "a".repeat(33);
+    const result = validateLabel(long);
+    assert.ok(result, "should return error for 33-char label");
+    assert.ok(result!.includes("too long"));
+  });
+
+  it("accepts label exactly 32 chars", () => {
+    const max = "a".repeat(32);
+    assert.strictEqual(validateLabel(max), null);
+  });
+
+  it("rejects special characters", () => {
+    assert.ok(validateLabel("front end"), "spaces rejected");
+    assert.ok(validateLabel("front;end"), "semicolon rejected");
+    assert.ok(validateLabel("front&end"), "ampersand rejected");
+    assert.ok(validateLabel("front$end"), "dollar rejected");
+    assert.ok(validateLabel("front/end"), "slash rejected");
+  });
+
+  it("rejects shell injection attempts", () => {
+    assert.ok(validateLabel("; rm -rf /"), "command injection rejected");
+    assert.ok(validateLabel("$(whoami)"), "command substitution rejected");
+    assert.ok(validateLabel("`whoami`"), "backtick injection rejected");
   });
 });

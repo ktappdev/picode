@@ -1,8 +1,0 @@
-{
-  "id": "coordinator/01KYA1X58GGKXN1075M1A0ARP0",
-  "from": "coordinator",
-  "to": "scout",
-  "body": "List all tools and extensions you have access to as a picode worker. Use whatever introspection mechanism is available -- check your system prompt, run help commands, or use any tool that shows what's registered.\n\nReturn a comprehensive list of:\n1. All available tools (names + brief description)\n2. All registered extensions\n3. Any slash commands available\n4. Skills available to you\n\nBe thorough -- list everything you can find.",
-  "sentAt": "2026-07-24T12:34:20.048Z",
-  "expects": true
-}

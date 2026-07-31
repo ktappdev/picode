@@ -5,6 +5,8 @@ import { registerIntrospectionTools } from "./introspection";
 import { registerMessagingTools } from "./messaging";
 import { registerControlTools } from "./control";
 import { registerSpawnTool } from "./spawn";
+import { registerTabCreateTool } from "./tab-create";
+import { registerTabCloseTool } from "./tab-close";
 import { registerPurgeTool } from "./purge";
 import { registerCleanupPanesTool } from "./cleanup-panes";
 import { registerPanesTool } from "./panes";
@@ -20,6 +22,8 @@ export function registerTools(pi: ExtensionAPI, store: PicodeStore, inbox: Inbox
   registerMessagingTools(pi, store, inbox);
   registerControlTools(pi, store, inbox);
   registerSpawnTool(pi, store);
+  registerTabCreateTool(pi, store);
+  registerTabCloseTool(pi, store);
   registerPurgeTool(pi, store);
   registerCleanupPanesTool(pi, store);
   registerPanesTool(pi);

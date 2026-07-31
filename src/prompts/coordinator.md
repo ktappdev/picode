@@ -120,6 +120,8 @@ Returns `{ ok, pane_id, role, model, theme, reused, claimed_empty?, direction, s
 
 **Note:** Spawns within current workspace only. Split target auto-selects the best worker pane in the same tab: idle/done first, then working/blocked only when necessary; coordinator pane is reserved for the first worker spawn. Panes in other workspaces are ignored. If a worker with the same role is busy, tool auto-suffixes picode-id (e.g., `scout` → `scout-1` → `scout-2`).
 
+Spawns in the current tab by default. Pass `tab="<tab_id>"` to spawn in a specific tab (get the id from `picode_tab_create` or `picode_panes`). When the requested tab is full, returns `tab_full=true` — call `picode_tab_create()` and retry with the new `tab_id`.
+
 **Layout awareness (IMPORTANT):** Before spawning multiple workers, call `picode_panes(includeLayout=true)` to see current pane arrangement. The tool auto-detects split direction to build grids, not stacks — but if you override `direction`, choose wisely:
 
 - After a vertical split (down), the next split should go right to start a new column
@@ -130,6 +132,26 @@ Returns `{ ok, pane_id, role, model, theme, reused, claimed_empty?, direction, s
 **Never split your own pane (CRITICAL):** Your pane is the command center — keep it large and readable. The `spawn_worker` tool auto-selects the best pane to split (largest idle worker, never the coordinator). **Always omit `direction`** unless you have a specific layout reason — even then, the tool still picks the split target smartly. Splitting your own pane shrinks the command center and makes it hard to see project state. Let the tool decide.
 
 Then send task via `picode_send(to="<role>", expects=true)`.
+
+### Tabs (when the tab is full)
+
+Workers spawn in your current tab by default. A tab fits ~4–5 panes in a grid before splits get too small. When a tab is full, `spawn_worker` returns `tab_full=true` instead of forcing a bad split.
+
+**Flow:**
+
+```
+spawn_worker(role="builder")              → { ok: false, tab_full: true, tab_id }
+picode_tab_create(label="workers-2")      → { tab_id, root_pane_id }
+spawn_worker(role="builder", tab="<new>") → spawns in the new tab
+```
+
+Do not pre-create tabs speculatively. Open one only when a spawn returns `tab_full`. Two tabs is typical for a large job; three is rare. Use `picode_panes()` to see which tab each worker is in.
+
+**Soft signal — `tab_near_full`:** When a spawn returns `tab_near_full: true` (4+ panes in that tab), create a new tab for the **next** worker — don't wait for the hard `tab_full` signal. The soft signal fires before panes get too small. Flow: spawn returns `tab_near_full: true` → next spawn, call `picode_tab_create()` first → spawn into the new tab.
+
+**Tab cleanup:** After `cleanup_panes()` closes stale workers, check `picode_panes()` for empty tabs (tabs with no agent panes). Close them with `picode_tab_close(tab_id="<id>")`. If a tab still has idle/done panes, use `picode_tab_close(tab_id="<id>", force=true)` or `cleanup_panes(force=true)` first. Never close your own tab — the tool refuses.
+
+Pane cleanup is unchanged — `cleanup_panes()` scans the whole workspace across all tabs.
 
 ### Running commands
 

@@ -3,7 +3,7 @@ import { Type } from "typebox";
 import { execSync } from "child_process";
 import { readFileSync, existsSync, statSync } from "fs";
 import { join } from "path";
-import { err, extractRole, effectiveAgentStatus } from "./shared";
+import { err, extractRole, effectiveAgentStatus, shellQuote } from "./shared";
 import type { PicodeStore } from "../core/types";
 import { trackPane } from "../herdr/listener";
 
@@ -26,10 +26,6 @@ let modelsJsonMtime: number | null = null;
 
 function herdr(args: string): string {
   return execSync(`herdr ${args}`, { encoding: "utf-8", timeout: 15_000 });
-}
-
-function shellQuote(value: string): string {
-  return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
 function herdrJson(args: string): Record<string, unknown> {
@@ -131,7 +127,16 @@ function isCoordinatorLabel(label: string): boolean {
   return stripped === "coordinator";
 }
 
-function getSplitTarget(currentPaneId: string, workspaceId: string, role: string): SplitTarget {
+/** Fetch and parse the herdr API snapshot once. Returns panes, layouts, and
+ *  a pre-built rect map so callers don't each fetch their own snapshot.
+ *  Returns null if the snapshot can't be fetched. */
+interface SnapshotData {
+  panes: Array<Record<string, unknown>>;
+  layouts: Array<Record<string, unknown>>;
+  rectMap: Map<string, { x: number; y: number; width: number; height: number }>;
+}
+
+function fetchSnapshot(): SnapshotData | null {
   try {
     const snapshot = herdrJson("api snapshot");
     const snap =
@@ -145,11 +150,6 @@ function getSplitTarget(currentPaneId: string, workspaceId: string, role: string
       Record<string, unknown>
     >;
 
-    // Find current pane's tab_id
-    const currentPane = panes.find(p => p.pane_id === currentPaneId);
-    const currentTabId = (currentPane?.tab_id as string) || "";
-
-    // Build rect map: pane_id → {x, y, width, height}
     const rectMap = new Map<string, { x: number; y: number; width: number; height: number }>();
     for (const layout of layouts) {
       const layoutPanes = (layout.panes as Record<string, unknown>[] | undefined) || [];
@@ -167,88 +167,137 @@ function getSplitTarget(currentPaneId: string, workspaceId: string, role: string
       }
     }
 
-    // Find workspace area dimensions for ratio calculations
-    const wsLayout = layouts.find(l => l.workspace_id === workspaceId && l.tab_id === currentTabId);
-    const wsArea = wsLayout?.area as Record<string, unknown> | undefined;
-    const wsWidth = Number(wsArea?.width) || 0;
-    const wsHeight = Number(wsArea?.height) || 0;
+    return { panes, layouts, rectMap };
+  } catch {
+    return null;
+  }
+}
 
-    // Minimum pane size based on workspace ratios
-    const minWidth = wsWidth * MIN_PANE_RATIO;
-    const minHeight = wsHeight * MIN_PANE_RATIO;
+/** Count panes with agents in a specific tab. Used to detect whether a tab
+ *  is full (no split candidates) vs. empty (first-worker exception). */
+export function countPanesInTab(
+  panes: Array<Record<string, unknown>>,
+  workspaceId: string,
+  tabId: string,
+): number {
+  return panes.filter(p => p.workspace_id === workspaceId && p.tab_id === tabId && p.agent_status)
+    .length;
+}
 
-    // Score candidates — never split coordinator if any other pane exists
-    let bestPaneId: string | null = null;
-    let bestScore = -1;
+/** Find the sole pane in a tab (regardless of agent status). Returns pane_id
+ *  or null if the tab has 0 or 2+ panes. Used for the first-worker-in-empty-tab
+ *  exception — a freshly created tab has one agent-less root pane. */
+export function solePaneInTab(
+  panes: Array<Record<string, unknown>>,
+  workspaceId: string,
+  tabId: string,
+): string | null {
+  const tabPanes = panes.filter(p => p.workspace_id === workspaceId && p.tab_id === tabId);
+  return tabPanes.length === 1 ? (tabPanes[0].pane_id as string) || null : null;
+}
 
-    for (const pane of panes) {
-      const paneId = pane.pane_id as string;
-      const tabId = pane.tab_id as string;
-      const agentStatus = pane.agent_status as string | undefined;
-      const label = (pane.label as string) || "";
+/** Find the best pane to split in the target tab. Returns null when the tab
+ *  is full (no candidate ≥ MIN_PANE_RATIO and more than 1 pane) — the caller
+ *  should open a new tab via picode_tab_create.
+ *
+ *  First-worker exception: if the tab has exactly 1 pane (e.g. a freshly
+ *  created tab's root pane with no agent), that pane is returned as the
+ *  split target even though it has no agent_status. */
+function getSplitTarget(
+  currentPaneId: string,
+  workspaceId: string,
+  role: string,
+  targetTabId: string,
+  snap: SnapshotData,
+): SplitTarget | null {
+  const { panes, layouts, rectMap } = snap;
 
-      // Must be in same workspace
-      if (pane.workspace_id !== workspaceId) continue;
+  // Find workspace area dimensions for ratio calculations
+  const wsLayout = layouts.find(l => l.workspace_id === workspaceId && l.tab_id === targetTabId);
+  const wsArea = wsLayout?.area as Record<string, unknown> | undefined;
+  const wsWidth = Number(wsArea?.width) || 0;
+  const wsHeight = Number(wsArea?.height) || 0;
 
-      // Must be in same tab
-      if (tabId !== currentTabId) continue;
+  // Minimum pane size based on workspace ratios
+  const minWidth = wsWidth * MIN_PANE_RATIO;
+  const minHeight = wsHeight * MIN_PANE_RATIO;
 
-      // Must have an agent
-      if (!agentStatus) continue;
+  // Score candidates — never split coordinator if any other pane exists
+  let bestPaneId: string | null = null;
+  let bestScore = -1;
 
-      // NEVER split coordinator — hard exclusion, not just a penalty.
-      // Coordinator pane is the command center; keep it large.
-      if (isCoordinatorLabel(label)) continue;
+  for (const pane of panes) {
+    const paneId = pane.pane_id as string;
+    const tabId = pane.tab_id as string;
+    const agentStatus = pane.agent_status as string | undefined;
+    const label = (pane.label as string) || "";
 
-      // Never split own pane (safety — coordinator is own pane)
-      if (paneId === currentPaneId) continue;
+    // Must be in same workspace
+    if (pane.workspace_id !== workspaceId) continue;
 
-      const rect = rectMap.get(paneId);
-      if (!rect) continue;
+    // Must be in target tab
+    if (tabId !== targetTabId) continue;
 
-      // Score by area
-      let score = rect.width * rect.height;
+    // Must have an agent
+    if (!agentStatus) continue;
 
-      // Penalize panes below minimum size — still prefer over coordinator,
-      // but deprioritize so we pick the largest usable worker first
-      if (rect.width < minWidth || rect.height < minHeight) {
-        score = score * 0.3;
-      }
+    // NEVER split coordinator — hard exclusion, not just a penalty.
+    // Coordinator pane is the command center; keep it large.
+    if (isCoordinatorLabel(label)) continue;
 
-      // Prefer idle/done (safe to split) over working (disruptive but better
-      // than shrinking coordinator)
-      if (agentStatus !== "idle" && agentStatus !== "done") {
-        score = score * 0.5;
-      }
+    // Never split own pane (safety — coordinator is own pane)
+    if (paneId === currentPaneId) continue;
 
-      // Bonus for same role — groups same workers together
-      const paneRole = extractRole(label).toLowerCase();
-      if (paneRole === role.toLowerCase()) {
-        score = score * 1.2;
-      }
+    const rect = rectMap.get(paneId);
+    if (!rect) continue;
 
-      if (score > bestScore) {
-        bestScore = score;
-        bestPaneId = paneId;
-      }
+    // Score by area
+    let score = rect.width * rect.height;
+
+    // Penalize panes below minimum size — still prefer over coordinator,
+    // but deprioritize so we pick the largest usable worker first
+    if (rect.width < minWidth || rect.height < minHeight) {
+      score = score * 0.3;
     }
 
-    // Only split coordinator (currentPaneId) when no other panes exist in tab
-    // — i.e. spawning the very first worker. After that, always split a worker.
-    const targetPaneId = bestPaneId || currentPaneId;
-    const direction = computeDirection(
-      targetPaneId,
-      rectMap,
-      wsWidth,
-      wsHeight,
-      panes,
-      currentTabId,
-    );
+    // Prefer idle/done (safe to split) over working (disruptive but better
+    // than shrinking coordinator)
+    if (agentStatus !== "idle" && agentStatus !== "done") {
+      score = score * 0.5;
+    }
 
-    return { paneId: targetPaneId, direction };
-  } catch {
-    return { paneId: currentPaneId, direction: "right" };
+    // Bonus for same role — groups same workers together
+    const paneRole = extractRole(label).toLowerCase();
+    if (paneRole === role.toLowerCase()) {
+      score = score * 1.2;
+    }
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestPaneId = paneId;
+    }
   }
+
+  // If we found a candidate, use it
+  if (bestPaneId) {
+    const direction = computeDirection(bestPaneId, rectMap, wsWidth, wsHeight, panes, targetTabId);
+    return { paneId: bestPaneId, direction };
+  }
+
+  // First-worker-in-empty-tab exception: if the tab has only 1 pane (the
+  // root pane from picode_tab_create, which has no agent), split it.
+  const solePaneId = solePaneInTab(panes, workspaceId, targetTabId);
+  if (solePaneId) {
+    const direction = computeDirection(solePaneId, rectMap, wsWidth, wsHeight, panes, targetTabId);
+    return { paneId: solePaneId, direction };
+  }
+
+  // 0 panes in tab → impossible in practice (herdr always creates a root
+  // pane), but handle gracefully: treat as full so caller opens a new tab
+  // rather than crashing. The pane_count in the tab_full message will be 0,
+  // which signals something is wrong with the tab.
+  // 2+ panes but no candidate ≥ MIN_PANE_RATIO → tab is genuinely full.
+  return null;
 }
 
 function computeDirection(
@@ -368,97 +417,89 @@ function uniquePicodeId(role: string, workspaceId: string): string {
   return `${role}-${suffix}`;
 }
 
-/** Look for an existing pane with the given role label.
+/** Look for an existing pane with the given role label in the target tab.
  *  Prefers idle/done panes (safe to reuse) over unknown/stopped.
- *  Returns pane_id of best match or null if none found. */
-function findExistingPane(workspaceId: string, role: string): string | null {
+ *  Returns pane_id of best match or null if none found.
+ *
+ *  Tab-scoped: only considers panes in targetTabId. Cross-tab reuse would
+ *  break tab isolation — if you spawn into tab X, you don't want to reuse
+ *  an idle worker from tab Y. */
+function findExistingPane(
+  workspaceId: string,
+  role: string,
+  targetTabId: string,
+  panes: Array<Record<string, unknown>>,
+): string | null {
   let bestMatch: string | null = null;
   let bestPriority = -1; // -1=none, 0=unknown/stopped, 1=idle/done
 
-  try {
-    const result = herdrJson(`pane list --workspace ${workspaceId}`);
-    const panes =
-      ((result.result as Record<string, unknown> | undefined)?.panes as
-        Record<string, unknown>[] | undefined) || [];
+  for (const pane of panes) {
+    // Must be in same workspace and target tab
+    if (pane.workspace_id !== workspaceId) continue;
+    if ((pane.tab_id as string) !== targetTabId) continue;
 
-    for (const pane of panes) {
-      const label = (pane.label as string) || "";
-      const paneRole = extractRole(label);
-      if (paneRole.toLowerCase() !== role.toLowerCase()) continue;
+    const label = (pane.label as string) || "";
+    const paneRole = extractRole(label);
+    if (paneRole.toLowerCase() !== role.toLowerCase()) continue;
 
-      const agentStatus = (pane.agent_status as string) || "unknown";
-      const paneId = (pane.pane_id as string) || null;
-      if (!paneId) continue;
+    const agentStatus = (pane.agent_status as string) || "unknown";
+    const paneId = (pane.pane_id as string) || null;
+    if (!paneId) continue;
 
-      // Prefer idle/done (safe to reuse) over unknown/stopped
-      const priority = agentStatus === "idle" || agentStatus === "done" ? 1 : 0;
-      if (priority > bestPriority) {
-        bestPriority = priority;
-        bestMatch = paneId;
-      }
+    // Prefer idle/done (safe to reuse) over unknown/stopped
+    const priority = agentStatus === "idle" || agentStatus === "done" ? 1 : 0;
+    if (priority > bestPriority) {
+      bestPriority = priority;
+      bestMatch = paneId;
     }
-  } catch {
-    // Ignore list errors — proceed to create new pane
   }
   return bestMatch;
 }
 
 /** Look for an empty pane (no agent, no label, but has a terminal) in the
- *  same workspace and tab as the coordinator. Claiming an empty pane avoids
- *  an unnecessary split and keeps the layout compact.
+ *  target tab. Claiming an empty pane avoids an unnecessary split and keeps
+ *  the layout compact.
  *
  *  Criteria: agent is null, label is null/empty, terminal_id is set,
  *  AND no foreground process running (stale scripts block pane run).
  *  Must NOT be the coordinator's own pane.
  *  Returns pane_id or null. */
-function findEmptyPane(workspaceId: string, currentPaneId: string): string | null {
-  try {
-    const snapshot = herdrJson("api snapshot");
-    const snap =
-      ((snapshot.result as Record<string, unknown> | undefined)?.snapshot as
-        Record<string, unknown> | undefined) || {};
+function findEmptyPane(
+  workspaceId: string,
+  currentPaneId: string,
+  targetTabId: string,
+  panes: Array<Record<string, unknown>>,
+): string | null {
+  for (const pane of panes) {
+    const paneId = (pane.pane_id as string) || "";
+    if (paneId === currentPaneId) continue; // never claim own pane
+    if (pane.workspace_id !== workspaceId) continue;
+    if ((pane.tab_id as string) !== targetTabId) continue;
 
-    const panes = ((snap.panes as Record<string, unknown>[] | undefined) || []) as Array<
-      Record<string, unknown>
-    >;
+    const agent = pane.agent as string | null;
+    const label = (pane.label as string) || "";
+    const terminalId = (pane.terminal_id as string) || "";
 
-    // Find current pane's tab_id so we only claim panes in the same tab
-    const currentPane = panes.find(p => p.pane_id === currentPaneId);
-    const currentTabId = (currentPane?.tab_id as string) || "";
-
-    for (const pane of panes) {
-      const paneId = (pane.pane_id as string) || "";
-      if (paneId === currentPaneId) continue; // never claim own pane
-      if (pane.workspace_id !== workspaceId) continue;
-      if ((pane.tab_id as string) !== currentTabId) continue;
-
-      const agent = pane.agent as string | null;
-      const label = (pane.label as string) || "";
-      const terminalId = (pane.terminal_id as string) || "";
-
-      // Empty = no agent, no label, but has a terminal we can run in
-      if (!agent && !label && terminalId) {
-        // Check for foreground processes — a stale script (e.g. picode_run
-        // temp .sh) would intercept pane run text instead of letting pi
-        // launch. Skip panes with running foreground processes.
-        try {
-          const procInfo = herdrJson(`pane process-info --pane ${paneId}`);
-          const info = (procInfo.result as Record<string, unknown> | undefined)?.process_info as
-            Record<string, unknown> | undefined;
-          const fgProcs = (info?.foreground_processes as Array<Record<string, unknown>>) || [];
-          if (fgProcs.length > 0) {
-            // Has a running process — not truly empty, skip
-            continue;
-          }
-        } catch {
-          // Can't check process info — skip to be safe
+    // Empty = no agent, no label, but has a terminal we can run in
+    if (!agent && !label && terminalId) {
+      // Check for foreground processes — a stale script (e.g. picode_run
+      // temp .sh) would intercept pane run text instead of letting pi
+      // launch. Skip panes with running foreground processes.
+      try {
+        const procInfo = herdrJson(`pane process-info --pane ${paneId}`);
+        const info = (procInfo.result as Record<string, unknown> | undefined)?.process_info as
+          Record<string, unknown> | undefined;
+        const fgProcs = (info?.foreground_processes as Array<Record<string, unknown>>) || [];
+        if (fgProcs.length > 0) {
+          // Has a running process — not truly empty, skip
           continue;
         }
-        return paneId;
+      } catch {
+        // Can't check process info — skip to be safe
+        continue;
       }
+      return paneId;
     }
-  } catch {
-    // Ignore — fall through to split
   }
   return null;
 }
@@ -496,6 +537,12 @@ export function registerSpawnTool(pi: ExtensionAPI, store: PicodeStore) {
             "If false, always create a new pane. Default: true (reuse existing idle/done pane if available).",
         }),
       ),
+      tab: Type.Optional(
+        Type.String({
+          description:
+            "Tab ID to spawn in (e.g. w1:t3). Default: current tab. Get from picode_panes() or picode_tab_create. When the requested tab is full, returns tab_full=true instead of splitting — call picode_tab_create then retry.",
+        }),
+      ),
     }),
     async execute(_id, params, _signal, _onUpdate, _ctx) {
       if (store.role !== "coordinator") {
@@ -504,11 +551,26 @@ export function registerSpawnTool(pi: ExtensionAPI, store: PicodeStore) {
 
       const paneId = process.env.HERDR_PANE_ID;
       const workspaceId = process.env.HERDR_WORKSPACE_ID;
+      const currentTabId = process.env.HERDR_TAB_ID || "";
 
       if (!paneId || !workspaceId) {
         return err(
           "HERDR_PANE_ID / HERDR_WORKSPACE_ID not set — spawn_worker only works inside Herdr panes.",
         );
+      }
+
+      // Resolve target tab: explicit param, else current tab from env
+      const targetTabId = params.tab || currentTabId;
+      if (!targetTabId) {
+        return err(
+          "No tab id — HERDR_TAB_ID not set and no tab param provided. Get a tab_id from picode_panes() or picode_tab_create().",
+        );
+      }
+
+      // Fetch snapshot once — reused by findEmptyPane, getSplitTarget, countPanesInTab
+      const snap = fetchSnapshot();
+      if (!snap) {
+        return err("Failed to fetch herdr snapshot — is herdr running?");
       }
 
       try {
@@ -523,7 +585,12 @@ export function registerSpawnTool(pi: ExtensionAPI, store: PicodeStore) {
         let paneIdToUse: string | null = null;
 
         if (params.reuse !== false) {
-          const existingPaneId = findExistingPane(workspaceId, params.role);
+          const existingPaneId = findExistingPane(
+            workspaceId,
+            params.role,
+            targetTabId,
+            snap.panes,
+          );
           if (existingPaneId) {
             // Get pane status to decide what to do
             try {
@@ -588,7 +655,7 @@ export function registerSpawnTool(pi: ExtensionAPI, store: PicodeStore) {
         } else {
           // 3a. Check for an empty pane (no agent, no label, has terminal)
           //     Claiming it avoids an unnecessary split.
-          const emptyPaneId = findEmptyPane(workspaceId, paneId);
+          const emptyPaneId = findEmptyPane(workspaceId, paneId, targetTabId, snap.panes);
           if (emptyPaneId) {
             newPaneId = emptyPaneId;
             claimedEmpty = true;
@@ -597,7 +664,31 @@ export function registerSpawnTool(pi: ExtensionAPI, store: PicodeStore) {
             // Always run getSplitTarget for pane selection (never split
             // coordinator). If direction is overridden, use it but still
             // pick the smart split target — don't force coordinator pane.
-            const target = getSplitTarget(paneId, workspaceId, params.role);
+            const target = getSplitTarget(paneId, workspaceId, params.role, targetTabId, snap);
+            if (!target) {
+              // Tab is full — no split candidate ≥ MIN_PANE_RATIO and more
+              // than 1 pane. Signal the coordinator to open a new tab.
+              const paneCount = countPanesInTab(snap.panes, workspaceId, targetTabId);
+              const fullResult = {
+                ok: false,
+                tab_full: true,
+                tab_id: targetTabId,
+                pane_count: paneCount,
+                message:
+                  paneCount === 0
+                    ? `Tab ${targetTabId} has no panes — it may be invalid. Try a different tab or create a new one with picode_tab_create().`
+                    : `Tab ${targetTabId} is full (${paneCount} panes, none ≥20% to split). Call picode_tab_create() then retry spawn_worker with the new tab_id.`,
+              };
+              return {
+                content: [
+                  {
+                    type: "text" as const,
+                    text: JSON.stringify(fullResult),
+                  },
+                ],
+                details: fullResult,
+              };
+            }
             splitTargetPaneId = target.paneId;
             direction = params.direction || target.direction;
 
@@ -665,6 +756,13 @@ export function registerSpawnTool(pi: ExtensionAPI, store: PicodeStore) {
             warning = "agent did not become idle within 30s timeout — may still be starting";
           }
 
+          // Soft signal: if tab has 4+ agent panes after this spawn, warn
+          // the coordinator that the next spawn should go in a new tab.
+          // Separate from the hard tab_full (physical 20% threshold).
+          const paneCountAfter =
+            countPanesInTab(snap.panes, workspaceId, targetTabId) + (reused ? 0 : 1);
+          const nearFull = paneCountAfter >= 4;
+
           const result = {
             ok: true,
             pane_id: newPaneId,
@@ -675,6 +773,8 @@ export function registerSpawnTool(pi: ExtensionAPI, store: PicodeStore) {
             ...(claimedEmpty ? { claimed_empty: true } : {}),
             ...(direction ? { direction } : {}),
             ...(splitTargetPaneId !== paneId ? { split_from: splitTargetPaneId } : {}),
+            tab_id: targetTabId,
+            ...(nearFull ? { tab_near_full: true, pane_count: paneCountAfter } : {}),
             ...(warning ? { warning } : {}),
           };
 
@@ -691,6 +791,10 @@ export function registerSpawnTool(pi: ExtensionAPI, store: PicodeStore) {
         }
 
         // Reuse path — return immediately without launching
+        // Soft signal for reused panes too (count doesn't change on reuse)
+        const paneCountReuse = countPanesInTab(snap.panes, workspaceId, targetTabId);
+        const nearFullReuse = paneCountReuse >= 4;
+
         const result = {
           ok: true,
           pane_id: newPaneId,
@@ -698,6 +802,8 @@ export function registerSpawnTool(pi: ExtensionAPI, store: PicodeStore) {
           model: model || "(pi default)",
           theme: theme || "(none)",
           reused: true,
+          tab_id: targetTabId,
+          ...(nearFullReuse ? { tab_near_full: true, pane_count: paneCountReuse } : {}),
         };
 
         trackPane(newPaneId);

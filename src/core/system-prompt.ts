@@ -140,8 +140,7 @@ function buildCommunicationModel(
   roleBlock: string,
 ): string {
   const parentLine = parent ? `, child of **${parent}**` : "";
-  return COMMUNICATION_MODEL
-    .replace("{{picodeId}}", picodeId)
+  return COMMUNICATION_MODEL.replace("{{picodeId}}", picodeId)
     .replace("{{displayRole}}", displayRole)
     .replace("{{parentLine}}", parentLine)
     .replace("{{roleBlock}}", roleBlock);
