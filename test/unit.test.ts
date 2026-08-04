@@ -3277,7 +3277,7 @@ describe("role and prompt contracts", () => {
       lastJournalAt: 0,
       journalDebt: false,
     });
-    assert.match(prompt, /workspace\.\n\n### Role: Worker/);
+    assert.match(prompt, /Ken Taylor\.\n\n### Role: Worker/);
     assert.match(prompt, /work lost\.\n\n### Subtype: Planner/);
   });
 });

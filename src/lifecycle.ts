@@ -179,6 +179,8 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
         "spawn_worker",
         "cleanup_panes",
         "picode_run",
+        "picode_tab_create",
+        "picode_tab_close",
       ]);
       pi.setActiveTools(pi.getActiveTools().filter(name => !PICODE_TOOLS.has(name)));
       return;
