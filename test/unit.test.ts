@@ -3051,7 +3051,7 @@ describe("local-fs: journal lock and setJournal", () => {
     writeFileSync(lockPath, "");
     const future = new Date(Date.now() + 60_000);
     utimesSync(lockPath, future, future);
-    await assert.rejects(() => adapter.acquireJournalLock!("lock2"), /after 40 retries/);
+    await assert.rejects(() => adapter.acquireJournalLock!("lock2"), /after 240 retries/);
   });
 
   it("acquireJournalLock unlinks a stale (old) lock and acquires", async () => {

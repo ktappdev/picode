@@ -157,7 +157,8 @@ export function createLocalFsAdapter(): StorageAdapter & JournalAdapter {
       const lockPath = journalLockPath(picodeId);
       fs.mkdirSync(threadDir(picodeId), { recursive: true });
       const STALE_MS = 10_000;
-      const MAX_RETRIES = 40; // ~2s at 50ms each
+      const RETRY_MS = 50;
+      const MAX_RETRIES = Math.ceil((STALE_MS + 2000) / RETRY_MS); // cover stale window + margin
       for (let i = 0; i < MAX_RETRIES; i++) {
         try {
           const fd = fs.openSync(lockPath, "wx");
@@ -183,7 +184,7 @@ export function createLocalFsAdapter(): StorageAdapter & JournalAdapter {
               // Lock vanished between EEXIST and stat — retry the open.
               continue;
             }
-            await new Promise(resolve => setTimeout(resolve, 50));
+            await new Promise(resolve => setTimeout(resolve, RETRY_MS));
             continue;
           }
           throw e;
