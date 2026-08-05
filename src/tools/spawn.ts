@@ -7,6 +7,12 @@ import { err, extractRole, effectiveAgentStatus, shellQuote } from "./shared";
 import type { PicodeStore } from "../core/types";
 import { trackPane } from "../herdr/listener";
 
+/** Worker role labels (same pattern as cleanup-panes.ts). Used to identify
+ *  dead worker panes — labeled but no agent — that findEmptyPane should
+ *  reclaim instead of leaving them to block grid growth. */
+const WORKER_ROLE_PATTERN =
+  /^(builder|reviewer|tester|worker|scout|bug-hunter|designer|planner|runner|explorer)(-[0-9]+)?$/i;
+
 /** Check if a PID is alive (same logic as state.ts). */
 function isPidAlive(pid: number): boolean {
   try {
@@ -456,13 +462,19 @@ function findExistingPane(
   return bestMatch;
 }
 
-/** Look for an empty pane (no agent, no label, but has a terminal) in the
- *  target tab. Claiming an empty pane avoids an unnecessary split and keeps
- *  the layout compact.
+/** Look for an empty or dead pane in the target tab. Claiming it avoids an
+ *  unnecessary split and keeps the layout compact.
  *
- *  Criteria: agent is null, label is null/empty, terminal_id is set,
- *  AND no foreground process running (stale scripts block pane run).
- *  Must NOT be the coordinator's own pane.
+ *  Two kinds of pane are claimable:
+ *  1. Truly empty — no agent, no label, has terminal (fresh root pane).
+ *  2. Dead worker — no agent, but has a stale worker-role label (e.g.
+ *     "scout-1") and a terminal. The worker process exited but herdr kept
+ *     the pane. Without reclaiming it, the dead pane blocks grid growth:
+ *     getSplitTarget skips it (no agent_status) and solePaneInTab returns
+ *     null (2+ panes) → false tab_full → premature new-tab creation.
+ *
+ *  Both require: no foreground process running (stale scripts intercept
+ *  pane run text). Must NOT be the coordinator's own pane.
  *  Returns pane_id or null. */
 function findEmptyPane(
   workspaceId: string,
@@ -480,8 +492,13 @@ function findEmptyPane(
     const label = (pane.label as string) || "";
     const terminalId = (pane.terminal_id as string) || "";
 
-    // Empty = no agent, no label, but has a terminal we can run in
-    if (!agent && !label && terminalId) {
+    // Claimable: no agent + has terminal + (no label OR dead worker label)
+    if (!agent && terminalId) {
+      const role = extractRole(label);
+      const isDeadWorker = role !== "" && WORKER_ROLE_PATTERN.test(role);
+      const isTrulyEmpty = !label;
+      if (!isTrulyEmpty && !isDeadWorker) continue; // labeled non-worker (e.g. coordinator) — skip
+
       // Check for foreground processes — a stale script (e.g. picode_run
       // temp .sh) would intercept pane run text instead of letting pi
       // launch. Skip panes with running foreground processes.
