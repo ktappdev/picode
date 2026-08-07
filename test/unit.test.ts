@@ -35,7 +35,7 @@ import { createInbox } from "../src/inbox";
 import type { Injection } from "../src/inbox";
 import { DEADLINE_EXPIRY_GRACE_MS } from "../src/inbox";
 import { effectiveAgentStatus } from "../src/tools/shared";
-import { countPanesInTab, solePaneInTab } from "../src/tools/spawn";
+import { countPanesInTab, solePaneInTab, getSplitTarget } from "../src/tools/spawn";
 import { validateLabel } from "../src/tools/tab-create";
 import { registerLifecycle, extractFirstLine } from "../src/lifecycle";
 import { deadlineFromSeconds } from "../src/core/time";
@@ -3649,6 +3649,76 @@ describe("spawn: solePaneInTab", () => {
       Record<string, unknown>
     >;
     assert.strictEqual(solePaneInTab(panes, ws, "w1:t9"), null);
+  });
+});
+
+// ── Multi-tab helpers: getSplitTarget ─────────────────────────────
+
+describe("spawn: getSplitTarget", () => {
+  const ws = "w1";
+  const currentPaneId = "w1:p1";
+  const role = "builder";
+  const tabId = "w1:t1";
+  const wsLayout = {
+    workspace_id: ws,
+    tab_id: tabId,
+    area: { width: 1000, height: 1000 },
+  };
+
+  function makePane(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      pane_id: "w1:p1",
+      workspace_id: ws,
+      tab_id: tabId,
+      agent_status: undefined,
+      label: "",
+      ...overrides,
+    };
+  }
+
+  function makeSnap(
+    panes: Array<Record<string, unknown>>,
+    layouts: Array<Record<string, unknown>> = [wsLayout],
+    rectMap?: Map<string, { x: number; y: number; width: number; height: number }>,
+  ) {
+    const defaultRectMap = new Map<
+      string,
+      { x: number; y: number; width: number; height: number }
+    >();
+    for (const p of panes) {
+      defaultRectMap.set(p.pane_id as string, { x: 0, y: 0, width: 500, height: 500 });
+    }
+    return { panes, layouts, rectMap: rectMap || defaultRectMap };
+  }
+
+  it("returns null when tab has 2+ panes but none have agents (tab_full path)", () => {
+    const panes = [
+      makePane({ pane_id: "w1:p1", label: "coordinator" }),
+      makePane({ pane_id: "w1:p2", label: "" }),
+      makePane({ pane_id: "w1:p3", label: "" }),
+    ];
+    const snap = makeSnap(panes);
+    const result = getSplitTarget(currentPaneId, ws, role, tabId, snap);
+    assert.strictEqual(result, null);
+  });
+
+  it("returns the sole pane when tab has exactly 1 pane with no agent (first-worker exception)", () => {
+    const panes = [makePane({ pane_id: "w1:p2", label: "" })];
+    const snap = makeSnap(panes);
+    const result = getSplitTarget(currentPaneId, ws, role, tabId, snap);
+    assert.ok(result, "should return a split target");
+    assert.strictEqual(result!.paneId, "w1:p2");
+  });
+
+  it("skips coordinator pane when other agent panes exist", () => {
+    const panes = [
+      makePane({ pane_id: "w1:p1", label: "⚪ coordinator", agent_status: "idle" }),
+      makePane({ pane_id: "w1:p2", label: "builder", agent_status: "idle" }),
+    ];
+    const snap = makeSnap(panes);
+    const result = getSplitTarget(currentPaneId, ws, role, tabId, snap);
+    assert.ok(result, "should return a non-coordinator split target");
+    assert.strictEqual(result!.paneId, "w1:p2");
   });
 });
 

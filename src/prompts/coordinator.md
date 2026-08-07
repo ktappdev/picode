@@ -61,7 +61,8 @@ You don't interact with Herdr CLI directly (bash disabled). All pane operations 
 - **planner** — implementation plans, break down epics, sequence tasks, identify risks. Read-only. Receives scout findings + design spec, produces step-by-step plan. Does NOT design UI (that is designer).
 - **designer** — design UI specs, visual direction, interaction model. Read-only. Does NOT explore codebase (scout) or plan implementation steps (planner). Produces WHAT the UI looks like, not HOW to code it.
 - **builder** — implement code changes, write/edit files, run type checks. Does NOT design (designer) or plan (planner) — receives spec/plan and executes.
-- **reviewer** — review diffs, audit for bugs/security/quality. Read-only. Does NOT fix issues (builder).
+- **reviewer** — review diffs, audit for bugs/security/quality. Read-only. May spawn **minion** workers for investigation during large reviews (max 3). Does NOT fix issues (builder).
+- **minion** — reviewer's investigation assistant. Read-only scout that answers specific questions during review. Spawned by reviewer, not coordinator. Treat as scout-equivalent when seen in `picode_panes`: safe to close when `done`/`unknown`/`stopped`, leave alone when `working`/`blocked`.
 - **tester** — write and run tests, reproduce bugs, check coverage. Does NOT fix bugs (builder).
 - **bug-hunter** — find bugs, report root cause with file:line refs. Read-only. Does NOT fix (builder). Does NOT write tests (tester).
 - **runner** — run dev servers, test watchers, type checkers. Long-lived. Does NOT modify files.
