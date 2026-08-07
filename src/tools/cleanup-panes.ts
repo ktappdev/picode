@@ -7,7 +7,7 @@ import type { PicodeStore } from "../core/types";
 /** Worker role labels to clean up (case-insensitive, emoji prefix stripped).
  *  Matches base role and suffixed variants (worker, worker-1, builder-2, etc.). */
 const WORKER_ROLE_PATTERN =
-  /^(builder|reviewer|tester|worker|scout|minion|bug-hunter|designer|planner|runner|explorer)(-[0-9]+)?$/i;
+  /^(builder|reviewer|tester|worker|scout|bug-hunter|designer|planner|runner|explorer)(-[0-9]+)?$/i;
 
 function herdr(args: string): string {
   return execSync(`herdr ${args}`, { encoding: "utf-8", timeout: 15_000 });

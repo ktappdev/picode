@@ -11,7 +11,8 @@ import { trackPane } from "../herdr/listener";
  *  dead worker panes — labeled but no agent — that findEmptyPane should
  *  reclaim instead of leaving them to block grid growth. */
 const WORKER_ROLE_PATTERN =
-  /^(builder|reviewer|tester|worker|scout|minion|bug-hunter|designer|planner|runner|explorer)(-[0-9]+)?$/i;
+  /^(builder|reviewer|tester|worker|scout|bug-hunter|designer|planner|runner|explorer)(-[0-9]+)?$/i;
+
 /** Check if a PID is alive (same logic as state.ts). */
 function isPidAlive(pid: number): boolean {
   try {
@@ -90,8 +91,6 @@ function resolveModel(role: string, override?: string): string {
   if (cfg[role]) return cfg[role];
   const prefix = role.split("-")[0];
   if (prefix !== role && cfg[prefix]) return cfg[prefix];
-  // Minion falls back to scout model if no explicit minion configured
-  if (prefix === "minion" && cfg["scout"]) return cfg["scout"];
   if (cfg["default"]) return cfg["default"];
   return "";
 }
@@ -175,8 +174,7 @@ function fetchSnapshot(): SnapshotData | null {
     }
 
     return { panes, layouts, rectMap };
-  } catch (e) {
-    console.error(`[spawn_worker] fetchSnapshot failed: ${String(e)}`);
+  } catch {
     return null;
   }
 }
@@ -211,7 +209,7 @@ export function solePaneInTab(
  *  First-worker exception: if the tab has exactly 1 pane (e.g. a freshly
  *  created tab's root pane with no agent), that pane is returned as the
  *  split target even though it has no agent_status. */
-export function getSplitTarget(
+function getSplitTarget(
   currentPaneId: string,
   workspaceId: string,
   role: string,
@@ -564,15 +562,7 @@ export function registerSpawnTool(pi: ExtensionAPI, store: PicodeStore) {
       ),
     }),
     async execute(_id, params, _signal, _onUpdate, _ctx) {
-      // Coordinator can spawn any worker. Reviewer can spawn minions only.
-      if (store.role === "reviewer") {
-        const rolePrefix = params.role.split("-")[0];
-        if (rolePrefix !== "minion") {
-          return err(
-            "reviewer can only spawn minion workers — for other workers, ask your coordinator.",
-          );
-        }
-      } else if (store.role !== "coordinator") {
+      if (store.role !== "coordinator") {
         return err("spawn_worker is coordinator-only — send work to your coordinator instead.");
       }
 
@@ -696,20 +686,15 @@ export function registerSpawnTool(pi: ExtensionAPI, store: PicodeStore) {
               // Tab is full — no split candidate ≥ MIN_PANE_RATIO and more
               // than 1 pane. Signal the coordinator to open a new tab.
               const paneCount = countPanesInTab(snap.panes, workspaceId, targetTabId);
-              // 0-pane case: tab may have been created but has no panes yet.
-              // Return a hard error distinct from the tab_full signal so the
-              // coordinator knows this isn't a normal full-tab situation.
-              if (paneCount === 0) {
-                return err(
-                  `Tab ${targetTabId} has no panes — it may not exist yet. Create it with picode_tab_create() first, or pass a different tab_id from picode_panes().`,
-                );
-              }
               const fullResult = {
                 ok: false,
                 tab_full: true,
                 tab_id: targetTabId,
                 pane_count: paneCount,
-                message: `Tab ${targetTabId} is full (${paneCount} panes, none ≥20% to split). Call picode_tab_create() then retry spawn_worker with the new tab_id.`,
+                message:
+                  paneCount === 0
+                    ? `Tab ${targetTabId} has no panes — it may be invalid. Try a different tab or create a new one with picode_tab_create().`
+                    : `Tab ${targetTabId} is full (${paneCount} panes, none ≥20% to split). Call picode_tab_create() then retry spawn_worker with the new tab_id.`,
               };
               return {
                 content: [

@@ -1,7 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { execSync } from "child_process";
-import { existsSync } from "node:fs";
 import { err, shellQuote } from "./shared";
 import type { PicodeStore } from "../core/types";
 
@@ -75,16 +74,10 @@ export function registerTabCreateTool(pi: ExtensionAPI, store: PicodeStore) {
       }
 
       // Build command — --no-focus keeps coordinator's tab focused by default
-      // Build command
-      const focusFlag = params.focus ? "--focus" : "--no-focus";
-      const args = [`tab create --workspace ${workspaceId} ${focusFlag}`];
+      const args = [`tab create --workspace ${workspaceId} --no-focus`];
       if (label) args.push(`--label ${shellQuote(label)}`);
-      if (params.cwd) {
-        if (!existsSync(params.cwd)) {
-          return err(`cwd does not exist: ${params.cwd}`);
-        }
-        args.push(`--cwd ${shellQuote(params.cwd)}`);
-      }
+      if (params.cwd) args.push(`--cwd ${shellQuote(params.cwd)}`);
+      if (params.focus) args.push("--focus"); // overrides --no-focus
 
       try {
         const result = herdrJson(args.join(" "));

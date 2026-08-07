@@ -40,7 +40,6 @@ export const ROLE_EMOJI: Record<string, string> = {
   builder: "🔴",
   reviewer: "🔵",
   scout: "🟡",
-  minion: "👾",
   designer: "🟣",
   tester: "🟢",
   "bug-hunter": "🟠",

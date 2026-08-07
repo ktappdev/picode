@@ -1,7 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { execSync } from "child_process";
-import { err, extractRole, effectiveAgentStatus, isValidTabId } from "./shared";
+import { err, extractRole, effectiveAgentStatus, isValidPaneId } from "./shared";
 import type { PicodeStore } from "../core/types";
 
 function herdr(args: string): string {
@@ -52,8 +52,8 @@ export function registerTabCloseTool(pi: ExtensionAPI, store: PicodeStore) {
         return err("tab_id is required — get it from picode_panes() or picode_tab_create.");
       }
 
-      // Tab IDs use the workspace:tab format (w1:t3)
-      if (!isValidTabId(tabId)) {
+      // Tab IDs use the same workspace:tab format as pane IDs (workspace:pane)
+      if (!isValidPaneId(tabId)) {
         return err(`Invalid tab_id "${tabId}" — expected Herdr format like w1:t3.`);
       }
 

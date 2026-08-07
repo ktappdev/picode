@@ -59,11 +59,6 @@ export function isValidPaneId(paneId: string): boolean {
   return /^[A-Za-z0-9_-]+:[A-Za-z0-9_-]+$/.test(paneId);
 }
 
-/** Herdr tab IDs such as w1:t3 — workspace prefix with t-prefixed tab id.
- *  More restrictive than isValidPaneId to semantically validate tab ids. */
-export function isValidTabId(tabId: string): boolean {
-  return /^[A-Za-z0-9_-]+:t[A-Za-z0-9_-]+$/.test(tabId);
-}
 /** Shell-quote a value for safe inclusion in a herdr CLI argument. Single-quote
  *  wrapping with embedded single-quote escaping — standard POSIX sh quoting. */
 export function shellQuote(value: string): string {

@@ -69,14 +69,5 @@
   },
   "volta": {
     "node": "26.4.0"
-  },
-  "allowScripts": {
-    "@google/genai@1.52.0": true,
-    "protobufjs@7.6.4": true,
-    "protobufjs@7.6.5": true,
-    "cpu-features@0.0.10": true,
-    "esbuild@0.28.1": true,
-    "fsevents@2.3.3": true,
-    "ssh2@1.17.0": true
   }
 }

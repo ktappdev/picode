@@ -7,13 +7,13 @@ import type { PicodeData } from "./types";
 /** Worker subtypes that get specialized prompts. Any role not matching
  *  "coordinator" or a known subtype is treated as a generic worker. */
 export type WorkerSubtype =
-  | "builder" | "reviewer" | "scout" | "minion" | "designer" | "tester" | "bug-hunter" | "planner" | "runner";
+  "builder" | "reviewer" | "scout" | "designer" | "tester" | "bug-hunter" | "planner" | "runner";
+
 function workerSubtype(role: string): WorkerSubtype | null {
   const subtypes: WorkerSubtype[] = [
     "builder",
     "reviewer",
     "scout",
-    "minion",
     "designer",
     "tester",
     "bug-hunter",
@@ -40,7 +40,6 @@ const WORKER_BASE_RULES = loadPromptFile("worker-base.md");
 const BUILDER_RULES = loadPromptFile("builder.md");
 const REVIEWER_RULES = loadPromptFile("reviewer.md");
 const SCOUT_RULES = loadPromptFile("scout.md");
-const MINION_RULES = loadPromptFile("minion.md");
 const DESIGNER_RULES = loadPromptFile("designer.md");
 const TESTER_RULES = loadPromptFile("tester.md");
 const BUG_HUNTER_RULES = loadPromptFile("bug-hunter.md");
@@ -52,13 +51,13 @@ const SUBTYPE_PROMPTS: Record<WorkerSubtype, string> = {
   builder: BUILDER_RULES,
   reviewer: REVIEWER_RULES,
   scout: SCOUT_RULES,
-  minion: MINION_RULES,
   designer: DESIGNER_RULES,
   tester: TESTER_RULES,
   "bug-hunter": BUG_HUNTER_RULES,
   planner: PLANNER_RULES,
   runner: RUNNER_RULES,
 };
+
 // ── Project-root resolution ────────────────────────────────────────
 
 /** Walk up from cwd to the nearest git root; fall back to cwd if git
@@ -82,7 +81,6 @@ const OVERRIDABLE_ROLES = new Set([
   "builder",
   "reviewer",
   "scout",
-  "minion",
   "designer",
   "tester",
   "bug-hunter",
