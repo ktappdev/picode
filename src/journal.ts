@@ -111,9 +111,23 @@ export function isDuplicateOfLastEntry(journalContent: string | undefined, entry
   return journalFingerprint(last) === journalFingerprint(entry);
 }
 
-export function journalMode(pi: ExtensionAPI, modelsPath?: string): "turn" | "done" | "off" {
+/** Journal cadence for a picode: "turn", "done" (default), or "off".
+ *
+ *  Role gate: only the coordinator journals. Workers are stateless per task —
+ *  their context is the task envelope when it drains, and nobody reads a
+ *  worker's journal (picode_status/journal are the coordinator's tools for
+ *  steering the project). Silencing workers also skips a forked model call
+ *  per worker run. This gate is intentional and applies even when the CLI
+ *  flag or models.json says otherwise — pass role only from lifecycle, where
+ *  the store knows it; omit for the legacy global semantics (tests, CLI). */
+export function journalMode(
+  pi: ExtensionAPI,
+  modelsPath?: string,
+  role?: string,
+): "turn" | "done" | "off" {
+  if (role && role !== "coordinator") return "off";
   const v = pi.getFlag("picode-journal");
-  if (v === "done" || v === "off") return v;
+  if (v === "done" || v === "off" || v === "turn") return v;
   if (modelsPath) {
     try {
       const cfg = fs.existsSync(modelsPath)

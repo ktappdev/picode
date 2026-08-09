@@ -7,7 +7,7 @@ import type { PicodeStore } from "../core/types";
 /** Worker role labels to clean up (case-insensitive, emoji prefix stripped).
  *  Matches base role and suffixed variants (worker, worker-1, builder-2, etc.). */
 const WORKER_ROLE_PATTERN =
-  /^(builder|reviewer|tester|worker|scout|bug-hunter|designer|planner|runner|explorer)(-[0-9]+)?$/i;
+  /^(builder|reviewer|tester|worker|scout|bug-hunter|designer|planner|runner|visionary|explorer)(-[0-9]+)?$/i;
 
 function herdr(args: string): string {
   return execSync(`herdr ${args}`, { encoding: "utf-8", timeout: 15_000 });
@@ -30,7 +30,7 @@ export function registerCleanupPanesTool(pi: ExtensionAPI, store: PicodeStore) {
     name: "cleanup_panes",
     label: "Cleanup Panes",
     description:
-      "Close stale herdr worker panes spawned by the coordinator. Removes panes with role labels (builder, reviewer, tester, worker, scout, bug-hunter, designer, planner, runner, explorer) that are not working. Use when the picode list is cluttered with dead workers. Pass pane_id to close a specific pane. Pass force=true to close idle/done workers too (e.g. when user says 'close all').",
+      "Close stale herdr worker panes spawned by the coordinator. Removes panes with role labels (builder, reviewer, tester, worker, scout, bug-hunter, designer, planner, runner, visionary, explorer) that are not working. Use when the picode list is cluttered with dead workers. Pass pane_id to close a specific pane. Pass force=true to close idle/done workers too (e.g. when user says 'close all').",
     promptSnippet:
       "Close stale herdr worker panes (use when workspace is cluttered with dead workers).",
     parameters: Type.Object({

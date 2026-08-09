@@ -84,6 +84,9 @@ picode builder
 
 # Terminal 3: an explorer
 picode explorer
+
+# Terminal 4: a visual reader (requires a multimodal model)
+picode visionary --model YOUR_PROVIDER/YOUR_VISION_MODEL
 ```
 
 That is the whole setup. Each picode figures out its role from its name. A name like `builder-1` or `reviewer-a` becomes the `builder` or `reviewer` role automatically. Any name that does not match a known role becomes a generic worker.
@@ -173,6 +176,7 @@ Each picode has a role that shapes its system prompt. The role is auto-detected 
 | `bug-hunter`         | Worker  | Hunts bugs by reading code, session entries, and journals. Reports root cause and a suggested fix but does not implement it. Read-only.     |
 | `tester`             | Worker  | Writes and runs tests, reproduces bugs, checks coverage.                                                                                    |
 | `designer`           | Worker  | Designs UI specs for the builder to implement. Read-only.                                                                                   |
+| `visionary`          | Worker  | Reads attached or local images and reports grounded observations. Read-only; requires a multimodal model.                                   |
 
 Prefix matching means `builder-1`, `builder-a`, `builder_foo`, and `builder.task` all resolve to the `builder` role. Any name that does not match a known role (or prefix) becomes a generic `worker` with base worker rules only.
 
@@ -202,6 +206,7 @@ You can pick which LLM model each worker role uses with `.picode/models.json`:
   "builder": "anthropic/claude-sonnet-4",
   "reviewer": "anthropic/claude-haiku-4",
   "explorer": "anthropic/claude-haiku-4",
+  "visionary": "opencode-go/mimo-v2.5",
   "default": "anthropic/claude-sonnet-4",
   "journal": "deepseek/deepseek-v4-flash",
   "journal-cadence": "done"
@@ -211,15 +216,17 @@ You can pick which LLM model each worker role uses with `.picode/models.json`:
 - Roles match by prefix, so a `builder` key matches `builder-1` and `builder-a`.
 - It falls back to the `default` key, then to pi's default model.
 - The coordinator reads this file on startup and passes the model to each spawned worker.
+- `visionary` must point to a multimodal model; do not leave it on a text-only `default` model.
 - `"journal"` sets the model for journal fork entries. If unset, inherits the picode's own model — use a cheap model to avoid quota/balance errors on the coordinator's model.
 - `"journal-cadence"` sets the journal cadence: `"turn"`, `"done"` (default), or `"off"`.
 - You can also manage it through the slash command:
 
-| Command                                            | Effect                                |
-| -------------------------------------------------- | ------------------------------------- |
-| `/picode-models`                                   | Show the current config.              |
-| `/picode-models builder anthropic/claude-sonnet-4` | Set the model for a role.             |
-| `/picode-models --reset`                           | Delete the file and restore defaults. |
+| Command                                                    | Effect                                |
+| ---------------------------------------------------------- | ------------------------------------- |
+| `/picode-models`                                           | Show the current config.              |
+| `/picode-models builder anthropic/claude-sonnet-4`         | Set the model for a role.             |
+| `/picode-models visionary YOUR_PROVIDER/YOUR_VISION_MODEL` | Set the dedicated visual model.       |
+| `/picode-models --reset`                                   | Delete the file and restore defaults. |
 
 ## Customizing prompts
 
@@ -233,6 +240,7 @@ Create `.picode/prompts/<role>.md` at your project root (the git repo root, or t
     coordinator.md   # extends or replaces the coordinator rules
     builder.md       # extends or replaces the builder rules
     reviewer.md      # extends or replaces the reviewer rules
+    visionary.md     # extends or replaces the visual-analysis rules
     worker.md        # catch-all for any generic worker role
 ```
 
@@ -263,7 +271,7 @@ Sample overrides to copy live in [`examples/prompts/`](examples/prompts/).
 
 ## The journal
 
-Every picode keeps a journal: a forked model call that summarizes its state. It runs in the background and does not interrupt the work.
+The coordinator keeps a journal: a forked model call that summarizes its state. Workers don't journal — their context is the task envelope, and nobody reads a worker's journal. Runs in the background, never interrupts work.
 
 - **Cadence control.** Default is `done` — one entry per run at agent_end. Set to `turn` for one entry per turn (rate-limited to one per two minutes on same-task turns), or `off` to disable. Configure via `/picode-models` → `(journal cadence)`, `--picode-journal <turn|done|off>`, or the `"journal-cadence"` key in `.picode/models.json`.
 - **Journal model.** The model used for journal forks. Set via `/picode-models` → `journal`, `--picode-journal-model <model>`, or the `"journal"` key in `.picode/models.json`. If unset, inherits the picode's own model — which can fail (e.g. 402 balance errors) if that model is out of quota. Fresh installs default to a cheap model (`deepseek/deepseek-v4-flash`).
@@ -391,7 +399,7 @@ There is no waiting state. Debts and barriers are durable records rather than st
 
 ## Visual identification
 
-- **Role emoji in the pane label.** Each herdr pane label shows the role with an emoji: `🧭 coordinator`, `🔨 builder`, `🔍 explorer`, `🛡️ reviewer`, `🎨 designer`, `🧪 tester`, `🐛 bug-hunter`, `👷 worker`.
+- **Role emoji in the pane label.** Each herdr pane label shows the role with an emoji: `🧭 coordinator`, `🔨 builder`, `🔍 explorer`, `🛡️ reviewer`, `🎨 designer`, `👁️ visionary`, `🧪 tester`, `🐛 bug-hunter`, `👷 worker`.
 - **Role in the terminal title.** The terminal title shows `pi · <emoji> <role> · <cwd>`, which is useful when you are not running inside herdr.
 - **Coordination with herdr.** Herdr's pane label and the terminal title carry the same role info, so identification is consistent across surfaces.
 

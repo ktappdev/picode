@@ -171,6 +171,7 @@ export function createPicodeStore(
             reviewer: "deepseek/deepseek-v4-pro",
             tester: "deepseek/deepseek-v4-pro",
             designer: "deepseek/deepseek-v4-pro",
+            visionary: "opencode-go/mimo-v2.5",
             "bug-hunter": "deepseek/deepseek-v4-pro",
             scout: "deepseek/deepseek-v4-flash",
             default: "deepseek/deepseek-v4-flash",

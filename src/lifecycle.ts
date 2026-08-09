@@ -292,6 +292,33 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
       }
     }
 
+    // Startup resume injection (coordinator only): wake with project context
+    // instead of cold. The journal is the coordinator's memory — inject the
+    // last entries plus outstanding coordination state so a restarted or
+    // resumed coordinator re-orients without having to remember to call
+    // picode_status. Workers stay cold — their context is the task envelope.
+    if (store.role === "coordinator") {
+      const parts: string[] = [];
+      const journal = await store.readJournal(store.picodeId);
+      if (journal) {
+        const entries = journal.split(/\n(?=<!--)/).filter(Boolean);
+        const recent = entries.slice(-15).join("\n");
+        parts.push(`[picode-system] Startup resume — your last journal entries:\n${recent}`);
+      }
+      if (store.obligations.length) {
+        parts.push(`[picode-system] Outstanding obligations: ${store.obligations.map(o => o.id).join(", ")}`);
+      }
+      if (store.owed.length) {
+        parts.push(`[picode-system] Owed replies: ${store.owed.map(o => o.id).join(", ")}`);
+      }
+      if (store.barriers.length) {
+        parts.push(`[picode-system] Active barriers: ${store.barriers.map(b => b.id).join(", ")}`);
+      }
+      if (parts.length) {
+        setImmediate(() => pi.sendUserMessage(parts.join("\n\n"), { deliverAs: "followUp" }));
+      }
+    }
+
     // Current-task widget: workers only (§ — coordinator routes, doesn't
     // have a single task). Use onInject hook so every drained envelope
     // updates the widget with the first line of the most recent request body.
@@ -327,6 +354,7 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
       "bug-hunter",
       "planner",
       "runner",
+      "visionary",
     ]);
     if (READ_ONLY_ROLES.has(store.role)) {
       const DENIED = new Set(["write", "edit", "picode_run"]);
@@ -334,7 +362,14 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
       const filtered = pi.getActiveTools().filter(name => !DENIED.has(name));
       pi.setActiveTools(filtered);
     }
-
+    // Journaling is coordinator-only: hide picode_journal from workers so they
+    // are never tempted to spend a tool call reading a journal that (a) is
+    // always empty for them and (b) they are not supposed to use. picode_status
+    // stays — it is the worker's own-state recovery path (owed replies).
+    if (store.role !== "coordinator") {
+      const filtered = pi.getActiveTools().filter(name => name !== "picode_journal");
+      pi.setActiveTools(filtered);
+    }
     // Defer initial drain to next tick — calling pi.sendUserMessage
     // synchronously from session_start deadlocks turn scheduling.
     setImmediate(() => void inbox.drainInbox(ctx));
@@ -445,7 +480,7 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
     }
 
     if (
-      journalMode(pi, path.join(ctx.cwd, ".picode", "models.json")) === "turn" &&
+      journalMode(pi, path.join(ctx.cwd, ".picode", "models.json"), store.role) === "turn" &&
       shouldJournal(store, toolUsedThisTurn, "turn")
     ) {
       const sf = ctx.sessionManager.getSessionFile();
@@ -465,7 +500,7 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
     // consecutive silent runs — that's what makes the streak>=2 escalation
     // in turn_end's guard reachable at all.
     store.owedNudgePending = false;
-    const mode = journalMode(pi, path.join(ctx.cwd, ".picode", "models.json"));
+    const mode = journalMode(pi, path.join(ctx.cwd, ".picode", "models.json"), store.role);
     const write =
       mode === "done"
         ? shouldJournal(store, toolUsedThisTurn, "done")
@@ -477,7 +512,7 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
 
     // Auto-compact if journal grew past threshold. Fire-and-forget. Only
     // at run end — not per turn — to avoid racing the normal journal writes.
-    if (journalMode(pi, path.join(ctx.cwd, ".picode", "models.json")) !== "off") {
+    if (journalMode(pi, path.join(ctx.cwd, ".picode", "models.json"), store.role) !== "off") {
       const sf = ctx.sessionManager.getSessionFile();
       if (sf) store.compactJournal(sf);
     }

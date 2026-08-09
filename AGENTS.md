@@ -166,7 +166,7 @@ npm run mcp                   # Start MCP server
 | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `src/prompts/coordinator.md` | Coordinator rules + full herdr reference — **the prompt agents see at startup**                                                                                 |
 | `src/prompts/worker-base.md` | Shared worker communication contract — all workers inherit this                                                                                                 |
-| `src/prompts/<role>.md`      | Role-specific prompts (builder, reviewer, explorer, tester, designer, bug-hunter, scout, planner)                                                               |
+| `src/prompts/<role>.md`      | Role-specific prompts (builder, reviewer, explorer, tester, designer, visionary, bug-hunter, scout, planner)                                                    |
 | `src/core/system-prompt.ts`  | Prompt loader — reads markdown files, adds dynamic context, handles overrides                                                                                   |
 | `src/inbox.ts`               | Envelope delivery, barrier resolution, obligation tracking, dead-letter handling. **Injection gate blocks during compaction**                                   |
 | `src/lifecycle.ts`           | Picode startup, state machine, footer rendering, widget injection. **Auto-purges stale threads on coordinator startup. Footer shows model, ctx usage, io, t/s** |
@@ -206,7 +206,7 @@ npm run mcp                   # Start MCP server
 2. **State file layout** — `.picode/threads/<id>/state.json` structure; other tools depend on it
 3. **Tool names** — `picode_send`, `picode_wait`, `picode_status`, `picode_list`, `picode_journal`, `picode_suspend`, `picode_resume`
 4. **Slash command names** — `/picode-status`, `/picode-journal`, `/picode-list`, `/picode-send`, `/picode-suspend`, `/picode-resume`, `/picode-models`
-5. **Role names** — `coordinator`, `builder`, `reviewer`, `explorer`/`scout`, `tester`, `designer`, `bug-hunter`, `planner`, `runner`
+5. **Role names** — `coordinator`, `builder`, `reviewer`, `explorer`/`scout`, `tester`, `designer`, `visionary`, `bug-hunter`, `planner`, `runner`
 6. **Message model** — Envelope shape with `expects`, `re`, `urgency`, `deliverAfterSeconds` fields
 
 ### Sensitive Areas
@@ -253,7 +253,7 @@ npm run mcp                   # Start MCP server
    mode: replace
    ---
    ```
-4. Supported roles: `coordinator`, `builder`, `reviewer`, `scout`, `explorer`, `designer`, `tester`, `bug-hunter`, `planner`, `runner`, `worker`
+4. Supported roles: `coordinator`, `builder`, `reviewer`, `scout`, `explorer`, `designer`, `visionary`, `tester`, `bug-hunter`, `planner`, `runner`, `worker`
 5. Empty files are ignored; unknown roles fall back to `worker.md`
 6. Bundled prompts are in `src/prompts/*.md` — edit those to change defaults
 
@@ -329,11 +329,13 @@ chore: update dependencies
 ### Adding a Role
 
 1. Create `src/prompts/<role>.md` with the role prompt
-2. Add role to `WorkerSubtype` type and `SUBTYPE_PROMPTS` map in `src/core/system-prompt.ts`
+2. Add role to `WorkerSubtype` type, prompt loading, and `SUBTYPE_PROMPTS` map in `src/core/system-prompt.ts`
 3. Add role detection in `src/core/roles.ts`
 4. Add role emoji in `ROLE_EMOJI` map
-5. Update `.picode/prompts/` documentation
-6. Add to coordinator prompt spawn command if needed
+5. Add read-only roles to `src/lifecycle.ts` when role cannot modify files
+6. Add role to worker-pane cleanup/reclaim patterns and `/picode-models` display order
+7. Update coordinator prompt, README, and `.picode/prompts/` documentation
+8. Add unit coverage for detection, prompt composition, and role-specific wiring
 
 ### Fixing a Bug
 

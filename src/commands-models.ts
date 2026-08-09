@@ -39,6 +39,7 @@ const ROLE_DISPLAY_ORDER = [
   "tester",
   "scout",
   "designer",
+  "visionary",
   "bug-hunter",
   "planner",
   "runner",

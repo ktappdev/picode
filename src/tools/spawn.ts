@@ -11,7 +11,7 @@ import { trackPane } from "../herdr/listener";
  *  dead worker panes — labeled but no agent — that findEmptyPane should
  *  reclaim instead of leaving them to block grid growth. */
 const WORKER_ROLE_PATTERN =
-  /^(builder|reviewer|tester|worker|scout|bug-hunter|designer|planner|runner|explorer)(-[0-9]+)?$/i;
+  /^(builder|reviewer|tester|worker|scout|bug-hunter|designer|planner|runner|visionary|explorer)(-[0-9]+)?$/i;
 
 /** Check if a PID is alive (same logic as state.ts). */
 function isPidAlive(pid: number): boolean {
@@ -531,7 +531,7 @@ export function registerSpawnTool(pi: ExtensionAPI, store: PicodeStore) {
       "Spawn a new worker pane in one call: split, name, launch pi, wait for idle (coordinator only).",
     parameters: Type.Object({
       role: Type.String({
-        description: "Worker role / picode-id (e.g. 'builder', 'scout', 'worker-1')",
+        description: "Worker role / picode-id (e.g. 'builder', 'visionary', 'scout', 'worker-1')",
       }),
       direction: Type.Optional(
         Type.Union([Type.Literal("right"), Type.Literal("down")], {

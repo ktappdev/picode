@@ -269,6 +269,7 @@ function makeLifecycleHarness(dir: string) {
   const handlers: Record<string, (event: unknown, ctx: unknown) => unknown> = {};
   const setActiveToolsCalls: string[][] = [];
   const sentMessages: SentMessage[] = [];
+  const userMessages: string[] = [];
   const registeredThreadTools = [
     "picode_status",
     "picode_list",
@@ -295,7 +296,9 @@ function makeLifecycleHarness(dir: string) {
     sendMessage: (msg: SentMessage) => {
       sentMessages.push({ customType: msg.customType, content: msg.content });
     },
-    sendUserMessage: () => {},
+    sendUserMessage: (content: string) => {
+      userMessages.push(content);
+    },
     appendEntry: () => {},
   } as unknown as ExtensionAPI;
 
@@ -329,6 +332,7 @@ function makeLifecycleHarness(dir: string) {
     makeCtx,
     setActiveToolsCalls,
     sentMessages,
+    userMessages,
     get activeTools() {
       return activeTools;
     },
@@ -1571,12 +1575,13 @@ describe("lifecycle: opt-in gate (§2.3)", () => {
     assert.deepStrictEqual(h.activeTools, ["bash", "read_file"]);
   });
 
-  it("--picode-id passed: activates, creates .picode/, leaves the tool list alone", async () => {
+  it("--picode-id passed: activates, creates .picode/, hides picode_journal from the worker", async () => {
     const h = makeLifecycleHarness(tmpDir);
     h.setFlag("picode-id", "t9");
     await h.fire("session_start", h.makeCtx());
     assert.ok(existsSync(join(tmpDir, ".picode", "picodes", "t9", "state.json")));
-    assert.strictEqual(h.setActiveToolsCalls.length, 0);
+    // worker role → picode_journal hidden; the READ_ONLY set may also filter
+    assert.ok(!h.activeTools.includes("picode_journal"));
     h.store.stopHeartbeat();
     h.store.stopWatcher();
   });
@@ -1615,6 +1620,66 @@ describe("lifecycle: opt-in gate (§2.3)", () => {
     await h.fire("session_shutdown", ctx, { reason: "quit" });
     assert.ok(!existsSync(join(tmpDir, ".picode")));
     assert.strictEqual(h.store.picodeId, "");
+  });
+
+  it("workers get picode_journal hidden from active tools", async () => {
+    const h = makeLifecycleHarness(tmpDir);
+    h.setFlag("picode-id", "builder");
+    h.setFlag("picode-role", "builder");
+    await h.fire("session_start", h.makeCtx());
+    assert.ok(!h.activeTools.includes("picode_journal"), "worker must not see picode_journal");
+    assert.ok(h.activeTools.includes("picode_status"), "worker keeps picode_status for owed-reply recovery");
+    h.store.stopHeartbeat();
+    h.store.stopWatcher();
+  });
+
+  it("coordinator startup injects resume context (journal + obligations)", async () => {
+    const prev = process.env.HERDR_ENV;
+    process.env.HERDR_ENV = "1";
+    try {
+      const h = makeLifecycleHarness(tmpDir);
+      h.setFlag("picode-id", "coordinator");
+      h.setFlag("picode-role", "coordinator");
+      h.store.picodesRootDir = join(tmpDir, ".picode", "picodes");
+      mkdirSync(join(h.store.picodesRootDir, "coordinator"), { recursive: true });
+      writeFileSync(
+        join(h.store.picodesRootDir, "coordinator", "journal.md"),
+        journalEntry(nowStamp(), "ship the lexer").trim() + "\n",
+      );
+      h.store.obligations.push({
+        id: "coord/o1",
+        to: "builder",
+        summary: "build lexer",
+        sentAt: new Date().toISOString(),
+      });
+      await h.fire("session_start", h.makeCtx());
+      await new Promise(r => setImmediate(r));
+      const joined = h.userMessages.join("\n");
+      assert.match(joined, /Startup resume/);
+      assert.match(joined, /ship the lexer/);
+      assert.match(joined, /coord\/o1/);
+      h.store.stopHeartbeat();
+      h.store.stopWatcher();
+    } finally {
+      if (prev === undefined) delete process.env.HERDR_ENV;
+      else process.env.HERDR_ENV = prev;
+    }
+  });
+
+  it("worker startup injects no resume context", async () => {
+    const h = makeLifecycleHarness(tmpDir);
+    h.setFlag("picode-id", "scout");
+    h.setFlag("picode-role", "scout");
+    h.store.picodesRootDir = join(tmpDir, ".picode", "picodes");
+    mkdirSync(join(h.store.picodesRootDir, "scout"), { recursive: true });
+    writeFileSync(
+      join(h.store.picodesRootDir, "scout", "journal.md"),
+      journalEntry(nowStamp(), "scout task").trim() + "\n",
+    );
+    await h.fire("session_start", h.makeCtx());
+    assert.strictEqual(h.userMessages.length, 0, "worker must not get resume injection");
+    h.store.stopHeartbeat();
+    h.store.stopWatcher();
   });
 });
 
@@ -1918,6 +1983,7 @@ describe("commands-models: pure helpers", () => {
     assert.equal(labels[1], "journal");
     assert.equal(labels[2], "builder");
     assert.equal(labels[3], "reviewer");
+    assert.ok(labels.includes("visionary"));
     assert.ok(labels.includes("(reset all)"));
     assert.ok(labels.includes("(done)"));
   });
@@ -2072,6 +2138,32 @@ describe("journal: journalMode with modelsPath", () => {
     const dir = mkdtempSync(join(tmpdir(), "picode-jm-"));
     try {
       assert.equal(journalMode(makePi(), join(dir, "models.json")), "done");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("worker roles never journal — role gate wins over cadence", () => {
+    const dir = mkdtempSync(join(tmpdir(), "picode-jm-"));
+    try {
+      const p = join(dir, "models.json");
+      writeFileSync(p, JSON.stringify({ "journal-cadence": "done" }));
+      assert.equal(journalMode(makePi(), p, "builder"), "off");
+      assert.equal(journalMode(makePi(), p, "scout"), "off");
+      assert.equal(journalMode(makePi("turn"), p, "visionary"), "off");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("coordinator role honors cadence and CLI flag", () => {
+    const dir = mkdtempSync(join(tmpdir(), "picode-jm-"));
+    try {
+      const p = join(dir, "models.json");
+      writeFileSync(p, JSON.stringify({ "journal-cadence": "done" }));
+      assert.equal(journalMode(makePi(), p, "coordinator"), "done");
+      assert.equal(journalMode(makePi("turn"), p, "coordinator"), "turn");
+      assert.equal(journalMode(makePi("off"), p, "coordinator"), "off");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -2700,6 +2792,16 @@ describe("state: init() enforcement", () => {
     await store.init(tmpDir, mkCtx(tmpDir));
     assert.strictEqual(store.role, "coordinator");
   });
+  it("coordinator init configures the default visionary model", async () => {
+    const adapter = createLocalFsAdapter();
+    await adapter.configure(tmpDir);
+    const store = createPicodeStore(mkPi("coord1", "coordinator"), adapter);
+    await store.init(tmpDir, mkCtx(tmpDir));
+    const models = JSON.parse(
+      readFileSync(join(tmpDir, ".picode", "models.json"), "utf8"),
+    ) as Record<string, string>;
+    assert.equal(models.visionary, "opencode-go/mimo-v2.5");
+  });
 
   it("singleton coordinator: init() succeeds when no other coordinator exists", async () => {
     const adapter = createLocalFsAdapter();
@@ -3251,6 +3353,8 @@ describe("role and prompt contracts", () => {
   it("detects planner and runner IDs, and aliases explorer to scout", () => {
     assert.equal(detectWorkerRole("planner"), "planner");
     assert.equal(detectWorkerRole("runner-1"), "runner");
+    assert.equal(detectWorkerRole("visionary"), "visionary");
+    assert.equal(detectWorkerRole("visionary-2"), "visionary");
     assert.equal(detectWorkerRole("explorer"), "scout");
     assert.equal(detectWorkerRole("explorer-2"), "scout");
     assert.equal(detectWorkerRole("helper-1"), "worker");
@@ -3280,12 +3384,88 @@ describe("role and prompt contracts", () => {
     assert.match(prompt, /Ken Taylor\.\n\n### Role: Worker/);
     assert.match(prompt, /work lost\.\n\n### Subtype: Planner/);
   });
+  it("loads the visionary prompt as a specialized worker subtype", () => {
+    const prompt = threadModelPrompt({
+      picodeId: "visionary",
+      picodeDir: "",
+      picodesRootDir: "",
+      parent: "coordinator",
+      role: "visionary",
+      sessionFile: null,
+      startedAt: "",
+      state: "open",
+      status: "running",
+      holdReason: null,
+      obligations: [],
+      owed: [],
+      barriers: [],
+      owedNudgePending: false,
+      owedSilentStreak: 0,
+      lastJournalSignature: null,
+      lastJournalAt: 0,
+      journalDebt: false,
+    });
+    assert.match(prompt, /visual evidence specialist/);
+    assert.match(prompt, /multimodal model/);
+    assert.match(prompt, /Plain-text output reaches only the human operator/);
+  });
+
+  it("workers get no journal-recovery guidance; coordinator does", () => {
+    const worker = threadModelPrompt({
+      picodeId: "builder",
+      picodeDir: "",
+      picodesRootDir: "",
+      parent: "coordinator",
+      role: "builder",
+      sessionFile: null,
+      startedAt: "",
+      state: "open",
+      status: "running",
+      holdReason: null,
+      obligations: [],
+      owed: [],
+      barriers: [],
+      owedNudgePending: false,
+      owedSilentStreak: 0,
+      lastJournalSignature: null,
+      lastJournalAt: 0,
+      journalDebt: false,
+    });
+    assert.match(worker, /Your journal is disabled/);
+    assert.doesNotMatch(worker, /picode_journal\(id\)/);
+    assert.doesNotMatch(
+      worker,
+      /recover your identity, obligations, owed replies, and recent journal/,
+    );
+    const coord = threadModelPrompt({
+      picodeId: "coordinator",
+      picodeDir: "",
+      picodesRootDir: "",
+      parent: null,
+      role: "coordinator",
+      sessionFile: null,
+      startedAt: "",
+      state: "open",
+      status: "running",
+      holdReason: null,
+      obligations: [],
+      owed: [],
+      barriers: [],
+      owedNudgePending: false,
+      owedSilentStreak: 0,
+      lastJournalSignature: null,
+      lastJournalAt: 0,
+      journalDebt: false,
+    });
+    assert.match(coord, /recover your identity, obligations, owed replies, and recent journal/);
+    assert.match(coord, /picode_journal\(id\)/);
+  });
 });
 
 describe("system-prompt: picode_send contract is in every worker template", () => {
   // Regression guard: the contract must live in the shared worker base
   // block so it reaches builder, reviewer, explorer, tester, designer,
-  // bug-hunter, scout via the single WORKER_BASE_RULES + SUBTYPE_PROMPTS
+  // bug-hunter, scout, visionary via the single WORKER_BASE_RULES + SUBTYPE_PROMPTS
   // composition. If someone refactors and drops the block, the next
   // worker will answer in plain text and the coordinator will go silent.
   //
@@ -3318,6 +3498,9 @@ describe("system-prompt: picode_send contract is in every worker template", () =
       coordinator.includes("answered in plain text instead of via"),
       "silent-recovery rule must mention the plain-text mistake",
     );
+    assert.match(coordinator, /Mandatory image routing/);
+    assert.match(coordinator, /exact disk path/);
+    assert.match(coordinator, /opencode-go\/mimo-v2\.5/);
   });
 });
 
@@ -3482,7 +3665,7 @@ describe("tools/cleanup-panes: WORKER_ROLE_PATTERN", () => {
   // We test the pattern indirectly via the module's behavior — but since
   // the pattern is module-internal, we verify via a re-declaration match.
   const pattern =
-    /^(builder|reviewer|tester|worker|scout|bug-hunter|designer|planner|runner|explorer)(-[0-9]+)?$/i;
+    /^(builder|reviewer|tester|worker|scout|bug-hunter|designer|planner|runner|visionary|explorer)(-[0-9]+)?$/i;
 
   it("matches base roles", () => {
     assert.ok(pattern.test("builder"));
@@ -3498,9 +3681,10 @@ describe("tools/cleanup-panes: WORKER_ROLE_PATTERN", () => {
     assert.ok(pattern.test("scout-3"));
   });
 
-  it("matches new roles (planner, runner, explorer)", () => {
+  it("matches new roles (planner, runner, visionary, explorer)", () => {
     assert.ok(pattern.test("planner"));
     assert.ok(pattern.test("runner"));
+    assert.ok(pattern.test("visionary"));
     assert.ok(pattern.test("explorer"));
   });
 
