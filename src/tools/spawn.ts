@@ -95,10 +95,14 @@ function resolveModel(role: string, override?: string): string {
   return "";
 }
 
-function resolveTheme(override?: string): string | null {
+function resolveTheme(role: string, override?: string): string | null {
   if (override) return override;
   const cfg = loadModelsJson();
-  const themeName = cfg["theme"];
+  // Per-role theme takes precedence: themes.<role>, then themes.<prefix>.
+  // Falls back to the global "theme" key for unconfigured roles.
+  const prefix = role.split("-")[0];
+  const roleTheme = cfg[`themes.${role}`] ?? cfg[`themes.${prefix}`];
+  const themeName = roleTheme ?? cfg["theme"];
   if (!themeName) return null;
 
   // If it's already a path with extension, use directly
@@ -737,7 +741,7 @@ export function registerSpawnTool(pi: ExtensionAPI, store: PicodeStore) {
 
         // 7. Resolve model and theme
         const model = resolveModel(actualRole, params.model);
-        const theme = resolveTheme(params.theme);
+        const theme = resolveTheme(actualRole, params.theme);
 
         // 8. Build launch command (only for new panes)
         const parts = ["pi"];
