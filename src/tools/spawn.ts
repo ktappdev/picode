@@ -103,16 +103,27 @@ function resolveTheme(role: string, override?: string): string | null {
   const prefix = role.split("-")[0];
   const roleTheme = cfg[`themes.${role}`] ?? cfg[`themes.${prefix}`];
   const themeName = roleTheme ?? cfg["theme"];
-  if (!themeName) return null;
 
-  // If it's already a path with extension, use directly
-  if (themeName.includes("/") || themeName.includes(".json")) return themeName;
-
-  // Look in PICODE_THEMES_DIR
   const themesDir = process.env.PICODE_THEMES_DIR;
+  // Resolve a theme name to an absolute path in the bundled themes dir.
+  const resolveByName = (name: string): string | null => {
+    if (name.includes("/") || name.includes(".json")) return name;
+    if (!themesDir) return null;
+    const fullPath = join(themesDir, `${name}.json`);
+    return existsSync(fullPath) ? fullPath : null;
+  };
+
+  // 1. Explicit config (models.json themes.<role> or global theme).
+  if (themeName) {
+    const resolved = resolveByName(themeName);
+    if (resolved) return resolved;
+  }
+  // 2. Bundled default: a <role>.json theme ships with picode, so every
+  //    project gets role-colored UI with zero per-project config. Only
+  //    roles with a matching theme file opt in — unknown roles fall through.
   if (themesDir) {
-    const fullPath = join(themesDir, `${themeName}.json`);
-    if (existsSync(fullPath)) return fullPath;
+    const bundled = resolveByName(prefix);
+    if (bundled) return bundled;
   }
   return null;
 }
