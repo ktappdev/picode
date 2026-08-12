@@ -302,7 +302,7 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
       const journal = await store.readJournal(store.picodeId);
       if (journal) {
         const entries = journal.split(/\n(?=<!--)/).filter(Boolean);
-        const recent = entries.slice(-15).join("\n");
+        const recent = entries.slice(-5).join("\n");
         parts.push(`[picode-system] Startup resume — your last journal entries:\n${recent}`);
       }
       if (store.obligations.length) {
