@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Box, Text } from "@earendil-works/pi-tui";
 import { createPicodeStore } from "./state";
 import { createInbox } from "./inbox";
 import { registerLifecycle } from "./lifecycle";
@@ -59,4 +60,38 @@ export default function (pi: ExtensionAPI) {
   registerLifecycle(pi, store, inbox);
   registerTools(pi, store, inbox);
   registerCommands(pi, store, inbox);
+
+  // Coordinator envelope renderer: the operator asked NOT to see worker→
+  // coordinator envelope bodies on screen (Morpheus summarizes instead).
+  // The full content still reaches the model (sendMessage content is always
+  // converted to a user message); this renderer only controls the TUI view.
+  // Collapsed → one-line header per batch (sender + id, "+N more" if batched).
+  // Expanded → the full rendered envelope text, so the operator can still
+  // inspect a message on demand.
+  pi.registerMessageRenderer("picode-envelope", (message, { expanded }, theme) => {
+    const content =
+      typeof message.content === "string"
+        ? message.content
+        : message.content
+            .filter(c => c.type === "text")
+            .map(c => ("text" in c ? c.text : ""))
+            .join("\n");
+    const details = message.details as { count?: number; highUrgency?: boolean } | undefined;
+    const count = details?.count ?? 1;
+
+    // First envelope header line looks like "[kind from <id> #<eid> re #<rid>]".
+    const firstHeader = /^\[([^\]]+)\]/.exec(content)?.[1] ?? "incoming envelope";
+    const more = count > 1 ? theme.fg("dim", `  (+${count - 1} more)`) : "";
+    const marker = details?.highUrgency ? theme.fg("warning", "⚠ ") : "";
+    const collapsed = `${marker}${theme.fg("customMessageLabel", "📨 ")}${theme.fg("dim", firstHeader)}${more}`;
+
+    const box = new Box(1, 1, t => theme.bg("customMessageBg", t));
+    if (expanded) {
+      box.addChild(new Text(theme.fg("customMessageLabel", "📨 incoming envelopes"), 0, 0));
+      box.addChild(new Text(theme.fg("customMessageText", content), 0, 0));
+    } else {
+      box.addChild(new Text(collapsed, 0, 0));
+    }
+    return box;
+  });
 }

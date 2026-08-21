@@ -127,9 +127,30 @@ export function createInbox(store: PicodeStore, pi: ExtensionAPI): Inbox {
     // than they had to, which is harmless.
     const steer = parts.some(p => p.urgency === "high");
     if (ctx.isIdle?.() ?? false) inFlightSince = Date.now();
-    pi.sendUserMessage(parts.map(p => p.text).join("\n\n"), {
-      deliverAs: steer ? "steer" : "followUp",
-    });
+const body = parts.map(p => p.text).join("\n\n");
+    if (store.role === "coordinator") {
+      // Coordinator (Morpheus) sees only a one-line header per batch — the
+      // full envelope bodies stay in LLM context (sendMessage content is
+      // always converted to a user message for the model) but are hidden
+      // from the operator's screen by the picode-envelope renderer. Workers
+      // keep the verbose sendUserMessage path: their incoming envelope IS
+      // their task, and the human watching a worker pane wants to see it.
+      // triggerTurn:true mirrors sendUserMessage's always-wake semantics so
+      // an idle coordinator still starts a turn on incoming mail.
+      pi.sendMessage(
+        {
+          customType: "picode-envelope",
+          content: body,
+          display: true,
+          details: { count: parts.length, highUrgency: steer },
+        },
+        { triggerTurn: true, deliverAs: steer ? "steer" : "followUp" },
+      );
+    } else {
+      pi.sendUserMessage(body, {
+        deliverAs: steer ? "steer" : "followUp",
+      });
+    }
     _onInjected?.(parts);
     _onInject?.(parts, ctx);
   }
