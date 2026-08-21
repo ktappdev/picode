@@ -113,6 +113,29 @@ function resolveTheme(override?: string): string | null {
   return null;
 }
 
+/** Thinking level per worker role. Unlisted roles (worker, unknown) inherit
+ *  pi's default. Valid pi --thinking levels: off, minimal, low, medium,
+ *  high, xhigh, max. */
+const THINKING_BY_ROLE: Record<string, string> = {
+  builder: "high",
+  reviewer: "high",
+  "bug-hunter": "high",
+  planner: "high",
+  designer: "high",
+  scout: "medium",
+  explorer: "medium",
+  visionary: "medium",
+  tester: "low",
+  runner: "low",
+};
+
+export function resolveThinking(role: string): string | null {
+  if (THINKING_BY_ROLE[role]) return THINKING_BY_ROLE[role];
+  const prefix = role.split("-")[0];
+  if (prefix !== role && THINKING_BY_ROLE[prefix]) return THINKING_BY_ROLE[prefix];
+  return null;
+}
+
 interface SplitTarget {
   paneId: string;
   direction: "right" | "down";
@@ -743,6 +766,8 @@ export function registerSpawnTool(pi: ExtensionAPI, store: PicodeStore) {
         const parts = ["pi"];
         if (model) parts.push(`--model ${shellQuote(model)}`);
         if (theme) parts.push(`--theme ${shellQuote(theme)}`);
+        const thinking = resolveThinking(actualRole);
+        if (thinking) parts.push(`--thinking ${thinking}`);
         parts.push(`--picode-id ${shellQuote(uniqueId)}`);
         const launchCmd = parts.join(" ");
 

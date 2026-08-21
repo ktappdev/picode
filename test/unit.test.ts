@@ -35,7 +35,7 @@ import { createInbox } from "../src/inbox";
 import type { Injection } from "../src/inbox";
 import { DEADLINE_EXPIRY_GRACE_MS } from "../src/inbox";
 import { effectiveAgentStatus } from "../src/tools/shared";
-import { countPanesInTab, solePaneInTab } from "../src/tools/spawn";
+import { countPanesInTab, solePaneInTab, resolveThinking } from "../src/tools/spawn";
 import { validateLabel } from "../src/tools/tab-create";
 import { registerLifecycle, extractFirstLine } from "../src/lifecycle";
 import { deadlineFromSeconds } from "../src/core/time";
@@ -3833,6 +3833,32 @@ describe("spawn: solePaneInTab", () => {
       Record<string, unknown>
     >;
     assert.strictEqual(solePaneInTab(panes, ws, "w1:t9"), null);
+  });
+});
+
+describe("spawn: resolveThinking", () => {
+  it("maps deep-reasoning roles to high", () => {
+    for (const role of ["builder", "reviewer", "bug-hunter", "planner", "designer"]) {
+      assert.strictEqual(resolveThinking(role), "high");
+    }
+  });
+  it("maps scouting/vision to medium (explorer alias included)", () => {
+    for (const role of ["scout", "explorer", "visionary"]) {
+      assert.strictEqual(resolveThinking(role), "medium");
+    }
+  });
+  it("maps mechanical roles to low", () => {
+    for (const role of ["tester", "runner"]) {
+      assert.strictEqual(resolveThinking(role), "low");
+    }
+  });
+  it("resolves suffixed ids via prefix", () => {
+    assert.strictEqual(resolveThinking("builder-1"), "high");
+    assert.strictEqual(resolveThinking("scout-3"), "medium");
+  });
+  it("returns null for unlisted roles (inherits pi default)", () => {
+    assert.strictEqual(resolveThinking("worker"), null);
+    assert.strictEqual(resolveThinking("worker-1"), null);
   });
 });
 
