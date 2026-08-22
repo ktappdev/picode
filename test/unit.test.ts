@@ -1701,9 +1701,12 @@ describe("lifecycle: opt-in gate (§2.3)", () => {
       assert.match(context, /Startup resume/);
       assert.match(context, /ship the lexer/);
       assert.match(context, /coord\/o1/);
-      // …including the reading rules that stop stale decision re-asks.
+      // …including the reading rules that stop stale decision re-asks
+      // and keep open questions to a single line.
       assert.match(context, /Never re-ask the user/);
       assert.match(context, /LAST entry is the current state/);
+      assert.match(context, /ONE short line/);
+      assert.match(context, /do not re-present analysis/);
       // …and the on-screen wake is a single primer line, not the journal dump.
       assert.strictEqual(h.userMessages.length, 1);
       assert.match(h.userMessages[0], /Startup resume — journal and coordination state loaded/);

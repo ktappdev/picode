@@ -335,7 +335,7 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
       }
       if (parts.length) {
         parts.push(
-          "[picode-system] Reading the entries above: they are chronological — the LAST entry is the current state, earlier entries are history. Never re-ask the user about a decision, question, or request that a later entry shows was answered, resolved, or dropped. If the last entry lists something open, verify it is still true before acting on it or asking the user.",
+          "[picode-system] Reading the entries above: they are chronological — the LAST entry is the current state, earlier entries are history. Never re-ask the user about a decision, question, or request that a later entry shows was answered, resolved, or dropped. If the last entry lists something open, verify it is still true before acting on it or asking the user. If an open item is a question awaiting the user's answer, surface it in ONE short line — the user has already seen the details; do not re-present analysis, evidence, or decision menus, and do not re-run orientation tool calls to re-derive them. If the user's reply resolves or drops anything, say so plainly in your response so the journal entry records the closure.",
         );
       }
       if (parts.length) {
