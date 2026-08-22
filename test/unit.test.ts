@@ -61,6 +61,10 @@ import {
   journalSignature,
   piSelfCommand,
   shouldJournal,
+  buildJournalPrompt,
+  renderJournalMessage,
+  JOURNAL_CONTEXT_MAX_MESSAGES,
+  JOURNAL_CONTEXT_MAX_CHARS,
   JOURNAL_MIN_INTERVAL_MS,
   isCompactionEntry,
   decideCompaction,
@@ -1578,10 +1582,12 @@ describe("lifecycle: journalSignature / shouldJournal", () => {
     assert.notStrictEqual(journalSignature(store), before);
   });
 
-  it("the journal fork loads extensions so provider models resolve (ghost chain prevented by hasThreadIdentity)", () => {
-    const args = journalForkArgs("/ses/file.jsonl", "/tmp/x");
+  it("the journal fork loads extensions and runs on the bounded prompt, not the session", () => {
+    const args = journalForkArgs("/tmp/x", "summarize this");
     assert.ok(!args.includes("--no-extensions"), "extensions load so journal model can resolve");
-    assert.ok(args.includes("--fork"));
+    assert.ok(!args.includes("--fork"), "forking the session would send its whole transcript");
+    assert.ok(args.includes("--print"));
+    assert.strictEqual(args[args.indexOf("--print") + 1], "summarize this");
     assert.ok(!args.includes("--model"), "no model pinned unless configured");
   });
 
@@ -1595,11 +1601,66 @@ describe("lifecycle: journalSignature / shouldJournal", () => {
     assert.deepStrictEqual(standalone, { cmd: "/opt/pi/bin/pi", args: ["--print", "x"] });
   });
 
-  it("the journal fork inherits the session's model unless one is pinned", () => {
-    assert.ok(!journalForkArgs("/s.jsonl", "/tmp/x").includes("--model"));
-    const pinned = journalForkArgs("/s.jsonl", "/tmp/x", "deepseek/deepseek-chat");
+  it("the journal fork pins a model only when one is configured", () => {
+    assert.ok(!journalForkArgs("/tmp/x", "p").includes("--model"));
+    const pinned = journalForkArgs("/tmp/x", "p", "deepseek/deepseek-chat");
     assert.ok(pinned.includes("--model"));
     assert.ok(pinned.includes("deepseek/deepseek-chat"));
+  });
+
+  it("renderJournalMessage clips tool results hard and marks errors", () => {
+    const toolResult = renderJournalMessage({
+      role: "toolResult",
+      toolName: "picode_pane_read",
+      content: [{ type: "text", text: "x".repeat(5_000) }],
+      isError: false,
+    });
+    assert.match(toolResult!, /^Tool result picode_pane_read: /);
+    assert.ok(toolResult!.length < 500, "tool results are clipped to a gist");
+    const failed = renderJournalMessage({
+      role: "toolResult",
+      toolName: "spawn_worker",
+      content: [{ type: "text", text: "boom" }],
+      isError: true,
+    });
+    assert.match(failed!, /\(error\)/);
+  });
+
+  it("renderJournalMessage drops images and unknown roles, summarizes tool calls", () => {
+    assert.strictEqual(
+      renderJournalMessage({ role: "branchSummary", summary: "s" }),
+      null,
+      "summaries are anchored via the previous entry, not re-rendered",
+    );
+    const imageOnly = renderJournalMessage({
+      role: "user",
+      content: [{ type: "image", data: "abc", mimeType: "image/png" }],
+    });
+    assert.match(imageOnly!, /^User: $/, "images never reach the fork prompt");
+    const assistant = renderJournalMessage({
+      role: "assistant",
+      content: [
+        { type: "text", text: "Running the build." },
+        { type: "toolCall", id: "1", name: "picode_run", arguments: {} },
+      ],
+    });
+    assert.match(assistant!, /Running the build\./);
+    assert.match(assistant!, /\[calls picode_run\]/);
+  });
+
+  it("buildJournalPrompt bounds messages, total chars, and anchors on the previous entry", () => {
+    const many = Array.from({ length: JOURNAL_CONTEXT_MAX_MESSAGES + 10 }, (_, i) => ({
+      role: "user",
+      content: `msg ${i}`,
+    }));
+    const prompt = buildJournalPrompt(many, "<!-- 2026-08-22 12:00 -->\nWorking on: old task");
+    assert.doesNotMatch(prompt, /msg 9\n/, "only the most recent messages are included");
+    assert.match(prompt, /msg 49/);
+    assert.match(prompt, /Working on: old task/, "previous entry rides along for continuity");
+
+    const huge = buildJournalPrompt([{ role: "user", content: "y".repeat(80_000) }], undefined);
+    assert.ok(huge.length < JOURNAL_CONTEXT_MAX_CHARS + 3_000, "total size is hard-capped");
+    assert.match(huge, /…earlier activity clipped…|…$/, "clipping is visible to the fork model");
   });
 });
 

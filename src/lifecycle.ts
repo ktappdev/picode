@@ -2,7 +2,13 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import type { PicodeStore, PicodeState } from "./core/types";
 import type { Inbox, Injection } from "./inbox";
 import { threadModelPrompt } from "./core/system-prompt";
-import { journalMode, shouldJournal } from "./journal";
+import {
+  journalMode,
+  shouldJournal,
+  buildJournalPrompt,
+  splitJournalEntries,
+  JOURNAL_CONTEXT_MAX_MESSAGES,
+} from "./journal";
 import { roleEmoji } from "./core/roles";
 import { purgeStalePcodes } from "./tools/purge";
 import {
@@ -112,6 +118,11 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
   // True from the first operator prompt of a run until agent_end settles the
   // journal decision. Drives shouldJournal's "done" phase — see journal.ts.
   let userPromptThisRun = false;
+  // Message entries already covered by a journal fork this session. The next
+  // fork summarizes only what came after, capped to the most recent
+  // JOURNAL_CONTEXT_MAX_MESSAGES — journal cost stays O(recent run), never
+  // O(session).
+  let journaledMessageCount = 0;
   // Opt-in gate (§2.3 — participation is opt-in): this extension only turns
   // a directory into a picode workspace when explicitly asked —
   // --picode-id on this launch, or a picode-identity entry already stamped
@@ -206,8 +217,11 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
 
     // A new session's agent starts from the base system prompt; the picode
     // thread-model block is only assembled per prompt()-driven run (see the
-    // before_agent_start handler below).
+    // before_agent_start handler below). The journal slice marker resets too
+    // — a fresh session's entries must not be skipped by the old session's
+    // count.
     store.promptDrivenTurnSeen = false;
+    journaledMessageCount = 0;
 
     // Coordinator must run inside herdr
     if (store.role === "coordinator" && process.env.HERDR_ENV !== "1") {
@@ -466,6 +480,53 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
     if (active) await store.shutdown(event.reason);
   });
 
+  // Build the bounded journal prompt — the messages since the last fork,
+  // capped to the most recent JOURNAL_CONTEXT_MAX_MESSAGES — and fire the
+  // print-mode fork. No session access or no new messages → nothing to
+  // summarize, no model call.
+  const forkJournalFor = async (ctx: ExtensionContext): Promise<void> => {
+    let entries: unknown[] = [];
+    try {
+      entries = ctx.sessionManager.getEntries();
+    } catch {
+      return;
+    }
+    if (!Array.isArray(entries)) return;
+    const messages = entries
+      .map(e =>
+        (e as { type?: string; message?: unknown }).type === "message"
+          ? (e as { message?: unknown }).message
+          : undefined,
+      )
+      .filter(
+        (m): m is { role: string; [key: string]: unknown } =>
+          !!m && typeof (m as { role?: unknown }).role === "string",
+      );
+    const start = Math.max(journaledMessageCount, messages.length - JOURNAL_CONTEXT_MAX_MESSAGES);
+    const slice = messages.slice(start);
+    journaledMessageCount = messages.length;
+    if (slice.length === 0) return;
+    let previousEntry: string | undefined;
+    try {
+      const journal = await store.readJournal(store.picodeId);
+      previousEntry = journal ? splitJournalEntries(journal).at(-1) : undefined;
+    } catch {
+      // Continuity anchor is best-effort.
+    }
+    // Without a pinned journal model, fork on the session's own last model —
+    // it just ran, so it resolves on this machine by construction.
+    let fallbackModel: string | undefined;
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const m = (entries[i] as { message?: { role?: string; provider?: string; model?: string } })
+        .message;
+      if (m?.role === "assistant" && m.provider && m.model) {
+        fallbackModel = `${m.provider}/${m.model}`;
+        break;
+      }
+    }
+    store.forkJournal(buildJournalPrompt(slice, previousEntry), fallbackModel);
+  };
+
   pi.on("input", async event => {
     if (!active) return;
     // Extension-sourced input is picode's own machinery (envelope injections,
@@ -540,8 +601,7 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
       journalMode(pi, path.join(ctx.cwd, ".picode", "models.json"), store.role) === "turn" &&
       shouldJournal(store, toolUsedThisTurn, "turn")
     ) {
-      const sf = ctx.sessionManager.getSessionFile();
-      if (sf) store.forkJournal(sf);
+      await forkJournalFor(ctx);
     }
 
     // The turn boundary is the documented "Open" moment — pick up anything
@@ -564,8 +624,7 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
         : mode === "turn" && shouldJournal(store, toolUsedThisTurn, "run-end");
     userPromptThisRun = false;
     if (write) {
-      const sf = ctx.sessionManager.getSessionFile();
-      if (sf) store.forkJournal(sf);
+      await forkJournalFor(ctx);
     }
 
     // Auto-compact if journal grew past threshold. Fire-and-forget. Only

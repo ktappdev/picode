@@ -184,7 +184,11 @@ export interface PicodeStore extends PicodeData {
   /** Undefined on backends without the JournalAdapter extension. */
   readJournal: (picodeId: string) => Promise<string | undefined>;
   threadExists: (picodeId: string) => Promise<boolean>;
-  forkJournal: (sessionFile: string) => void;
+  /** Forks a bounded journal-keeper prompt (see journal.ts buildJournalPrompt)
+   *  in a throwaway print-mode pi and appends its five-line entry.
+   *  fallbackModel (the session's own last model) is used only when neither
+   *  the CLI flag nor models.json pins a journal model. */
+  forkJournal: (prompt: string, fallbackModel?: string) => void;
   /** Fire-and-forget: if journal exceeds threshold, summarize oldest into one block. */
   compactJournal: (sessionFile: string) => void;
   startHeartbeat: (onTick?: () => void | Promise<void>) => void;

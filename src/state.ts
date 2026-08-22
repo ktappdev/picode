@@ -353,10 +353,14 @@ export function createPicodeStore(
       return store.adapter.readJournal?.(picodeId);
     },
 
-    forkJournal(sessionFile: string) {
+    forkJournal(prompt: string, fallbackModel?: string) {
       const flag = pi.getFlag("picode-journal-model");
-      const m = (typeof flag === "string" && flag) || loadModelsJson()["journal"] || undefined;
-      forkJournalEntry(store, sessionFile, m);
+      const m =
+        (typeof flag === "string" && flag) ||
+        loadModelsJson()["journal"] ||
+        fallbackModel ||
+        undefined;
+      forkJournalEntry(store, prompt, m);
     },
 
     compactJournal(sessionFile: string) {

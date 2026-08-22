@@ -8,7 +8,7 @@ import type { PicodeStore } from "./core/types";
 /** Everything journal: the fork prompt, entry parsing, duplicate detection,
  *  and the cadence policy deciding which moments deserve a forked entry. */
 
-const JOURNAL_PROMPT = `You are this picode's journal keeper. Based on the conversation above, write a brief status update in exactly this format:
+const JOURNAL_PROMPT = `You are this picode's journal keeper. Based on the recent activity below (everything since the previous journal entry), write a brief status update in exactly this format:
 
 Working on: <the main task in one line>
 Done: <what was completed this turn, including any decision made or topic the user opened or closed>
@@ -17,6 +17,82 @@ Next: <planned next step>
 Blockers: <blockers or "none">
 
 No preamble. No extra text. Just the five lines.`;
+
+/** Most recent messages handed to the journal fork. Journaling summarizes
+ *  the latest run, not the whole session — this cap bounds fork cost
+ *  independently of how long the session has grown. */
+export const JOURNAL_CONTEXT_MAX_MESSAGES = 40;
+/** Hard cap on the rendered activity block (~4k tokens). */
+export const JOURNAL_CONTEXT_MAX_CHARS = 15_000;
+const PER_TEXT_CHARS = 1_200;
+const PER_TOOL_RESULT_CHARS = 400;
+
+type JournalMessage = { role: string; [key: string]: unknown };
+
+function clip(s: string, n: number): string {
+  return s.length <= n ? s : s.slice(0, n) + "…";
+}
+
+/** Concatenate a message's text blocks; images are dropped — the journal
+ *  fork is a text prompt and never needed pixels. */
+function textOf(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter((c): c is { type: "text"; text: string } => (c as { type?: string })?.type === "text")
+    .map(c => c.text)
+    .join("\n");
+}
+
+/** Render one session message as a compact line of journal context. Tool
+ *  results are clipped hard — they are the bulk of any session and the
+ *  journal only needs their gist, not their payloads. */
+export function renderJournalMessage(msg: JournalMessage): string | null {
+  switch (msg.role) {
+    case "user":
+      return `User: ${clip(textOf(msg.content), PER_TEXT_CHARS)}`;
+    case "assistant": {
+      const parts: string[] = [];
+      if (Array.isArray(msg.content)) {
+        for (const block of msg.content as { type?: string; text?: string; name?: string }[]) {
+          if (block?.type === "text" && typeof block.text === "string") parts.push(block.text);
+          else if (block?.type === "toolCall" && typeof block.name === "string") {
+            parts.push(`[calls ${block.name}]`);
+          }
+        }
+      }
+      return `Assistant: ${clip(parts.join("\n"), PER_TEXT_CHARS)}`;
+    }
+    case "toolResult": {
+      const name = typeof msg.toolName === "string" ? msg.toolName : "tool";
+      const err = msg.isError ? " (error)" : "";
+      return `Tool result ${name}${err}: ${clip(textOf(msg.content), PER_TOOL_RESULT_CHARS)}`;
+    }
+    case "custom":
+      return `System: ${clip(textOf(msg.content), 200)}`;
+    case "bashExecution":
+      return `Bash: ${clip(String(msg.command ?? ""), 200)}`;
+    default:
+      // branchSummary / compactionSummary / anything unknown — the journal
+      // prompt gets its continuity from the previous-entry anchor instead.
+      return null;
+  }
+}
+
+/** The complete --print prompt for a journal fork: the keeper instructions,
+ *  the previous entry as a continuity anchor, and a bounded rendering of the
+ *  messages since then. */
+export function buildJournalPrompt(messages: JournalMessage[], previousEntry?: string): string {
+  const lines = messages.map(renderJournalMessage).filter((l): l is string => l !== null);
+  let context = lines.slice(-JOURNAL_CONTEXT_MAX_MESSAGES).join("\n\n");
+  if (context.length > JOURNAL_CONTEXT_MAX_CHARS) {
+    context = "…earlier activity clipped…\n\n" + context.slice(-JOURNAL_CONTEXT_MAX_CHARS);
+  }
+  const prev = previousEntry
+    ? `Previous journal entry (for continuity — extend it, don't repeat it):\n${clip(previousEntry, 800)}\n\n`
+    : "";
+  return `${JOURNAL_PROMPT}\n\n${prev}Recent activity:\n${context}`;
+}
 
 const COMPACTION_PROMPT = `You are summarizing old journal entries from a long-running picode. Produce a compact block (5-10 lines max) preserving: key tasks completed, key decisions made, current state at the time, ongoing obligations. Drop: routine tool turns, restated waits, anything that doesn't carry news. Format: a single paragraph OR short bulleted list. No headers. No preamble. Just the summary text.
 
@@ -227,36 +303,36 @@ export function piSelfCommand(
 
 /** Spawn args for the journal fork.
  *
- *  Extensions load normally so the journal model can resolve through any
- *  registered provider (including extension-registered ones like commandcode).
- *  The ghost-chain bug (fork inheriting picode identity → minting a fresh
- *  .picode/ dir → forking another journal → ∞) is prevented in lifecycle.ts:
- *  `hasThreadIdentity` returns false for any session with a `parentSession`
- *  header, so picode stays inactive in the fork and never forks again.
+ *  The fork does NOT load the session (--fork is gone): it runs print-mode
+ *  against the bounded prompt built by buildJournalPrompt, so journal cost is
+ *  O(recent run), never O(session). Extensions still load normally so the
+ *  journal model can resolve through any registered provider (including
+ *  extension-registered ones like commandcode). The ghost-chain bug (fork
+ *  inheriting picode identity → minting a fresh .picode/ dir → forking
+ *  another journal → ∞) stays prevented: with no session and no
+ *  --picode-id, picode's opt-in gate never activates in the fork.
  *
- *  No `--model` unless one is explicitly configured: the fork then inherits
- *  the forked session's own model, which resolves on any machine by
- *  construction. A hardcoded cheap model looks free until the extension runs
- *  on a machine whose provider can't serve it — then every fork dies before
- *  printing and the journal silently never exists. */
-export function journalForkArgs(sessionFile: string, sessionDir: string, model?: string): string[] {
+ *  No `--model` unless one is explicitly configured (flag, models.json, or
+ *  the session's own last model as a fallback): a hardcoded cheap model
+ *  looks free until the extension runs on a machine whose provider can't
+ *  serve it — then every fork dies before printing and the journal silently
+ *  never exists. */
+export function journalForkArgs(sessionDir: string, prompt: string, model?: string): string[] {
   return [
-    "--fork",
-    sessionFile,
     "--session-dir",
     sessionDir,
     ...(model ? ["--model", model] : []),
     "--thinking",
     "off",
     "--print",
-    JOURNAL_PROMPT,
+    prompt,
   ];
 }
 
-/** Fork the session into a throwaway run that writes one journal entry.
- *  Fire-and-forget: runs in the background after turn_end/agent_end, the
- *  main picode never pauses on it. */
-export function forkJournalEntry(store: PicodeStore, sessionFile: string, model?: string): void {
+/** Run the journal-keeper prompt in a throwaway print-mode pi and append one
+ *  journal entry from its output. Fire-and-forget: runs in the background
+ *  after turn_end/agent_end, the main picode never pauses on it. */
+export function forkJournalEntry(store: PicodeStore, prompt: string, model?: string): void {
   // The journal channel is an optional backend extension (PROTOCOL-FORMALISM
   // §5) — on a backend without it there is nowhere to append, so don't pay
   // for the forked model call either.
@@ -264,7 +340,7 @@ export function forkJournalEntry(store: PicodeStore, sessionFile: string, model?
   const tmpSes = fs.mkdtempSync(path.join(os.tmpdir(), "pi-journal-"));
   let out = "";
   let errOut = "";
-  const launch = piSelfCommand(journalForkArgs(sessionFile, tmpSes, model));
+  const launch = piSelfCommand(journalForkArgs(tmpSes, prompt, model));
   const proc = spawn(launch.cmd, launch.args, {
     stdio: ["ignore", "pipe", "pipe"],
   });
