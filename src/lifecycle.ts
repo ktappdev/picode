@@ -630,8 +630,7 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
     // Auto-compact if journal grew past threshold. Fire-and-forget. Only
     // at run end — not per turn — to avoid racing the normal journal writes.
     if (journalMode(pi, path.join(ctx.cwd, ".picode", "models.json"), store.role) !== "off") {
-      const sf = ctx.sessionManager.getSessionFile();
-      if (sf) store.compactJournal(sf);
+      store.compactJournal();
     }
 
     // Messages steered from agent_end handlers are still consumed: pi checks

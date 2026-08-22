@@ -403,8 +403,10 @@ export function decideCompaction(
 
 /** If journal exceeds threshold, summarize oldest entries into one block.
  *  Fire-and-forget. Re-reads journal under lock before write so any
- *  appends that landed during the summarizer fork are preserved. */
-export function compactJournal(store: PicodeStore, sessionFile: string, model?: string): void {
+ *  appends that landed during the summarizer fork are preserved.
+ *  Runs print-mode against the COMPACTION_PROMPT — the entries ride in the
+ *  prompt, so no session is loaded here either. */
+export function compactJournal(store: PicodeStore, model?: string): void {
   if (!store.adapter.appendJournal || !store.adapter.readJournal) return;
   void (async () => {
     const existing = await store.adapter.readJournal!(store.picodeId);
@@ -414,9 +416,7 @@ export function compactJournal(store: PicodeStore, sessionFile: string, model?: 
 
     const tmpSes = fs.mkdtempSync(path.join(os.tmpdir(), "pi-journal-compact-"));
     const prompt = COMPACTION_PROMPT.replace("ENTRIES_HERE", plan.toSummarize.join("\n---\n"));
-    const launch = piSelfCommand(
-      journalForkArgs(sessionFile, tmpSes, model).map(a => (a === JOURNAL_PROMPT ? prompt : a)),
-    );
+    const launch = piSelfCommand(journalForkArgs(tmpSes, prompt, model));
     let out = "";
     let errOut = "";
     const proc = spawn(launch.cmd, launch.args, { stdio: ["ignore", "pipe", "pipe"] });

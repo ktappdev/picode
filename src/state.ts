@@ -363,11 +363,10 @@ export function createPicodeStore(
       forkJournalEntry(store, prompt, m);
     },
 
-    compactJournal(sessionFile: string) {
-      if (!store.sessionFile) return;
+    compactJournal() {
       const flag = pi.getFlag("picode-journal-model");
       const m = (typeof flag === "string" && flag) || loadModelsJson()["journal"] || undefined;
-      compactJournalFn(store, sessionFile, m);
+      compactJournalFn(store, m);
     },
 
     startHeartbeat(onTick?: () => void | Promise<void>) {

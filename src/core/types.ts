@@ -190,7 +190,7 @@ export interface PicodeStore extends PicodeData {
    *  the CLI flag nor models.json pins a journal model. */
   forkJournal: (prompt: string, fallbackModel?: string) => void;
   /** Fire-and-forget: if journal exceeds threshold, summarize oldest into one block. */
-  compactJournal: (sessionFile: string) => void;
+  compactJournal: () => void;
   startHeartbeat: (onTick?: () => void | Promise<void>) => void;
   stopHeartbeat: () => void;
   startWatcher: (drainInbox: (ctx: ExtensionContext) => void, ctx: ExtensionContext) => void;

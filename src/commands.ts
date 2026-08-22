@@ -111,12 +111,7 @@ export function registerCommands(pi: ExtensionAPI, store: PicodeStore, inbox: In
         }
 
         if (subcommand === "compact") {
-          const sf = ctx.sessionManager.getSessionFile();
-          if (!sf) {
-            ctx.ui.notify("No session file — cannot fork compaction.", "error");
-            return;
-          }
-          store.compactJournal(sf);
+          store.compactJournal();
           ctx.ui.notify("Compact triggered (fire-and-forget).", "info");
           return;
         }
