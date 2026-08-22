@@ -201,6 +201,11 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
       return;
     }
 
+    // A new session's agent starts from the base system prompt; the picode
+    // thread-model block is only assembled per prompt()-driven run (see the
+    // before_agent_start handler below).
+    store.promptDrivenTurnSeen = false;
+
     // Coordinator must run inside herdr
     if (store.role === "coordinator" && process.env.HERDR_ENV !== "1") {
       ctx.ui.notify("Coordinator must run inside herdr (HERDR_ENV=1). Shutting down.", "error");
@@ -268,11 +273,20 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
         if (getTrackedPaneCount() === 0) {
           return;
         }
-        // Inject sit-rep as followUp (non-interrupting — waits for current turn)
-        pi.sendUserMessage(
-          "[picode-system] Periodic sit-rep: run picode_panes() and picode_status(tail=5). Check for: (1) zombie workers — working but no recent activity, (2) stale barriers — expired deadlines, (3) idle workers that could be reused or closed. Act on findings — close zombies, purge stale barriers, reassign idle workers. Don't just report.",
-          { deliverAs: "followUp" },
-        );
+        // Inject sit-rep as followUp (non-interrupting — waits for current
+        // turn). Collapsed picode-system message once a prompt()-driven run
+        // has assembled the picode system prompt; until then the verbose
+        // sendUserMessage fallback keeps that first run correct.
+        const sitrep =
+          "[picode-system] Periodic sit-rep: run picode_panes() and picode_status(tail=5). Check for: (1) zombie workers — working but no recent activity, (2) stale barriers — expired deadlines, (3) idle workers that could be reused or closed. Act on findings — close zombies, purge stale barriers, reassign idle workers. Don't just report.";
+        if (store.promptDrivenTurnSeen) {
+          pi.sendMessage(
+            { customType: "picode-system", content: sitrep, display: true, details: {} },
+            { triggerTurn: true, deliverAs: "followUp" },
+          );
+        } else {
+          pi.sendUserMessage(sitrep, { deliverAs: "followUp" });
+        }
       }, SITREP_INTERVAL_MS);
     }
 
@@ -306,7 +320,9 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
         parts.push(`[picode-system] Startup resume — your last journal entries:\n${recent}`);
       }
       if (store.obligations.length) {
-        parts.push(`[picode-system] Outstanding obligations: ${store.obligations.map(o => o.id).join(", ")}`);
+        parts.push(
+          `[picode-system] Outstanding obligations: ${store.obligations.map(o => o.id).join(", ")}`,
+        );
       }
       if (store.owed.length) {
         parts.push(`[picode-system] Owed replies: ${store.owed.map(o => o.id).join(", ")}`);
@@ -315,7 +331,24 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
         parts.push(`[picode-system] Active barriers: ${store.barriers.map(b => b.id).join(", ")}`);
       }
       if (parts.length) {
-        setImmediate(() => pi.sendUserMessage(parts.join("\n\n"), { deliverAs: "followUp" }));
+        setImmediate(() => {
+          // Collapsed picode-system message once a prompt()-driven run has
+          // assembled the picode system prompt; verbose fallback before that
+          // (see PicodeData.promptDrivenTurnSeen).
+          if (store.promptDrivenTurnSeen) {
+            pi.sendMessage(
+              {
+                customType: "picode-system",
+                content: parts.join("\n\n"),
+                display: true,
+                details: {},
+              },
+              { triggerTurn: true, deliverAs: "followUp" },
+            );
+          } else {
+            pi.sendUserMessage(parts.join("\n\n"), { deliverAs: "followUp" });
+          }
+        });
       }
     }
 
@@ -468,13 +501,18 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
           store.owedSilentStreak >= 2
             ? ` This is turn ${store.owedSilentStreak} with no reply — restating it as plain text is invisible to them.`
             : "";
+        // triggerTurn:false with no deliverAs appends the reminder passively:
+        // it lands in context for the next turn without forcing one. It must
+        // NOT use deliverAs:"nextTurn" — that queue is only flushed by
+        // prompt()-driven turns, and a coordinator woken solely by envelope
+        // injections never runs one, so the reminder would starve forever.
         pi.sendMessage(
           {
             customType: "picode-owed-reminder",
             content: `[picode-system] Automated reminder (not from the human): you still owe a reply to ${items}. Plain text reaches only the human — never them. Reply for real via picode_send with the re id.${escalation} Still working on it? Acknowledge with "Standing by". Missing information from the requester? Pass the ball: reply with what you need and expects=true.`,
             display: true,
           },
-          { triggerTurn: false, deliverAs: "nextTurn" },
+          { triggerTurn: false },
         );
       }
     }
@@ -524,6 +562,12 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
 
   pi.on("before_agent_start", async event => {
     if (!active) return;
+    // Only prompt()-driven runs assemble the system prompt through this
+    // handler — record that the agent's system prompt now carries the picode
+    // thread-model block, so collapsed sendMessage injections can safely
+    // trigger turns (they inherit state.systemPrompt instead of rebuilding
+    // it, and would otherwise run without picode rules entirely).
+    store.promptDrivenTurnSeen = true;
     return {
       systemPrompt: event.systemPrompt + "\n\n" + threadModelPrompt(store),
     };

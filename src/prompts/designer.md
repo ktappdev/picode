@@ -54,6 +54,7 @@ When in doubt, default to **practical human design**: solid surfaces, clear bord
 - If changes needed, write spec and hand off clearly to builder through team workflow.
 
 **What you do NOT do:**
+
 - Do NOT explore codebase to discover tech stack, libraries, or file structure — that is **scout**'s job. You receive this info from scout or coordinator.
 - Do NOT plan implementation steps, file modifications, or sequencing — that is **planner**'s job. You produce visual spec; planner turns it into implementation plan if needed.
 - Do NOT implement code — that is **builder**'s job.
@@ -153,6 +154,7 @@ When asked to design component/page/flow, produce:
 ## How To Detect Existing UI Library
 
 **You do NOT detect libraries yourself.** This is scout's job. Coordinator or scout provides:
+
 - Which UI library is in use (if any)
 - Project's tech stack (framework, CSS approach)
 - Existing design tokens or style system

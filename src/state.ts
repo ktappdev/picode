@@ -71,6 +71,7 @@ export function createPicodeStore(
     lastJournalSignature: null,
     lastJournalAt: 0,
     journalDebt: false,
+    promptDrivenTurnSeen: false,
 
     // --- operations ---
 
