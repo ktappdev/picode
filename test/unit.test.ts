@@ -4157,4 +4157,33 @@ describe("operator screen: quietToolResult", () => {
       .join("\n");
     assert.match(out, /Panes: 3 total/);
   });
+
+  it("every operator-quiet tool wires renderResult — and the verbose ones don't", () => {
+    const h = makeHarness(tmpDir);
+    const QUIET_TOOLS = [
+      "picode_status",
+      "picode_list",
+      "picode_journal",
+      "picode_panes",
+      "picode_pane_read",
+      "cleanup_panes",
+      "picode_purge",
+      "picode_send",
+      "picode_wait",
+      "spawn_worker",
+    ];
+    for (const name of QUIET_TOOLS) {
+      assert.ok(h.tools[name], `${name} is registered`);
+      assert.strictEqual(
+        (h.tools[name] as { renderResult?: unknown }).renderResult,
+        quietToolResult,
+        `${name} renders quiet when collapsed`,
+      );
+    }
+    // picode_run (build/test output) and suspend/resume stay on screen.
+    for (const name of ["picode_run", "picode_suspend", "picode_resume"]) {
+      const tool = h.tools[name] as { renderResult?: unknown } | undefined;
+      if (tool) assert.notStrictEqual(tool.renderResult, quietToolResult, `${name} stays verbose`);
+    }
+  });
 });

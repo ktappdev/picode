@@ -3,7 +3,7 @@ import { Type } from "typebox";
 import { execSync } from "child_process";
 import { readFileSync, existsSync, statSync } from "fs";
 import { join } from "path";
-import { err, extractRole, effectiveAgentStatus, shellQuote } from "./shared";
+import { err, extractRole, effectiveAgentStatus, shellQuote, quietToolResult } from "./shared";
 import type { PicodeStore } from "../core/types";
 import { trackPane } from "../herdr/listener";
 
@@ -865,5 +865,6 @@ export function registerSpawnTool(pi: ExtensionAPI, store: PicodeStore) {
         return err(`spawn_worker unexpected error: ${String(e)}`);
       }
     },
+    renderResult: quietToolResult,
   });
 }

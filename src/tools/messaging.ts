@@ -4,7 +4,7 @@ import type { Barrier, PicodeStore, Urgency } from "../core/types";
 import { mintId } from "../core/ids";
 import { deadlineFromSeconds, nowIso } from "../core/time";
 import type { Inbox } from "../inbox";
-import { err } from "./shared";
+import { err, quietToolResult } from "./shared";
 
 /** Hard upper bound on the UTF-8 byte length of a `picode_send` body.
  *  Covers the realistic upper bound for a structured reply (multiple
@@ -248,6 +248,7 @@ export function registerMessagingTools(pi: ExtensionAPI, store: PicodeStore, inb
         details: { ok: true, sent, queued },
       };
     },
+    renderResult: quietToolResult,
   });
 
   pi.registerTool({
@@ -304,5 +305,6 @@ export function registerMessagingTools(pi: ExtensionAPI, store: PicodeStore, inb
         details: { ok: true, barrier },
       };
     },
+    renderResult: quietToolResult,
   });
 }
