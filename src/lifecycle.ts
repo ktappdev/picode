@@ -332,22 +332,25 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
       }
       if (parts.length) {
         setImmediate(() => {
-          // Collapsed picode-system message once a prompt()-driven run has
-          // assembled the picode system prompt; verbose fallback before that
-          // (see PicodeData.promptDrivenTurnSeen).
-          if (store.promptDrivenTurnSeen) {
-            pi.sendMessage(
-              {
-                customType: "picode-system",
-                content: parts.join("\n\n"),
-                display: true,
-                details: {},
-              },
-              { triggerTurn: true, deliverAs: "followUp" },
-            );
-          } else {
-            pi.sendUserMessage(parts.join("\n\n"), { deliverAs: "followUp" });
-          }
+          // The full resume context (journal, obligations, owed, barriers)
+          // rides as a collapsed picode-system message appended to context
+          // without triggering a turn — the operator sees one ⚙ line. The
+          // one-line wake below it is the session's primer: a prompt()-driven
+          // run whose before_agent_start assembles the picode system-prompt
+          // block, which sendMessage-triggered turns would skip.
+          pi.sendMessage(
+            {
+              customType: "picode-system",
+              content: parts.join("\n\n"),
+              display: true,
+              details: {},
+            },
+            { triggerTurn: false },
+          );
+          pi.sendUserMessage(
+            "[picode-system] Startup resume — journal and coordination state loaded above. Re-orient, then continue where you left off.",
+            { deliverAs: "followUp" },
+          );
         });
       }
     }
