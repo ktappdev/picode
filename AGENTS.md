@@ -206,7 +206,7 @@ npm run mcp                   # Start MCP server
 2. **State file layout** — `.picode/threads/<id>/state.json` structure; other tools depend on it
 3. **Tool names** — `picode_send`, `picode_wait`, `picode_status`, `picode_list`, `picode_journal`, `picode_suspend`, `picode_resume`
 4. **Slash command names** — `/picode-status`, `/picode-journal`, `/picode-list`, `/picode-send`, `/picode-suspend`, `/picode-resume`, `/picode-models`
-5. **Role names** — `coordinator`, `builder`, `reviewer`, `explorer`/`scout`, `tester`, `designer`, `visionary`, `bug-hunter`, `planner`, `runner`
+5. **Role names** — `coordinator`, `builder`, `reviewer`, `explorer`/`scout`, `tester`, `designer`, `visionary`, `bug-hunter`, `planner`, `runner`, `gauntlet`
 6. **Message model** — Envelope shape with `expects`, `re`, `urgency`, `deliverAfterSeconds` fields
 
 ### Sensitive Areas
@@ -253,7 +253,7 @@ npm run mcp                   # Start MCP server
    mode: replace
    ---
    ```
-4. Supported roles: `coordinator`, `builder`, `reviewer`, `scout`, `explorer`, `designer`, `visionary`, `tester`, `bug-hunter`, `planner`, `runner`, `worker`
+4. Supported roles: `coordinator`, `builder`, `reviewer`, `scout`, `explorer`, `designer`, `visionary`, `tester`, `bug-hunter`, `planner`, `runner`, `gauntlet`, `worker`
 5. Empty files are ignored; unknown roles fall back to `worker.md`
 6. Bundled prompts are in `src/prompts/*.md` — edit those to change defaults
 

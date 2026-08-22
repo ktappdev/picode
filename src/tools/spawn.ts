@@ -11,7 +11,7 @@ import { trackPane } from "../herdr/listener";
  *  dead worker panes — labeled but no agent — that findEmptyPane should
  *  reclaim instead of leaving them to block grid growth. */
 const WORKER_ROLE_PATTERN =
-  /^(builder|reviewer|tester|worker|scout|bug-hunter|designer|planner|runner|visionary|explorer)(-[0-9]+)?$/i;
+  /^(builder|reviewer|tester|worker|scout|bug-hunter|designer|planner|runner|visionary|gauntlet|explorer)(-[0-9]+)?$/i;
 
 /** Check if a PID is alive (same logic as state.ts). */
 function isPidAlive(pid: number): boolean {
@@ -115,7 +115,9 @@ function resolveTheme(override?: string): string | null {
 
 /** Thinking level per worker role. Unlisted roles (worker, unknown) inherit
  *  pi's default. Valid pi --thinking levels: off, minimal, low, medium,
- *  high, xhigh, max. */
+ *  high, xhigh, max. pi clamps the requested level down to the highest the
+ *  model supports (max → xhigh → high), so requesting "max" is safe even
+ *  when the configured model tops out at "high". */
 const THINKING_BY_ROLE: Record<string, string> = {
   builder: "high",
   reviewer: "high",
@@ -125,6 +127,7 @@ const THINKING_BY_ROLE: Record<string, string> = {
   scout: "medium",
   explorer: "medium",
   visionary: "medium",
+  gauntlet: "max",
   tester: "low",
   runner: "low",
 };

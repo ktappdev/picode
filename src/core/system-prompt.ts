@@ -15,7 +15,8 @@ export type WorkerSubtype =
   | "bug-hunter"
   | "planner"
   | "runner"
-  | "visionary";
+  | "visionary"
+  | "gauntlet";
 
 function workerSubtype(role: string): WorkerSubtype | null {
   const subtypes: WorkerSubtype[] = [
@@ -28,6 +29,7 @@ function workerSubtype(role: string): WorkerSubtype | null {
     "planner",
     "runner",
     "visionary",
+    "gauntlet",
   ];
   return subtypes.includes(role as WorkerSubtype) ? (role as WorkerSubtype) : null;
 }
@@ -55,6 +57,7 @@ const BUG_HUNTER_RULES = loadPromptFile("bug-hunter.md");
 const PLANNER_RULES = loadPromptFile("planner.md");
 const RUNNER_RULES = loadPromptFile("runner.md");
 const VISIONARY_RULES = loadPromptFile("visionary.md");
+const GAUNTLET_RULES = loadPromptFile("gauntlet.md");
 const COMMUNICATION_MODEL = loadPromptFile("communication-model.md");
 
 const SUBTYPE_PROMPTS: Record<WorkerSubtype, string> = {
@@ -67,6 +70,7 @@ const SUBTYPE_PROMPTS: Record<WorkerSubtype, string> = {
   planner: PLANNER_RULES,
   runner: RUNNER_RULES,
   visionary: VISIONARY_RULES,
+  gauntlet: GAUNTLET_RULES,
 };
 
 // ── Project-root resolution ────────────────────────────────────────
@@ -98,6 +102,7 @@ const OVERRIDABLE_ROLES = new Set([
   "planner",
   "runner",
   "visionary",
+  "gauntlet",
   "worker",
 ]);
 

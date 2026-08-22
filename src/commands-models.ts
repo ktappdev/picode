@@ -43,6 +43,7 @@ const ROLE_DISPLAY_ORDER = [
   "bug-hunter",
   "planner",
   "runner",
+  "gauntlet",
 ] as const;
 
 /** Keys in models.json that are not role assignments and must be preserved

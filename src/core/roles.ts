@@ -12,6 +12,7 @@ export const WORKER_ROLES = [
   "planner",
   "runner",
   "visionary",
+  "gauntlet",
 ] as const;
 
 /** Explorer is a legacy alias for scout. Keep one canonical runtime role. */
@@ -47,6 +48,7 @@ export const ROLE_EMOJI: Record<string, string> = {
   planner: "🟤",
   runner: "⚫",
   visionary: "👁️",
+  gauntlet: "🛡️",
 };
 
 export function roleEmoji(role: string | null | undefined): string {

@@ -26,15 +26,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import type {
+  AgentToolResult,
   ExtensionAPI,
   ExtensionCommandContext,
   ExtensionContext,
+  Theme,
 } from "@earendil-works/pi-coding-agent";
 import { createPicodeStore } from "../src/state";
 import { createInbox } from "../src/inbox";
 import type { Injection } from "../src/inbox";
 import { DEADLINE_EXPIRY_GRACE_MS } from "../src/inbox";
-import { effectiveAgentStatus } from "../src/tools/shared";
+import { effectiveAgentStatus, quietToolResult } from "../src/tools/shared";
+import { envelopeMessageRenderer, systemMessageRenderer } from "../src/renderers";
 import { countPanesInTab, solePaneInTab, resolveThinking } from "../src/tools/spawn";
 import { validateLabel } from "../src/tools/tab-create";
 import { registerLifecycle, extractFirstLine } from "../src/lifecycle";
@@ -97,6 +100,8 @@ type AnyCommand = { handler: (args: string, ctx: ExtensionCommandContext) => Pro
 
 function makeHarness(dir: string, id = "t1") {
   const calls: Call[] = [];
+  const sentCustom: { msg: SentCustom; options?: { triggerTurn?: boolean; deliverAs?: string } }[] =
+    [];
   const notifications: Notify[] = [];
   const tools: Record<string, AnyTool> = {};
   const commands: Record<string, AnyCommand> = {};
@@ -104,6 +109,9 @@ function makeHarness(dir: string, id = "t1") {
   const stubPi = {
     sendUserMessage: (content: string, options?: { deliverAs?: string }) => {
       calls.push({ content, options });
+    },
+    sendMessage: (msg: SentCustom, options?: { triggerTurn?: boolean; deliverAs?: string }) => {
+      sentCustom.push({ msg, options });
     },
     registerTool: (tool: AnyTool & { name: string }) => {
       tools[tool.name] = tool;
@@ -155,6 +163,7 @@ function makeHarness(dir: string, id = "t1") {
     commands,
     ctx,
     calls,
+    sentCustom,
     notifications,
     dir,
     get idle() {
@@ -263,7 +272,20 @@ function owedRecord(from: string, id: string, summary = "?") {
 // handler. This one goes through the real pi.on(...) wiring instead.
 type CustomEntry = { type: "custom"; customType: string; data?: unknown };
 
-type SentMessage = { customType: string; content: string };
+type SentCustom = {
+  customType: string;
+  content: string;
+  display?: boolean;
+  details?: unknown;
+};
+
+type SentMessage = {
+  customType: string;
+  content: string;
+  options?: { triggerTurn?: boolean; deliverAs?: string };
+  display?: boolean;
+  details?: unknown;
+};
 
 function makeLifecycleHarness(dir: string) {
   const handlers: Record<string, (event: unknown, ctx: unknown) => unknown> = {};
@@ -293,8 +315,13 @@ function makeLifecycleHarness(dir: string) {
       setActiveToolsCalls.push(names);
       activeTools = names;
     },
-    sendMessage: (msg: SentMessage) => {
-      sentMessages.push({ customType: msg.customType, content: msg.content });
+    sendMessage: (msg: SentCustom, options?: { triggerTurn?: boolean; deliverAs?: string }) => {
+      sentMessages.push({
+        customType: msg.customType,
+        content: msg.content,
+        options,
+        display: msg.display,
+      });
     },
     sendUserMessage: (content: string) => {
       userMessages.push(content);
@@ -1628,7 +1655,10 @@ describe("lifecycle: opt-in gate (§2.3)", () => {
     h.setFlag("picode-role", "builder");
     await h.fire("session_start", h.makeCtx());
     assert.ok(!h.activeTools.includes("picode_journal"), "worker must not see picode_journal");
-    assert.ok(h.activeTools.includes("picode_status"), "worker keeps picode_status for owed-reply recovery");
+    assert.ok(
+      h.activeTools.includes("picode_status"),
+      "worker keeps picode_status for owed-reply recovery",
+    );
     h.store.stopHeartbeat();
     h.store.stopWatcher();
   });
@@ -1681,6 +1711,54 @@ describe("lifecycle: opt-in gate (§2.3)", () => {
     h.store.stopHeartbeat();
     h.store.stopWatcher();
   });
+
+  it("startup resume injects as a collapsed picode-system message once a prompt()-driven run primed the session", async () => {
+    const prev = process.env.HERDR_ENV;
+    process.env.HERDR_ENV = "1";
+    try {
+      const h = makeLifecycleHarness(tmpDir);
+      h.setFlag("picode-id", "coordinator");
+      h.setFlag("picode-role", "coordinator");
+      h.store.picodesRootDir = join(tmpDir, ".picode", "picodes");
+      mkdirSync(join(h.store.picodesRootDir, "coordinator"), { recursive: true });
+      writeFileSync(
+        join(h.store.picodesRootDir, "coordinator", "journal.md"),
+        journalEntry(nowStamp(), "ship the lexer").trim() + "\n",
+      );
+      await h.fire("session_start", h.makeCtx());
+      // Prime after session_start but before the deferred injection's
+      // setImmediate fires — the flag is read at injection time.
+      h.store.promptDrivenTurnSeen = true;
+      await new Promise(r => setImmediate(r));
+      assert.strictEqual(h.userMessages.length, 0, "no verbose user message once primed");
+      assert.strictEqual(h.sentMessages.length, 1);
+      assert.strictEqual(h.sentMessages[0].customType, "picode-system");
+      assert.match(h.sentMessages[0].content, /Startup resume/);
+      assert.strictEqual(h.sentMessages[0].options?.triggerTurn, true);
+      assert.strictEqual(h.sentMessages[0].options?.deliverAs, "followUp");
+      h.store.stopHeartbeat();
+      h.store.stopWatcher();
+    } finally {
+      if (prev === undefined) delete process.env.HERDR_ENV;
+      else process.env.HERDR_ENV = prev;
+    }
+  });
+
+  it("before_agent_start primes the session and session_start resets it", async () => {
+    const h = makeLifecycleHarness(tmpDir);
+    h.setFlag("picode-id", "t8");
+    const ctx = h.makeCtx();
+    // Pre-set to prove session_start resets it (a new session's agent starts
+    // from the base system prompt). Only one session_start fire: init's
+    // duplicate-ID guard rejects a second run against the same store.
+    h.store.promptDrivenTurnSeen = true;
+    await h.fire("session_start", ctx);
+    assert.strictEqual(h.store.promptDrivenTurnSeen, false, "session_start resets the primer");
+    await h.fire("before_agent_start", ctx, { systemPrompt: "base" });
+    assert.strictEqual(h.store.promptDrivenTurnSeen, true, "before_agent_start primes");
+    h.store.stopHeartbeat();
+    h.store.stopWatcher();
+  });
 });
 
 describe("lifecycle: silent-debtor nudge (§9.4)", () => {
@@ -1708,6 +1786,11 @@ describe("lifecycle: silent-debtor nudge (§9.4)", () => {
     assert.match(h.sentMessages[0].content, /boss \(re #boss\/q1\)/);
     assert.match(h.sentMessages[0].content, /"Standing by"/);
     assert.match(h.sentMessages[0].content, /Pass the ball/);
+    // Passive append, never deliverAs:"nextTurn" — that queue only drains on
+    // prompt()-driven turns, and a coordinator woken solely by envelopes
+    // would starve the reminder forever.
+    assert.strictEqual(h.sentMessages[0].options?.triggerTurn, false);
+    assert.strictEqual(h.sentMessages[0].options?.deliverAs, undefined);
   });
 
   it("does not fire again on a second consecutive silent turn within the same run", async () => {
@@ -3358,6 +3441,8 @@ describe("role and prompt contracts", () => {
     assert.equal(detectWorkerRole("explorer"), "scout");
     assert.equal(detectWorkerRole("explorer-2"), "scout");
     assert.equal(detectWorkerRole("helper-1"), "worker");
+    assert.equal(detectWorkerRole("gauntlet"), "gauntlet");
+    assert.equal(detectWorkerRole("gauntlet-2"), "gauntlet");
   });
 
   it("separates worker role prompt from communication model", () => {
@@ -3380,6 +3465,7 @@ describe("role and prompt contracts", () => {
       lastJournalSignature: null,
       lastJournalAt: 0,
       journalDebt: false,
+      promptDrivenTurnSeen: false,
     });
     assert.match(prompt, /Ken Taylor\.\n\n### Role: Worker/);
     assert.match(prompt, /work lost\.\n\n### Subtype: Planner/);
@@ -3404,6 +3490,7 @@ describe("role and prompt contracts", () => {
       lastJournalSignature: null,
       lastJournalAt: 0,
       journalDebt: false,
+      promptDrivenTurnSeen: false,
     });
     assert.match(prompt, /visual evidence specialist/);
     assert.match(prompt, /multimodal model/);
@@ -3430,6 +3517,7 @@ describe("role and prompt contracts", () => {
       lastJournalSignature: null,
       lastJournalAt: 0,
       journalDebt: false,
+      promptDrivenTurnSeen: false,
     });
     assert.match(worker, /Your journal is disabled/);
     assert.doesNotMatch(worker, /picode_journal\(id\)/);
@@ -3456,6 +3544,7 @@ describe("role and prompt contracts", () => {
       lastJournalSignature: null,
       lastJournalAt: 0,
       journalDebt: false,
+      promptDrivenTurnSeen: false,
     });
     assert.match(coord, /recover your identity, obligations, owed replies, and recent journal/);
     assert.match(coord, /picode_journal\(id\)/);
@@ -3665,7 +3754,7 @@ describe("tools/cleanup-panes: WORKER_ROLE_PATTERN", () => {
   // We test the pattern indirectly via the module's behavior — but since
   // the pattern is module-internal, we verify via a re-declaration match.
   const pattern =
-    /^(builder|reviewer|tester|worker|scout|bug-hunter|designer|planner|runner|visionary|explorer)(-[0-9]+)?$/i;
+    /^(builder|reviewer|tester|worker|scout|bug-hunter|designer|planner|runner|visionary|gauntlet|explorer)(-[0-9]+)?$/i;
 
   it("matches base roles", () => {
     assert.ok(pattern.test("builder"));
@@ -3686,6 +3775,8 @@ describe("tools/cleanup-panes: WORKER_ROLE_PATTERN", () => {
     assert.ok(pattern.test("runner"));
     assert.ok(pattern.test("visionary"));
     assert.ok(pattern.test("explorer"));
+    assert.ok(pattern.test("gauntlet"));
+    assert.ok(pattern.test("gauntlet-3"));
   });
 
   it("rejects non-worker roles", () => {
@@ -3855,6 +3946,8 @@ describe("spawn: resolveThinking", () => {
   it("resolves suffixed ids via prefix", () => {
     assert.strictEqual(resolveThinking("builder-1"), "high");
     assert.strictEqual(resolveThinking("scout-3"), "medium");
+    assert.strictEqual(resolveThinking("gauntlet"), "max");
+    assert.strictEqual(resolveThinking("gauntlet-2"), "max");
   });
   it("returns null for unlisted roles (inherits pi default)", () => {
     assert.strictEqual(resolveThinking("worker"), null);
@@ -3900,5 +3993,168 @@ describe("tab-create: validateLabel", () => {
     assert.ok(validateLabel("; rm -rf /"), "command injection rejected");
     assert.ok(validateLabel("$(whoami)"), "command substitution rejected");
     assert.ok(validateLabel("`whoami`"), "backtick injection rejected");
+  });
+});
+
+describe("operator screen: coordinator envelope injections", () => {
+  it("primed coordinator drains envelopes via collapsed sendMessage, followUp when all low urgency", async () => {
+    const h = makeHarness(tmpDir);
+    h.store.role = "coordinator";
+    h.store.promptDrivenTurnSeen = true;
+    seedEnvelope(h, "t1", { from: "builder", body: "lexer done" });
+    await h.inbox.drainInbox(h.ctx);
+    assert.strictEqual(h.calls.length, 0, "no verbose user message for a primed coordinator");
+    assert.strictEqual(h.sentCustom.length, 1);
+    const { msg, options } = h.sentCustom[0];
+    assert.strictEqual(msg.customType, "picode-envelope");
+    assert.strictEqual(msg.display, true);
+    assert.match(msg.content, /\[note from builder #/);
+    assert.match(msg.content, /lexer done/);
+    assert.deepStrictEqual(msg.details, { count: 1, highUrgency: false });
+    assert.strictEqual(options?.triggerTurn, true);
+    assert.strictEqual(options?.deliverAs, "followUp");
+  });
+
+  it("one high-urgency part steers the whole batch and flags the marker", async () => {
+    const h = makeHarness(tmpDir);
+    h.store.role = "coordinator";
+    h.store.promptDrivenTurnSeen = true;
+    seedEnvelope(
+      h,
+      "t1",
+      { from: "builder", body: "urgent fix", urgency: "high" },
+      "0-urgent.json",
+    );
+    seedEnvelope(h, "t1", { from: "scout", body: "fyi" }, "1-low.json");
+    await h.inbox.drainInbox(h.ctx);
+    assert.strictEqual(h.sentCustom.length, 1, "batch coalesces into one message");
+    const { msg, options } = h.sentCustom[0];
+    assert.deepStrictEqual(msg.details, { count: 2, highUrgency: true });
+    assert.strictEqual(options?.deliverAs, "steer");
+  });
+
+  it("unprimed coordinator falls back to sendUserMessage so the first run gets the picode system prompt", async () => {
+    const h = makeHarness(tmpDir);
+    h.store.role = "coordinator";
+    assert.strictEqual(h.store.promptDrivenTurnSeen, false);
+    seedEnvelope(h, "t1", { from: "builder", body: "hello" });
+    await h.inbox.drainInbox(h.ctx);
+    assert.strictEqual(h.sentCustom.length, 0);
+    assert.strictEqual(h.calls.length, 1);
+    assert.match(h.calls[0].content, /hello/);
+  });
+
+  it("worker keeps the verbose path even after a prompt()-driven turn", async () => {
+    const h = makeHarness(tmpDir);
+    h.store.role = "worker";
+    h.store.promptDrivenTurnSeen = true;
+    seedEnvelope(h, "t1", { from: "coordinator", body: "do the thing" });
+    await h.inbox.drainInbox(h.ctx);
+    assert.strictEqual(h.sentCustom.length, 0);
+    assert.strictEqual(h.calls.length, 1, "task envelope stays visible on the worker's screen");
+  });
+});
+
+describe("operator screen: message renderers", () => {
+  const theme = {
+    fg: (_k: string, s: string) => s,
+    bg: (_k: string, s: string) => s,
+  } as unknown as Theme;
+
+  function renderEnvelope(content: string, details: unknown, expanded: boolean): string {
+    const component = envelopeMessageRenderer(
+      { customType: "picode-envelope", content, display: true, details } as never,
+      { expanded },
+      theme,
+    );
+    return component!.render(120).join("\n");
+  }
+
+  it("collapsed envelope shows the header line, not the body", () => {
+    const out = renderEnvelope(
+      "[request from scout #coord/01ABC]\ninvestigate the flaky test\n(this expects a reply…)",
+      { count: 1, highUrgency: false },
+      false,
+    );
+    assert.match(out, /📨/);
+    assert.match(out, /request from scout #coord\/01ABC/);
+    assert.doesNotMatch(out, /investigate the flaky test/);
+  });
+
+  it("collapsed batch shows +N more and ⚠ for high urgency", () => {
+    const out = renderEnvelope(
+      "[reply from builder #coord/01DEF]\nshipped",
+      { count: 3, highUrgency: true },
+      false,
+    );
+    assert.match(out, /⚠/);
+    assert.match(out, /\(\+2 more\)/);
+  });
+
+  it("content without a bracket header falls back to a generic label", () => {
+    const out = renderEnvelope("garbage body", { count: 1, highUrgency: false }, false);
+    assert.match(out, /incoming envelope/);
+  });
+
+  it("expanded envelope shows the full text", () => {
+    const out = renderEnvelope(
+      "[request from scout #coord/01ABC]\ninvestigate the flaky test",
+      { count: 1, highUrgency: false },
+      true,
+    );
+    assert.match(out, /investigate the flaky test/);
+  });
+
+  function renderSystem(content: string, expanded: boolean): string {
+    const component = systemMessageRenderer(
+      { customType: "picode-system", content, display: true, details: {} } as never,
+      { expanded },
+      theme,
+    );
+    return component!.render(120).join("\n");
+  }
+
+  it("collapsed system message shows the first line with the prefix stripped", () => {
+    const out = renderSystem(
+      "[picode-system] Startup resume — your last journal entries:\n<!-- 2026-08-22 10:00 -->\nWorking on: lexer",
+      false,
+    );
+    assert.match(out, /⚙/);
+    assert.match(out, /Startup resume — your last journal entries:/);
+    assert.doesNotMatch(out, /Working on: lexer/);
+  });
+
+  it("expanded system message shows the full prompt", () => {
+    const out = renderSystem("[picode-system] Periodic sit-rep: run picode_panes().", true);
+    assert.match(out, /Periodic sit-rep: run picode_panes\(\)/);
+  });
+});
+
+describe("operator screen: quietToolResult", () => {
+  const theme = {
+    fg: (_k: string, s: string) => s,
+    bg: (_k: string, s: string) => s,
+  } as unknown as Theme;
+
+  it("collapsed renders nothing but the model still gets result.content", () => {
+    const result = {
+      content: [{ type: "text", text: "Panes: 3 total" }],
+      details: {},
+    } as AgentToolResult<unknown>;
+    const out = quietToolResult(result, { expanded: false, isPartial: false }, theme)
+      .render(120)
+      .join("\n");
+    assert.doesNotMatch(out, /Panes/);
+  });
+
+  it("expanded shows the text", () => {
+    const result = {
+      content: [{ type: "text", text: "Panes: 3 total" }],
+      details: {},
+    } as AgentToolResult<unknown>;
+    const out = quietToolResult(result, { expanded: true, isPartial: false }, theme)
+      .render(120)
+      .join("\n");
+    assert.match(out, /Panes: 3 total/);
   });
 });

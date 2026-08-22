@@ -167,16 +167,17 @@ Messages show up as `[<kind> from <sender> #<id>]`. The kind (request, reply, re
 
 Each picode has a role that shapes its system prompt. The role is auto-detected from the name you give it.
 
-| Role                 | Subtype | Description                                                                                                                                 |
-| -------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `coordinator`        | -       | Directs workers, delegates tasks, keeps project context. Cannot write, edit, or run bash. Uses Hypa tools for quick lookups when installed. |
-| `builder`            | Worker  | Implements code changes, edits files, runs type checks.                                                                                     |
-| `reviewer`           | Worker  | Reviews diffs, audits for bugs, security, and quality. Read-only.                                                                           |
-| `scout` / `explorer` | Worker  | Explores the codebase, finds files, answers architecture questions. Read-only. Summarizes findings instead of dumping raw output.           |
-| `bug-hunter`         | Worker  | Hunts bugs by reading code, session entries, and journals. Reports root cause and a suggested fix but does not implement it. Read-only.     |
-| `tester`             | Worker  | Writes and runs tests, reproduces bugs, checks coverage.                                                                                    |
-| `designer`           | Worker  | Designs UI specs for the builder to implement. Read-only.                                                                                   |
-| `visionary`          | Worker  | Reads attached or local images and reports grounded observations. Read-only; requires a multimodal model.                                   |
+| Role                 | Subtype | Description                                                                                                                                                                           |
+| -------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `coordinator`        | -       | Directs workers, delegates tasks, keeps project context. Cannot write, edit, or run bash. Uses Hypa tools for quick lookups when installed.                                           |
+| `builder`            | Worker  | Implements code changes, edits files, runs type checks.                                                                                                                               |
+| `reviewer`           | Worker  | Reviews diffs, audits for bugs, security, and quality. Read-only.                                                                                                                     |
+| `scout` / `explorer` | Worker  | Explores the codebase, finds files, answers architecture questions. Read-only. Summarizes findings instead of dumping raw output.                                                     |
+| `bug-hunter`         | Worker  | Hunts bugs by reading code, session entries, and journals. Reports root cause and a suggested fix but does not implement it. Read-only.                                               |
+| `tester`             | Worker  | Writes and runs tests, reproduces bugs, checks coverage.                                                                                                                              |
+| `designer`           | Worker  | Designs UI specs for the builder to implement. Read-only.                                                                                                                             |
+| `visionary`          | Worker  | Reads attached or local images and reports grounded observations. Read-only; requires a multimodal model.                                                                             |
+| `gauntlet`           | Worker  | Adversarial production hardener with split personalities (review → fix → test). Finds realistic production failures, fixes them, leaves regression tests. Full tools except dispatch. |
 
 Prefix matching means `builder-1`, `builder-a`, `builder_foo`, and `builder.task` all resolve to the `builder` role. Any name that does not match a known role (or prefix) becomes a generic `worker` with base worker rules only.
 
