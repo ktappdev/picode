@@ -1,7 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { execSync } from "child_process";
-import { err, isValidPaneId } from "./shared";
+import { err, isValidPaneId, quietToolResult } from "./shared";
 
 /** Valid herdr pane read sources. */
 const VALID_SOURCES = new Set(["visible", "recent", "recent-unwrapped", "detection"]);
@@ -121,5 +121,6 @@ export function registerPaneReadTool(pi: ExtensionAPI) {
         return err(`picode_pane_read failed: ${msg}`);
       }
     },
+    renderResult: quietToolResult,
   });
 }

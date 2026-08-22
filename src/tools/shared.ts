@@ -1,6 +1,22 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { Text, type Component } from "@earendil-works/pi-tui";
+import type { AgentToolResult, ToolRenderResultOptions, Theme } from "@earendil-works/pi-coding-agent";
 import { STALE_MS } from "../core/types";
+
+/** Collapsed → blank tool row (operator doesn't read sit-rep output — it's
+ *  for the model). Expanded → the full text. The model always receives the
+ *  complete result.content regardless of what the renderer shows. */
+export function quietToolResult(
+  result: AgentToolResult<unknown>,
+  { expanded }: ToolRenderResultOptions,
+  theme: Theme,
+): Component {
+  if (!expanded) return new Text("", 0, 0);
+  const t = result.content.find(c => c.type === "text");
+  return new Text(t && t.type === "text" ? `\n${theme.fg("toolOutput", t.text)}` : "", 0, 0);
+}
+
 
 /** Uniform tool-error payload: message for the model, ok:false for callers. */
 export function err(text: string) {

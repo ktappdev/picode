@@ -1,7 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { execSync } from "child_process";
-import { err, extractRole, isValidPaneId, effectiveAgentStatus } from "./shared";
+import { err, extractRole, isValidPaneId, effectiveAgentStatus, quietToolResult } from "./shared";
 import type { PicodeStore } from "../core/types";
 
 /** Worker role labels to clean up (case-insensitive, emoji prefix stripped).
@@ -258,5 +258,6 @@ export function registerCleanupPanesTool(pi: ExtensionAPI, store: PicodeStore) {
         return err(`cleanup_panes unexpected error: ${String(e)}`);
       }
     },
+    renderResult: quietToolResult,
   });
 }

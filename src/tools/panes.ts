@@ -1,7 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { execSync } from "child_process";
-import { err, extractRole, effectiveAgentStatus } from "./shared";
+import { err, extractRole, effectiveAgentStatus, quietToolResult } from "./shared";
 
 /** Statuses that mean the pane is still useful — don't close these. */
 const ACTIVE_STATUSES = new Set(["working", "idle", "done"]);
@@ -217,5 +217,6 @@ export function registerPanesTool(pi: ExtensionAPI) {
         return err(`picode_panes unexpected error: ${String(e)}`);
       }
     },
+    renderResult: quietToolResult,
   });
 }
