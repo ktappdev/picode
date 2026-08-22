@@ -45,6 +45,16 @@ export function registerCommands(pi: ExtensionAPI, store: PicodeStore, inbox: In
   pi.registerCommand("/picode-journal", {
     description:
       "View, trim, clear, or compact the journal: /picode-journal [status|tail N|trim N|clear|compact]",
+    getArgumentCompletions(argumentPrefix: string) {
+      const SUBCOMMANDS = [
+        { value: "status", label: "status", description: "Entry count, size, oldest/newest" },
+        { value: "tail", label: "tail N", description: "Show the last N entries" },
+        { value: "trim", label: "trim N", description: "Keep only the last N entries" },
+        { value: "clear", label: "clear", description: "Delete the journal entirely" },
+        { value: "compact", label: "compact", description: "Summarize old entries into one block" },
+      ];
+      return SUBCOMMANDS.filter(s => s.value.startsWith(argumentPrefix.trim()));
+    },
     async handler(args, ctx) {
       if (!checkActive(store, ctx)) return;
       try {
@@ -142,6 +152,22 @@ export function registerCommands(pi: ExtensionAPI, store: PicodeStore, inbox: In
 
   pi.registerCommand("/picode-send", {
     description: "Send a note to another picode: /picode-send <to> <body...>",
+    getArgumentCompletions(argumentPrefix: string) {
+      // Only complete the target token — once a space is typed the user is
+      // writing the body, and completing against free text is noise.
+      if (argumentPrefix.includes(" ")) return null;
+      const prefix = argumentPrefix.trim();
+      return (async () => {
+        const targets: { value: string; label: string; description?: string }[] = [
+          { value: "*", label: "*", description: "every known picode" },
+        ];
+        for (const p of await store.listPcodes()) {
+          if (p.id === store.picodeId) continue;
+          targets.push({ value: p.id, label: p.id, description: `${p.role} · ${p.state}` });
+        }
+        return targets.filter(t => t.value.startsWith(prefix));
+      })();
+    },
     async handler(args, ctx) {
       if (!checkActive(store, ctx)) return;
       const parts = args.trim().split(/\s+/);
@@ -221,6 +247,12 @@ export function registerCommands(pi: ExtensionAPI, store: PicodeStore, inbox: In
   pi.registerCommand("/picode-reset", {
     description:
       "Clear all obligations, owed replies, and barriers across all threads. Use before shutdown for a clean slate.",
+    getArgumentCompletions(argumentPrefix: string) {
+      if (argumentPrefix.includes(" ")) return null;
+      return [
+        { value: "--force", label: "--force", description: "also reset the current picode" },
+      ].filter(f => f.value.startsWith(argumentPrefix.trim()));
+    },
     async handler(args, ctx) {
       if (!checkActive(store, ctx)) return;
       try {

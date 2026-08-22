@@ -4268,3 +4268,65 @@ describe("operator screen: quietToolResult", () => {
     }
   });
 });
+
+describe("slash command argument completions", () => {
+  type Completable = {
+    getArgumentCompletions?: (
+      prefix: string,
+    ) => { value: string; description?: string }[] | null | Promise<{ value: string }[] | null>;
+  };
+
+  it("/picode-journal completes subcommands, filtered by prefix", async () => {
+    const h = makeHarness(tmpDir);
+    const cmd = h.commands["/picode-journal"] as unknown as Completable;
+    const all = (await cmd.getArgumentCompletions?.("")) ?? [];
+    assert.deepStrictEqual(
+      all.map(i => i.value),
+      ["status", "tail", "trim", "clear", "compact"],
+    );
+    const filtered = (await cmd.getArgumentCompletions?.("cl")) ?? [];
+    assert.deepStrictEqual(
+      filtered.map(i => i.value),
+      ["clear"],
+    );
+    assert.deepStrictEqual((await cmd.getArgumentCompletions?.("zzz")) ?? [], []);
+  });
+
+  it("/picode-send completes roster ids (never self), * first; body typing is left alone", async () => {
+    const h = makeHarness(tmpDir);
+    seedRemoteThread(h, "alice", { role: "builder" });
+    seedRemoteThread(h, "bob");
+    const cmd = h.commands["/picode-send"] as unknown as Completable;
+    const all = (await cmd.getArgumentCompletions?.("")) ?? [];
+    assert.deepStrictEqual(
+      all.map(i => i.value),
+      ["*", "alice", "bob"],
+      "self (t1) must not be offered, * comes first",
+    );
+    const filtered = (await cmd.getArgumentCompletions?.("al")) ?? [];
+    assert.deepStrictEqual(
+      filtered.map(i => i.value),
+      ["alice"],
+    );
+    assert.strictEqual(
+      await cmd.getArgumentCompletions?.("alice fixing the"),
+      null,
+      "once the body starts, no completions",
+    );
+  });
+
+  it("/picode-reset completes --force", async () => {
+    const h = makeHarness(tmpDir);
+    const cmd = h.commands["/picode-reset"] as unknown as Completable;
+    const all = (await cmd.getArgumentCompletions?.("")) ?? [];
+    assert.deepStrictEqual(
+      all.map(i => i.value),
+      ["--force"],
+    );
+    assert.deepStrictEqual(
+      ((await cmd.getArgumentCompletions?.("--f")) ?? []).map(i => i.value),
+      ["--force"],
+    );
+    assert.deepStrictEqual((await cmd.getArgumentCompletions?.("--force ")) ?? [], []);
+  });
+});
