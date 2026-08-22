@@ -11,7 +11,7 @@ import type { PicodeStore } from "./core/types";
 const JOURNAL_PROMPT = `You are this picode's journal keeper. Based on the conversation above, write a brief status update in exactly this format:
 
 Working on: <the main task in one line>
-Done: <what was completed this turn>
+Done: <what was completed this turn, including any decision made or topic the user opened or closed>
 Doing: <what is in progress or will continue>
 Next: <planned next step>
 Blockers: <blockers or "none">
@@ -170,11 +170,19 @@ export function journalSignature(store: PicodeStore): string {
  *                itself is not news — the last turn already covered it).
  *  - "done"    — agent_end in journal-mode "done": one entry per run when
  *                anything happened.
+ *
+ *  userPromptThisRun ("done" only): the operator spoke to this picode during
+ *  the run. A pure-text conversation changes neither the (state, obligations,
+ *  barriers) signature nor tool usage, yet it is exactly where decisions get
+ *  made and topics get closed — without this signal, "user answered my
+ *  question" never journals, and every startup resume resurrects the stale
+ *  question from the last tooled entry.
  */
 export function shouldJournal(
   store: PicodeStore,
   toolUsedThisTurn: boolean,
   phase: "turn" | "run-end" | "done" = "turn",
+  userPromptThisRun = false,
 ): boolean {
   const sig = journalSignature(store);
   const changed = sig !== store.lastJournalSignature;
@@ -182,7 +190,7 @@ export function shouldJournal(
   if (phase === "run-end") {
     write = store.journalDebt;
   } else if (phase === "done") {
-    write = changed || toolUsedThisTurn;
+    write = changed || toolUsedThisTurn || userPromptThisRun;
   } else {
     if (!changed && !toolUsedThisTurn) return false;
     write = changed || Date.now() - store.lastJournalAt >= JOURNAL_MIN_INTERVAL_MS;

@@ -1556,6 +1556,16 @@ describe("lifecycle: journalSignature / shouldJournal", () => {
     assert.strictEqual(shouldJournal(store, false, "done"), false);
   });
 
+  it('phase "done" journals an operator-only conversation run — decisions made in plain text must not be lost', () => {
+    const store = bareStore();
+    assert.strictEqual(shouldJournal(store, true, "done"), true); // baseline entry
+    // User answers a question, coordinator replies in text: no tools, no
+    // structural change. Without this write, the stale "awaiting decision"
+    // entry resurfaces on every startup resume.
+    assert.strictEqual(shouldJournal(store, false, "done", true), true);
+    assert.strictEqual(shouldJournal(store, false, "done"), false); // flag is per-run
+  });
+
   it("journalSignature changes when an obligation is added", () => {
     const store = bareStore();
     const before = journalSignature(store);
@@ -1691,6 +1701,9 @@ describe("lifecycle: opt-in gate (§2.3)", () => {
       assert.match(context, /Startup resume/);
       assert.match(context, /ship the lexer/);
       assert.match(context, /coord\/o1/);
+      // …including the reading rules that stop stale decision re-asks.
+      assert.match(context, /Never re-ask the user/);
+      assert.match(context, /LAST entry is the current state/);
       // …and the on-screen wake is a single primer line, not the journal dump.
       assert.strictEqual(h.userMessages.length, 1);
       assert.match(h.userMessages[0], /Startup resume — journal and coordination state loaded/);

@@ -109,6 +109,9 @@ export function extractFirstLine(body: string): string {
 
 export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: Inbox) {
   let toolUsedThisTurn = false;
+  // True from the first operator prompt of a run until agent_end settles the
+  // journal decision. Drives shouldJournal's "done" phase — see journal.ts.
+  let userPromptThisRun = false;
   // Opt-in gate (§2.3 — participation is opt-in): this extension only turns
   // a directory into a picode workspace when explicitly asked —
   // --picode-id on this launch, or a picode-identity entry already stamped
@@ -331,6 +334,11 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
         parts.push(`[picode-system] Active barriers: ${store.barriers.map(b => b.id).join(", ")}`);
       }
       if (parts.length) {
+        parts.push(
+          "[picode-system] Reading the entries above: they are chronological — the LAST entry is the current state, earlier entries are history. Never re-ask the user about a decision, question, or request that a later entry shows was answered, resolved, or dropped. If the last entry lists something open, verify it is still true before acting on it or asking the user.",
+        );
+      }
+      if (parts.length) {
         setImmediate(() => {
           // The full resume context (journal, obligations, owed, barriers)
           // rides as a collapsed picode-system message appended to context
@@ -458,6 +466,14 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
     if (active) await store.shutdown(event.reason);
   });
 
+  pi.on("input", async event => {
+    if (!active) return;
+    // Extension-sourced input is picode's own machinery (envelope injections,
+    // system prompts) — the "did the operator speak" signal is for humans and
+    // RPC clients only.
+    if (event.source !== "extension") userPromptThisRun = true;
+  });
+
   pi.on("turn_start", async (_event, ctx) => {
     if (!active) return;
     inbox.noteRunStarted();
@@ -544,8 +560,9 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
     const mode = journalMode(pi, path.join(ctx.cwd, ".picode", "models.json"), store.role);
     const write =
       mode === "done"
-        ? shouldJournal(store, toolUsedThisTurn, "done")
+        ? shouldJournal(store, toolUsedThisTurn, "done", userPromptThisRun)
         : mode === "turn" && shouldJournal(store, toolUsedThisTurn, "run-end");
+    userPromptThisRun = false;
     if (write) {
       const sf = ctx.sessionManager.getSessionFile();
       if (sf) store.forkJournal(sf);
