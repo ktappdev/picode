@@ -323,10 +323,10 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
       }
     }
 
-    // Startup resume injection (coordinator only): wake with project context
-    // instead of cold. The journal is the coordinator's memory — inject the
-    // last entries plus outstanding coordination state so a restarted or
-    // resumed coordinator re-orients without having to remember to call
+    // Startup resume context (coordinator only): append project context
+    // without waking the model. The journal is the coordinator's memory —
+    // inject the last entries plus outstanding coordination state so the next
+    // operator prompt can re-orient without having to remember to call
     // picode_status. Workers stay cold — their context is the task envelope.
     if (store.role === "coordinator") {
       const parts: string[] = [];
@@ -356,10 +356,8 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
         setImmediate(() => {
           // The full resume context (journal, obligations, owed, barriers)
           // rides as a collapsed picode-system message appended to context
-          // without triggering a turn — the operator sees one ⚙ line. The
-          // one-line wake below it is the session's primer: a prompt()-driven
-          // run whose before_agent_start assembles the picode system-prompt
-          // block, which sendMessage-triggered turns would skip.
+          // without triggering a turn. The next operator prompt supplies the
+          // turn that re-orients the coordinator.
           pi.sendMessage(
             {
               customType: "picode-system",
@@ -368,10 +366,6 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
               details: {},
             },
             { triggerTurn: false },
-          );
-          pi.sendUserMessage(
-            "[picode-system] Startup resume — journal and coordination state loaded above. Re-orient, then continue where you left off.",
-            { deliverAs: "followUp" },
           );
         });
       }

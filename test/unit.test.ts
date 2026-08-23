@@ -1734,7 +1734,7 @@ describe("lifecycle: opt-in gate (§2.3)", () => {
     h.store.stopWatcher();
   });
 
-  it("coordinator startup injects resume context (journal + obligations)", async () => {
+  it("coordinator startup appends resume context without waking (journal + obligations)", async () => {
     const prev = process.env.HERDR_ENV;
     process.env.HERDR_ENV = "1";
     try {
@@ -1768,10 +1768,10 @@ describe("lifecycle: opt-in gate (§2.3)", () => {
       assert.match(context, /LAST entry is the current state/);
       assert.match(context, /ONE short line/);
       assert.match(context, /do not re-present analysis/);
-      // …and the on-screen wake is a single primer line, not the journal dump.
-      assert.strictEqual(h.userMessages.length, 1);
-      assert.match(h.userMessages[0], /Startup resume — journal and coordination state loaded/);
-      assert.doesNotMatch(h.userMessages[0], /ship the lexer/);
+      // Startup context is passive; the coordinator waits for an operator prompt.
+      assert.strictEqual(h.userMessages.length, 0);
+      assert.strictEqual(h.sentMessages[0].options?.triggerTurn, false);
+      assert.strictEqual(h.sentMessages[0].options?.deliverAs, undefined);
       h.store.stopHeartbeat();
       h.store.stopWatcher();
     } finally {
@@ -1811,12 +1811,11 @@ describe("lifecycle: opt-in gate (§2.3)", () => {
       );
       await h.fire("session_start", h.makeCtx());
       await new Promise(r => setImmediate(r));
-      // Passive regardless of primer state: the wake line alone drives the
-      // primer turn, so the context message must not steer or double-trigger.
+      // No startup primer: the coordinator waits for an operator prompt.
       assert.strictEqual(h.sentMessages.length, 1);
       assert.strictEqual(h.sentMessages[0].options?.triggerTurn, false);
       assert.strictEqual(h.sentMessages[0].options?.deliverAs, undefined);
-      assert.strictEqual(h.userMessages.length, 1, "exactly one wake line");
+      assert.strictEqual(h.userMessages.length, 0, "startup must not wake coordinator");
       h.store.stopHeartbeat();
       h.store.stopWatcher();
     } finally {
