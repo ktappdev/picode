@@ -4009,9 +4009,12 @@ describe("spawn: solePaneInTab", () => {
 
 describe("spawn: resolveThinking", () => {
   it("maps deep-reasoning roles to high", () => {
-    for (const role of ["builder", "reviewer", "bug-hunter", "planner", "designer"]) {
+    for (const role of ["builder", "reviewer", "bug-hunter", "designer"]) {
       assert.strictEqual(resolveThinking(role), "high");
     }
+  });
+  it("requests max thinking for planner", () => {
+    assert.strictEqual(resolveThinking("planner"), "max");
   });
   it("maps scouting/vision to medium (explorer alias included)", () => {
     for (const role of ["scout", "explorer", "visionary"]) {
