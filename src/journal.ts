@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { spawn } from "node:child_process";
+import { mergeModelsConfig } from "./core/model-config";
 import type { PicodeStore } from "./core/types";
 
 /** Everything journal: the fork prompt, entry parsing, duplicate detection,
@@ -200,20 +201,15 @@ export function journalMode(
   pi: ExtensionAPI,
   modelsPath?: string,
   role?: string,
+  globalModelsPath?: string,
 ): "turn" | "done" | "off" {
   if (role && role !== "coordinator") return "off";
   const v = pi.getFlag("picode-journal");
   if (v === "done" || v === "off" || v === "turn") return v;
   if (modelsPath) {
-    try {
-      const cfg = fs.existsSync(modelsPath)
-        ? (JSON.parse(fs.readFileSync(modelsPath, "utf8")) as Record<string, string>)
-        : {};
-      const c = cfg["journal-cadence"];
-      if (c === "done" || c === "off" || c === "turn") return c;
-    } catch {
-      // invalid JSON — fall through to default
-    }
+    const cfg = mergeModelsConfig(globalModelsPath ?? "", modelsPath);
+    const c = cfg["journal-cadence"];
+    if (c === "done" || c === "off" || c === "turn") return c;
   }
   return "done";
 }

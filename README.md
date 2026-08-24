@@ -200,7 +200,7 @@ When a picode has the `coordinator` role (auto-detected from the name `coordinat
 
 ## Worker models
 
-You can pick which LLM model each worker role uses with `.picode/models.json`:
+Model defaults live globally at `~/.pi/agent/.picode/models.json`. Optional project overrides live at `<git-root>/.picode/models.json`.
 
 ```json
 {
@@ -214,20 +214,24 @@ You can pick which LLM model each worker role uses with `.picode/models.json`:
 }
 ```
 
+Resolution order: **project role/default → global role/default → built-in role/default**. Project files are sparse; setting only `scout` leaves every other role inherited. Existing project files remain project overrides until reset.
+
 - Roles match by prefix, so a `builder` key matches `builder-1` and `builder-a`.
-- It falls back to the `default` key, then to pi's default model.
-- The coordinator reads this file on startup and passes the model to each spawned worker.
+- It falls back to the `default` key, then to the built-in default model.
+- The coordinator reads the merged config and passes the resolved model to each spawned worker.
 - `visionary` must point to a multimodal model; do not leave it on a text-only `default` model.
 - `"journal"` sets the model for journal fork entries. If unset, inherits the picode's own model — use a cheap model to avoid quota/balance errors on the coordinator's model.
 - `"journal-cadence"` sets the journal cadence: `"turn"`, `"done"` (default), or `"off"`.
-- You can also manage it through the slash command:
+- `/picode-models` asks whether to edit global defaults or project overrides.
 
-| Command                                                    | Effect                                |
-| ---------------------------------------------------------- | ------------------------------------- |
-| `/picode-models`                                           | Show the current config.              |
-| `/picode-models builder anthropic/claude-sonnet-4`         | Set the model for a role.             |
-| `/picode-models visionary YOUR_PROVIDER/YOUR_VISION_MODEL` | Set the dedicated visual model.       |
-| `/picode-models --reset`                                   | Delete the file and restore defaults. |
+| Command                                            | Effect                                     |
+| -------------------------------------------------- | ------------------------------------------ |
+| `/picode-models`                                   | Choose scope, then open selector.          |
+| `/picode-models builder anthropic/claude-sonnet-4` | Set project override (legacy behavior).    |
+| `/picode-models --global builder MODEL`            | Set one global default.                    |
+| `/picode-models --project scout MODEL`             | Set one project-only override.             |
+| `/picode-models --project --reset`                 | Remove project overrides; inherit global.  |
+| `/picode-models --global --reset`                  | Clear global overrides; restore built-ins. |
 
 ## Customizing prompts
 
@@ -274,8 +278,8 @@ Sample overrides to copy live in [`examples/prompts/`](examples/prompts/).
 
 The coordinator keeps a journal: a forked model call that summarizes its state. Workers don't journal — their context is the task envelope, and nobody reads a worker's journal. Runs in the background, never interrupts work.
 
-- **Cadence control.** Default is `done` — one entry per run at agent_end. Set to `turn` for one entry per turn (rate-limited to one per two minutes on same-task turns), or `off` to disable. Configure via `/picode-models` → `(journal cadence)`, `--picode-journal <turn|done|off>`, or the `"journal-cadence"` key in `.picode/models.json`.
-- **Journal model.** The model used for journal forks. Set via `/picode-models` → `journal`, `--picode-journal-model <model>`, or the `"journal"` key in `.picode/models.json`. If unset, inherits the picode's own model — which can fail (e.g. 402 balance errors) if that model is out of quota. Fresh installs default to a cheap model (`deepseek/deepseek-v4-flash`).
+- **Cadence control.** Default is `done` — one entry per run at agent_end. Set to `turn` for one entry per turn (rate-limited to one per two minutes on same-task turns), or `off` to disable. Configure via `/picode-models` → `(journal cadence)`, `--picode-journal <turn|done|off>`, or the `"journal-cadence"` key in either global or project `models.json`.
+- **Journal model.** The model used for journal forks. Set via `/picode-models` → `journal`, `--picode-journal-model <model>`, or the `"journal"` key in either global or project `models.json`. If unset, inherits the picode's own model — which can fail (e.g. 402 balance errors) if that model is out of quota. Fresh installs default to a cheap model (`deepseek/deepseek-v4-flash`).
 - **Compaction.** When the journal passes 200 entries, the oldest ones are summarized into a single block, keeping the most recent 50 verbatim. There is a 24-hour cooldown between compactions.
 - **Duplicate suppression.** An entry is skipped when its Working on or Done line matches the previous one.
 

@@ -11,7 +11,7 @@
 - Auto-journaling with compaction
 - Read-only coordinator mode with auto-spawned workers
 - Pluggable storage backends (local filesystem, Restate)
-- Per-project prompt overrides and worker model configuration
+- Per-project prompt overrides with global/project worker model configuration
 
 **Version:** 0.5.19 (as of this writing)
 
@@ -231,7 +231,7 @@ npm run mcp                   # Start MCP server
 
 1. Create `themes/<name>.json` with the pi theme schema
 2. Add to `package.json` `pi.themes` array if external, or place in `themes/` directory
-3. Reference in `.picode/models.json` or spawn with `--theme <name>`
+3. Reference in global/project Picode `models.json` or spawn with `--theme <name>`
 
 **Bundled themes:** tokyo-night, matrix, nord, dracula, gruvbox-dark, catppuccin-mocha, rose-pine
 

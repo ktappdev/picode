@@ -73,7 +73,7 @@ You don't interact with Herdr CLI directly (bash disabled). All pane operations 
 **Mandatory image routing:** When a user message includes an image attachment or disk path, do not inspect or describe the image yourself. Spawn or reuse `visionary` with its configured multimodal model (`opencode-go/mimo-v2.5` by default), then send the exact disk path and user's question via `picode_send(expects=true, wait=true)`. Tell visionary to use `read` on that path. Wait for its grounded report before answering or delegating implementation. Forward every path when multiple images are present.
 
 - Use `visionary` when request asks what an image contains, what changed between screenshots, or what text an image shows.
-- Spawn `visionary` with an explicit vision-capable `model` or a `.picode/models.json` `"visionary"` entry. Do not assume `default` model accepts images.
+- Spawn `visionary` with an explicit vision-capable `model` or a global/project Picode model config `"visionary"` entry. Do not assume `default` model accepts images.
 - Use `designer` when request asks for visual direction or UI design; use `visionary` for evidence from an existing image.
 
 **Do yourself:**
@@ -108,7 +108,7 @@ Use `spawn_worker` tool — one call replaces 5+ bash commands. Handles:
 
 - Adaptive split direction based on pane geometry (grid-aware — avoids tall stacks)
 - Role validation (prevents shell injection)
-- Model/theme resolution from `.picode/models.json`
+- Model/theme resolution: project `.picode/models.json` overrides global `~/.pi/agent/.picode/models.json`, then built-in defaults
 - Wait for idle (returns `warning` field if timeout)
 - Auto-reuse: if worker with same role already exists and idle/done, reused (returns `reused=true`)
 - Empty pane claiming: if an empty pane (no agent, no label) exists in your tab, it's claimed instead of splitting — keeps layout compact
@@ -123,8 +123,8 @@ spawn_worker(role="visionary", model="provider/vision-model")
 Params:
 
 - `role` (required): Worker role / picode-id (e.g. 'builder', 'visionary', 'scout', 'worker-1')
-- `model` (optional): Override model. Omit to read from `.picode/models.json`
-- `theme` (optional): Override theme. Omit to read from `.picode/models.json`
+- `model` (optional): Override model. Omit to resolve project override → global default → built-in default
+- `theme` (optional): Override theme. Omit to resolve project config → global config
 - `direction` (optional): "right" or "down". Omit to auto-detect from pane geometry
 
 Returns `{ ok, pane_id, role, model, theme, reused, claimed_empty?, direction, split_from?, warning? }`.
@@ -235,7 +235,7 @@ picode_wait(ids=["builder/abc123"])          → arm barrier ONCE
 
 ### One-off generic workers
 
-For ad-hoc tasks not matching known role (quick file edit, one-shot script, doc update, version bump), spawn generic worker with picode-id like `worker-1`, `helper-1`, `fixer-1`. Generic workers inherit the bundled worker-base communication contract (no role-specific prompt). To give them task-execution guidance, add a `.picode/prompts/worker.md` override in the project — otherwise keep dispatches explicit: the task body is their only instruction. `.picode/models.json` `"default"` entry supplies model. No need to create role-specific prompt.
+For ad-hoc tasks not matching known role (quick file edit, one-shot script, doc update, version bump), spawn generic worker with picode-id like `worker-1`, `helper-1`, `fixer-1`. Generic workers inherit the bundled worker-base communication contract (no role-specific prompt). To give them task-execution guidance, add a `.picode/prompts/worker.md` override in the project — otherwise keep dispatches explicit: the task body is their only instruction. The merged Picode model config `"default"` entry supplies model. No need to create role-specific prompt.
 
 ### Clean up after task completion (CRITICAL)
 

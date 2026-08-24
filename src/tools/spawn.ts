@@ -1,8 +1,9 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { execSync } from "child_process";
-import { readFileSync, existsSync, statSync } from "fs";
+import { readFileSync, existsSync } from "fs";
 import { join } from "path";
+import { loadModelsConfig, resolveModelForRole } from "../core/model-config";
 import { err, extractRole, effectiveAgentStatus, shellQuote, quietToolResult } from "./shared";
 import type { PicodeStore } from "../core/types";
 import { trackPane } from "../herdr/listener";
@@ -25,10 +26,6 @@ function isPidAlive(pid: number): boolean {
     return true; // EPERM or other — process exists
   }
 }
-
-/** Module-level cache for .picode/models.json */
-let modelsJson: Record<string, string> | null = null;
-let modelsJsonMtime: number | null = null;
 
 function herdr(args: string): string {
   return execSync(`herdr ${args}`, { encoding: "utf-8", timeout: 15_000 });
@@ -55,44 +52,13 @@ function validateRole(role: string): string | null {
   return null;
 }
 
-export function loadModelsJson(): Record<string, string> {
-  try {
-    let root: string;
-    try {
-      root = execSync("git rev-parse --show-toplevel", { encoding: "utf-8" }).trim();
-    } catch {
-      root = process.cwd();
-    }
-    const path = join(root, ".picode", "models.json");
-    if (existsSync(path)) {
-      const mtime = statSync(path).mtimeMs;
-      if (!modelsJson || mtime !== modelsJsonMtime) {
-        modelsJson = JSON.parse(readFileSync(path, "utf-8")) as Record<string, string>;
-        modelsJsonMtime = mtime;
-      }
-      return modelsJson;
-    }
-    if (!modelsJson) {
-      modelsJson = {};
-    }
-    return modelsJson;
-  } catch {
-    if (!modelsJson) {
-      modelsJson = {};
-    }
-    return modelsJson;
-  }
+/** Effective model config: project override → global override → built-in default. */
+export function loadModelsJson(cwd = process.cwd()): Record<string, string> {
+  return loadModelsConfig(cwd);
 }
 
 function resolveModel(role: string, override?: string): string {
-  if (override) return override;
-  const cfg = loadModelsJson();
-  // Exact role match first, then prefix match
-  if (cfg[role]) return cfg[role];
-  const prefix = role.split("-")[0];
-  if (prefix !== role && cfg[prefix]) return cfg[prefix];
-  if (cfg["default"]) return cfg["default"];
-  return "";
+  return override || resolveModelForRole(role);
 }
 
 function resolveTheme(override?: string): string | null {
@@ -566,12 +532,14 @@ export function registerSpawnTool(pi: ExtensionAPI, store: PicodeStore) {
       ),
       model: Type.Optional(
         Type.String({
-          description: "Override model (provider/model). Omit to read from .picode/models.json",
+          description:
+            "Override model (provider/model). Omit to use project override, global default, or built-in default.",
         }),
       ),
       theme: Type.Optional(
         Type.String({
-          description: "Override theme name or path. Omit to read from .picode/models.json",
+          description:
+            "Override theme name or path. Omit to use project config, then global config.",
         }),
       ),
       reuse: Type.Optional(

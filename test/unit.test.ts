@@ -81,6 +81,14 @@ import { formatThreadLine } from "../src/core/format";
 import { ulid, mintEnvelopeId } from "../src/core/ids";
 import { detectWorkerRole } from "../src/core/roles";
 import { threadModelPrompt } from "../src/core/system-prompt";
+import {
+  DEFAULT_MODELS,
+  loadModelsConfig,
+  mergeModelsConfig,
+  modelsConfigPaths,
+  resolveConfiguredModel,
+  resolveModelFromConfigs,
+} from "../src/core/model-config";
 
 // --- harness -----------------------------------------------------------
 
@@ -137,7 +145,7 @@ function makeHarness(dir: string, id = "t1") {
 
   const inbox = createInbox(store, stubPi);
   registerTools(stubPi, store, inbox);
-  registerCommands(stubPi, store, inbox);
+  registerCommands(stubPi, store, inbox, join(dir, "agent"));
   // Fire-and-forget: LocalFsAdapter's writes have no internal `await`, so the
   // fs side effect (state.json existing, matching real session_start) has
   // already happened synchronously by the time this call returns, even
@@ -2012,26 +2020,60 @@ describe("commands: slash commands", () => {
     assert.match(text, /alice/);
   });
 
-  it("/picode-models shows unconfigured with no file", async () => {
+  it("/picode-models shows built-in global defaults with no files", async () => {
     const h = makeHarness(tmpDir);
     await callCommand(h, "/picode-models");
-    assert.match(h.notifications.at(-1)!.text, /No models configured/);
+    const text = h.notifications.at(-1)!.text;
+    assert.match(text, /Global defaults/);
+    assert.match(text, /Project overrides/);
+    assert.match(text, /inherits global defaults/);
   });
 
-  it("/picode-models sets and persists a model", async () => {
+  it("/picode-models sets and persists a project override", async () => {
     const h = makeHarness(tmpDir);
     await callCommand(h, "/picode-models", "builder gemini-2.5-flash");
     assert.match(h.notifications.at(-1)!.text, /Set builder/);
+    const paths = modelsConfigPaths(tmpDir, join(tmpDir, "agent"));
+    assert.equal(JSON.parse(readFileSync(paths.project, "utf8")).builder, "gemini-2.5-flash");
+    assert.equal(existsSync(paths.global), false);
   });
 
-  it("/picode-models --reset deletes the file", async () => {
+  it("/picode-models --global sets only a global override", async () => {
+    const h = makeHarness(tmpDir);
+    await callCommand(h, "/picode-models", "--global scout commandcode/scout");
+    assert.match(h.notifications.at(-1)!.text, /global defaults/);
+    const paths = modelsConfigPaths(tmpDir, join(tmpDir, "agent"));
+    assert.equal(JSON.parse(readFileSync(paths.global, "utf8")).scout, "commandcode/scout");
+    assert.equal(existsSync(paths.project), false);
+  });
+
+  it("/picode-models --reset deletes the project override file", async () => {
     const h = makeHarness(tmpDir);
     const modelsPath = join(tmpDir, ".picode", "models.json");
     mkdirSync(join(tmpDir, ".picode"), { recursive: true });
     writeFileSync(modelsPath, JSON.stringify({ builder: "deepseek/deepseek-v4-pro" }));
     await callCommand(h, "/picode-models", "--reset");
-    assert.match(h.notifications.at(-1)!.text, /defaults restored/);
+    assert.match(h.notifications.at(-1)!.text, /global defaults restored/);
     assert.equal(existsSync(modelsPath), false);
+  });
+
+  it("/picode-models --global --reset keeps a valid global file", async () => {
+    const h = makeHarness(tmpDir);
+    const paths = modelsConfigPaths(tmpDir, join(tmpDir, "agent"));
+    writeModelsConfig(paths.global, { scout: "global/scout" });
+    await callCommand(h, "/picode-models", "--global --reset");
+    assert.match(h.notifications.at(-1)!.text, /built-in defaults restored/);
+    assert.deepEqual(readModelsConfig(paths.global), {});
+  });
+
+  it("/picode-models no-UI listing resolves global default for roles", async () => {
+    const h = makeHarness(tmpDir);
+    const paths = modelsConfigPaths(tmpDir, join(tmpDir, "agent"));
+    writeModelsConfig(paths.global, { default: "global/default" });
+    await callCommand(h, "/picode-models");
+    const text = h.notifications.at(-1)!.text;
+    assert.match(text, /builder: global\/default/);
+    assert.match(text, /scout: global\/default/);
   });
 
   it("/picode-models no-UI listing excludes theme key", async () => {
@@ -2123,6 +2165,17 @@ describe("commands-models: pure helpers", () => {
     }
   });
 
+  it("readModelsConfig rejects non-string values", () => {
+    const dir = mkdtempSync(join(tmpdir(), "picode-test-"));
+    try {
+      const p = join(dir, "models.json");
+      writeFileSync(p, JSON.stringify({ scout: 42 }));
+      assert.throws(() => readModelsConfig(p), /scout.*must be a string/);
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
   it("writeModelsConfig writes 2-space indented JSON", () => {
     const dir = mkdtempSync(join(tmpdir(), "picode-test-"));
     try {
@@ -2157,6 +2210,18 @@ describe("commands-models: pure helpers", () => {
     assert.equal(builder.description, "deepseek/deepseek-v4-pro");
     const tester = items.find(i => i.label === "tester")!;
     assert.equal(tester.description, "(not set)");
+  });
+
+  it("buildRoleItems shows inherited global model", () => {
+    const items = buildRoleItems({}, { scout: "global/scout" });
+    const scout = items.find(i => i.label === "scout")!;
+    assert.equal(scout.description, "(inherits global: global/scout)");
+  });
+
+  it("buildRoleItems applies current-scope default before inherited config", () => {
+    const items = buildRoleItems({ default: "project/default" }, { scout: "global/scout" });
+    const scout = items.find(i => i.label === "scout")!;
+    assert.equal(scout.description, "(inherits this scope default: project/default)");
   });
 
   it("buildRoleItems excludes theme and coordinator keys", () => {
@@ -2210,6 +2275,13 @@ describe("commands-models: pure helpers", () => {
     assert.match(clearItem.description!, /was deepseek\/deepseek-v4-pro/);
   });
 
+  it("buildModelItems (clear) on a project override keeps global model", () => {
+    const models = [mockModel("project", "scout")];
+    const items = buildModelItems(models, "project/scout", "global/scout");
+    const clearItem = items.find(i => i.value === "\x00clear")!;
+    assert.equal(clearItem.description, "inherit global/default (currently global/scout)");
+  });
+
   it("buildRoleItems includes journal role after default", () => {
     const items = buildRoleItems({});
     const labels = items.map(i => i.label);
@@ -2246,6 +2318,69 @@ describe("commands-models: pure helpers", () => {
   });
 });
 
+describe("model-config: global and project precedence", () => {
+  it("uses project override, then global override, then built-in default", () => {
+    const dir = mkdtempSync(join(tmpdir(), "picode-model-config-"));
+    try {
+      const globalPath = join(dir, "global", "models.json");
+      const projectPath = join(dir, "project", "models.json");
+      writeModelsConfig(globalPath, {
+        scout: "global/scout",
+        builder: "global/builder",
+      });
+      writeModelsConfig(projectPath, { scout: "project/scout" });
+
+      const config = mergeModelsConfig(globalPath, projectPath);
+      assert.equal(config.scout, "project/scout");
+      assert.equal(config.builder, "global/builder");
+      assert.equal(config.reviewer, DEFAULT_MODELS.reviewer);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("resolves exact, multi-hyphen prefix, then default models", () => {
+    const config = {
+      default: "models/default",
+      bug: "models/bug",
+      "bug-hunter": "models/bug-hunter",
+    };
+    assert.equal(resolveConfiguredModel(config, "bug-hunter"), "models/bug-hunter");
+    assert.equal(resolveConfiguredModel(config, "bug-hunter-2"), "models/bug-hunter");
+    assert.equal(resolveConfiguredModel(config, "unknown-2"), "models/default");
+  });
+
+  it("scope defaults beat lower-scope role defaults", () => {
+    assert.equal(
+      resolveModelFromConfigs("builder", { default: "project/default" }, {}),
+      "project/default",
+    );
+    assert.equal(
+      resolveModelFromConfigs("builder", {}, { default: "global/default" }),
+      "global/default",
+    );
+    assert.equal(resolveModelFromConfigs("builder", {}, {}), DEFAULT_MODELS.builder);
+  });
+
+  it("loadModelsConfig reads explicit global and project directories", () => {
+    const dir = mkdtempSync(join(tmpdir(), "picode-model-config-"));
+    try {
+      const agentDir = join(dir, "agent");
+      const projectDir = join(dir, "project");
+      const paths = modelsConfigPaths(projectDir, agentDir);
+      writeModelsConfig(paths.global, { default: "global/default", scout: "global/scout" });
+      writeModelsConfig(paths.project, { builder: "project/builder" });
+
+      const config = loadModelsConfig(projectDir, agentDir);
+      assert.equal(config.scout, "global/scout");
+      assert.equal(config.builder, "project/builder");
+      assert.equal(config.reviewer, "global/default");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("journal: journalMode with modelsPath", () => {
   function makePi(flag?: string) {
     const flags: Record<string, string | boolean | undefined> = {};
@@ -2270,6 +2405,20 @@ describe("journal: journalMode with modelsPath", () => {
       const p = join(dir, "models.json");
       writeFileSync(p, JSON.stringify({ "journal-cadence": "turn" }));
       assert.equal(journalMode(makePi(), p), "turn");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("global cadence applies and project cadence overrides it", () => {
+    const dir = mkdtempSync(join(tmpdir(), "picode-jm-"));
+    try {
+      const globalPath = join(dir, "global.json");
+      const projectPath = join(dir, "project.json");
+      writeFileSync(globalPath, JSON.stringify({ "journal-cadence": "turn" }));
+      assert.equal(journalMode(makePi(), projectPath, undefined, globalPath), "turn");
+      writeFileSync(projectPath, JSON.stringify({ "journal-cadence": "off" }));
+      assert.equal(journalMode(makePi(), projectPath, undefined, globalPath), "off");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -2955,15 +3104,16 @@ describe("state: init() enforcement", () => {
     await store.init(tmpDir, mkCtx(tmpDir));
     assert.strictEqual(store.role, "coordinator");
   });
-  it("coordinator init configures the default visionary model", async () => {
+  it("coordinator init leaves model defaults outside project config", async () => {
     const adapter = createLocalFsAdapter();
     await adapter.configure(tmpDir);
     const store = createPicodeStore(mkPi("coord1", "coordinator"), adapter);
     await store.init(tmpDir, mkCtx(tmpDir));
-    const models = JSON.parse(
-      readFileSync(join(tmpDir, ".picode", "models.json"), "utf8"),
-    ) as Record<string, string>;
-    assert.equal(models.visionary, "opencode-go/mimo-v2.5");
+    assert.equal(existsSync(join(tmpDir, ".picode", "models.json")), false);
+    assert.equal(
+      loadModelsConfig(tmpDir, join(tmpDir, "agent")).visionary,
+      "opencode-go/mimo-v2.5",
+    );
   });
 
   it("singleton coordinator: init() succeeds when no other coordinator exists", async () => {

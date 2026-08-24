@@ -10,6 +10,7 @@ import {
   JOURNAL_CONTEXT_MAX_MESSAGES,
 } from "./journal";
 import { roleEmoji } from "./core/roles";
+import { modelsConfigPaths } from "./core/model-config";
 import { purgeStalePcodes } from "./tools/purge";
 import {
   startHerdrListener,
@@ -19,7 +20,6 @@ import {
 } from "./herdr/listener";
 import { execSync } from "node:child_process";
 import { basename, dirname, join } from "node:path";
-import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
 /** Interval for periodic coordinator sit-rep injections (ms).
@@ -591,8 +591,9 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
       }
     }
 
+    const modelPaths = modelsConfigPaths(ctx.cwd);
     if (
-      journalMode(pi, path.join(ctx.cwd, ".picode", "models.json"), store.role) === "turn" &&
+      journalMode(pi, modelPaths.project, store.role, modelPaths.global) === "turn" &&
       shouldJournal(store, toolUsedThisTurn, "turn")
     ) {
       await forkJournalFor(ctx);
@@ -611,7 +612,8 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
     // consecutive silent runs — that's what makes the streak>=2 escalation
     // in turn_end's guard reachable at all.
     store.owedNudgePending = false;
-    const mode = journalMode(pi, path.join(ctx.cwd, ".picode", "models.json"), store.role);
+    const modelPaths = modelsConfigPaths(ctx.cwd);
+    const mode = journalMode(pi, modelPaths.project, store.role, modelPaths.global);
     const write =
       mode === "done"
         ? shouldJournal(store, toolUsedThisTurn, "done", userPromptThisRun)
@@ -623,7 +625,7 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
 
     // Auto-compact if journal grew past threshold. Fire-and-forget. Only
     // at run end — not per turn — to avoid racing the normal journal writes.
-    if (journalMode(pi, path.join(ctx.cwd, ".picode", "models.json"), store.role) !== "off") {
+    if (journalMode(pi, modelPaths.project, store.role, modelPaths.global) !== "off") {
       store.compactJournal();
     }
 

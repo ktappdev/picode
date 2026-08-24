@@ -32,12 +32,12 @@ export default function (pi: ExtensionAPI) {
   pi.registerFlag("picode-journal", {
     type: "string",
     description:
-      'Journal cadence: "turn", "done" (default, one entry per run at agent_end), or "off". Overrides .picode/models.json "journal-cadence" key.',
+      'Journal cadence: "turn", "done" (default, one entry per run at agent_end), or "off". Overrides merged global/project Picode model config "journal-cadence" key.',
   });
   pi.registerFlag("picode-journal-model", {
     type: "string",
     description:
-      'Model for journal fork entries (e.g. deepseek/deepseek-chat). Overrides .picode/models.json "journal" key. Default: the picode\'s own model — a pinned model must resolve on this machine or journaling fails.',
+      'Model for journal fork entries (e.g. deepseek/deepseek-chat). Overrides merged global/project Picode model config "journal" key. Default: the picode\'s own model — a pinned model must resolve on this machine or journaling fails.',
   });
   pi.registerFlag("picode-storage", {
     type: "string",

@@ -5,12 +5,24 @@
  *    2. Model picker — pick from available (authed) models, or clear
  *  Loops until user picks "(done)" or escapes.
  *
+ *  Global config supplies defaults. Project config stores sparse overrides;
+ *  clearing a project role makes it inherit again.
+ *
  *  Pure helpers (buildRoleItems, buildModelItems, formatContextWindow,
  *  readModelsConfig, writeModelsConfig, ROLE_DISPLAY_ORDER) are exported
  *  for unit testing. The TUI component itself is not unit-testable. */
 
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { DynamicBorder } from "@earendil-works/pi-coding-agent";
+import {
+  DEFAULT_MODELS,
+  readModelsConfig,
+  writeModelsConfig,
+  resolveModelFromConfigs,
+  type ModelConfigPaths,
+  type ModelConfigScope,
+} from "./core/model-config";
+export { DEFAULT_MODELS, readModelsConfig, writeModelsConfig } from "./core/model-config";
 import {
   Container,
   type Focusable,
@@ -22,8 +34,6 @@ import {
   SelectList,
   Text,
 } from "@earendil-works/pi-tui";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-
 /** Model type derived from the registry — avoids a direct @earendil-works/pi-ai
  *  dependency (picode doesn't list it). Matches Model<Api> from pi-ai. */
 type AvailableModel = ReturnType<ExtensionCommandContext["modelRegistry"]["getAvailable"]>[number];
@@ -61,20 +71,6 @@ const CADENCE_SENTINEL = "\x00cadence";
 
 // ── Pure helpers (unit-testable) ────────────────────────────────────
 
-/** Read and parse .picode/models.json. Returns {} if absent.
- *  Throws on invalid JSON — caller handles. */
-export function readModelsConfig(modelsPath: string): Record<string, string> {
-  if (!existsSync(modelsPath)) return {};
-  const raw = readFileSync(modelsPath, "utf8");
-  return JSON.parse(raw) as Record<string, string>;
-}
-
-/** Write models.json with 2-space indent. Preserves non-role keys (theme)
- *  that were in the config — caller passes the full object. */
-export function writeModelsConfig(modelsPath: string, config: Record<string, string>): void {
-  writeFileSync(modelsPath, JSON.stringify(config, null, 2));
-}
-
 /** Format a context window token count for compact display.
  *  1000000 → "1M", 128000 → "128K", 49152 → "49K". */
 export function formatContextWindow(tokens: number): string {
@@ -97,7 +93,11 @@ export function formatModelDescription(model: AvailableModel): string {
  *  Includes ROLE_DISPLAY_ORDER + any extra role keys from existing config
  *  (excluding non-role keys like "theme" and "coordinator").
  *  Appends special entries: (reset all) and (done). */
-export function buildRoleItems(config: Record<string, string>): SelectItem[] {
+export function buildRoleItems(
+  config: Record<string, string>,
+  inheritedConfig: Record<string, string> = {},
+  inheritedLabel = "global",
+): SelectItem[] {
   const seen = new Set<string>();
   const items: SelectItem[] = [];
 
@@ -106,28 +106,42 @@ export function buildRoleItems(config: Record<string, string>): SelectItem[] {
     if (NON_ROLE_KEYS.has(role)) return;
     seen.add(role);
     const model = config[role];
+    const localDefault = role === "default" ? undefined : config.default;
+    const inherited = inheritedConfig[role];
     const label = role;
-    const description =
-      role === "journal" && !model ? "(inherits coordinator model)" : (model ?? "(not set)");
+    const description = model
+      ? model
+      : localDefault
+        ? `(inherits this scope default: ${localDefault})`
+        : inherited
+          ? `(inherits ${inheritedLabel}: ${inherited})`
+          : role === "journal"
+            ? "(inherits coordinator model)"
+            : "(not set)";
     items.push({ value: role, label, description });
   };
 
   for (const role of ROLE_DISPLAY_ORDER) addRole(role);
-  // Any custom role keys from config not in the standard order
-  for (const key of Object.keys(config)) {
+  // Any custom role keys from either scope not in the standard order
+  for (const key of new Set([...Object.keys(inheritedConfig), ...Object.keys(config)])) {
     if (key.startsWith("journal-")) continue; // handled explicitly as cadence entry
     addRole(key);
   }
 
   // Journal cadence entry (reads/writes "journal-cadence" key in models.json)
+  const inheritedCadence = inheritedConfig["journal-cadence"];
   items.push({
     value: CADENCE_SENTINEL,
     label: "(journal cadence)",
-    description: config["journal-cadence"] ?? "done (default)",
+    description: config["journal-cadence"]
+      ? config["journal-cadence"]
+      : inheritedCadence
+        ? `(inherits ${inheritedLabel}: ${inheritedCadence})`
+        : "done (default)",
   });
 
   // Special entries
-  items.push({ value: RESET_SENTINEL, label: "(reset all)", description: "delete models.json" });
+  items.push({ value: RESET_SENTINEL, label: "(reset all)", description: "clear this scope" });
   items.push({ value: DONE_SENTINEL, label: "(done)", description: "exit selector" });
 
   return items;
@@ -139,6 +153,7 @@ export function buildRoleItems(config: Record<string, string>): SelectItem[] {
 export function buildModelItems(
   models: AvailableModel[],
   currentModelId: string | undefined,
+  inheritedModelId?: string,
 ): SelectItem[] {
   const sorted = [...models].sort((a, b) => {
     if (a.provider !== b.provider) return a.provider.localeCompare(b.provider);
@@ -156,7 +171,11 @@ export function buildModelItems(
   items.unshift({
     value: CLEAR_SENTINEL,
     label: "(clear)",
-    description: currentModelId ? `inherit default (was ${currentModelId})` : "inherit default",
+    description: inheritedModelId
+      ? `inherit global/default (currently ${inheritedModelId})`
+      : currentModelId
+        ? `inherit default (was ${currentModelId})`
+        : "inherit default",
   });
   items.push({ value: BACK_SENTINEL, label: "(back)", description: "return to role list" });
 
@@ -270,11 +289,14 @@ class FilterableSelectList implements Focusable {
 async function showRoleSelector(
   ctx: ExtensionCommandContext,
   items: SelectItem[],
+  scopeLabel: string,
 ): Promise<string | null> {
   return ctx.ui.custom<string | null>((tui, theme, _kb, done) => {
     const container = new Container();
     container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
-    container.addChild(new Text(theme.fg("accent", theme.bold("Worker Models")), 1, 0));
+    container.addChild(
+      new Text(theme.fg("accent", theme.bold(`Worker Models · ${scopeLabel}`)), 1, 0),
+    );
     container.addChild(new Text(theme.fg("dim", "Select a role to configure"), 1, 0));
     container.addChild(new Text("", 1, 0));
 
@@ -307,13 +329,16 @@ async function showModelSelector(
   items: SelectItem[],
   role: string,
   currentModelId: string | undefined,
+  isInherited = false,
 ): Promise<string | null> {
   return ctx.ui.custom<string | null>((tui, theme, _kb, done) => {
     const container = new Container();
     container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
     container.addChild(new Text(theme.fg("accent", theme.bold(`Model for: ${role}`)), 1, 0));
     const currentLine = currentModelId
-      ? `Current: ${currentModelId}`
+      ? isInherited
+        ? `Current: ${currentModelId} (inherited)`
+        : `Current: ${currentModelId}`
       : "Current: (not set — inherits default)";
     container.addChild(new Text(theme.fg("dim", currentLine), 1, 0));
     container.addChild(new Text("", 1, 0));
@@ -345,11 +370,12 @@ async function showModelSelector(
 
 /** Run the interactive /picode-models selector.
  *  Loops role↔model until user picks (done) or escapes.
- *  Writes to models.json on each model pick.
+ *  Writes only the selected global/project scope on each model pick.
  *  Returns a summary string for the caller to notify. */
 export async function interactiveModelSelector(
   ctx: ExtensionCommandContext,
-  modelsPath: string,
+  paths: ModelConfigPaths,
+  scope: ModelConfigScope,
 ): Promise<string> {
   // Load available models once — registry doesn't change mid-session
   const availableModels = ctx.modelRegistry.getAvailable();
@@ -357,21 +383,32 @@ export async function interactiveModelSelector(
     return "No models available. Run `/login <provider>` first.";
   }
 
-  // Load current config (may throw on invalid JSON — caller handles)
+  const modelsPath = paths[scope];
+  const scopeLabel = scope === "global" ? "Global defaults" : "Project overrides";
+  const inheritedLabel = scope === "global" ? "built-in default" : "global/default";
+  const globalConfig = scope === "project" ? readModelsConfig(paths.global) : {};
+  const inheritedConfig =
+    scope === "global" ? { ...DEFAULT_MODELS } : { ...DEFAULT_MODELS, ...globalConfig };
+  if (scope === "project") {
+    for (const role of Object.keys(inheritedConfig)) {
+      if (NON_ROLE_KEYS.has(role) || role === "journal" || role.startsWith("journal-")) continue;
+      inheritedConfig[role] = resolveModelFromConfigs(role, {}, globalConfig);
+    }
+  }
   let config = readModelsConfig(modelsPath);
   const changed: string[] = [];
 
-  // Main loop: role selector → model selector → back to role selector
+  // Main loop: role selector → model selector → back to role list
   while (true) {
-    const roleItems = buildRoleItems(config);
-    const roleChoice = await showRoleSelector(ctx, roleItems);
+    const roleItems = buildRoleItems(config, inheritedConfig, inheritedLabel);
+    const roleChoice = await showRoleSelector(ctx, roleItems, scopeLabel);
 
     // null = esc from role selector → exit
     if (roleChoice === null) break;
     if (roleChoice === DONE_SENTINEL) break;
 
     if (roleChoice === RESET_SENTINEL) {
-      // Clear all role keys, preserve non-role keys (theme)
+      // Clear model overrides, preserve metadata such as theme.
       const preserved: Record<string, string> = {};
       for (const [k, v] of Object.entries(config)) {
         if (NON_ROLE_KEYS.has(k)) preserved[k] = v;
@@ -385,6 +422,15 @@ export async function interactiveModelSelector(
 
     if (roleChoice === CADENCE_SENTINEL) {
       const cadenceItems: SelectItem[] = [
+        ...(scope === "project"
+          ? [
+              {
+                value: CLEAR_SENTINEL,
+                label: "(clear)",
+                description: `inherit global/default (${inheritedConfig["journal-cadence"]})`,
+              },
+            ]
+          : []),
         { value: "turn", label: "turn", description: "journal every turn (2-min throttle)" },
         {
           value: "done",
@@ -394,13 +440,20 @@ export async function interactiveModelSelector(
         { value: "off", label: "off", description: "no journaling" },
         { value: BACK_SENTINEL, label: "(back)", description: "return to role list" },
       ];
+      const localCadence = config["journal-cadence"];
+      const inheritedCadence = inheritedConfig["journal-cadence"];
       const cadenceChoice = await showModelSelector(
         ctx,
         cadenceItems,
         "journal cadence",
-        config["journal-cadence"],
+        localCadence ?? inheritedCadence,
+        scope === "project" && !localCadence,
       );
-      if (cadenceChoice && cadenceChoice !== BACK_SENTINEL) {
+      if (cadenceChoice === CLEAR_SENTINEL) {
+        delete config["journal-cadence"];
+        writeModelsConfig(modelsPath, config);
+        changed.push("journal-cadence cleared");
+      } else if (cadenceChoice && cadenceChoice !== BACK_SENTINEL) {
         config["journal-cadence"] = cadenceChoice;
         writeModelsConfig(modelsPath, config);
         changed.push(`journal-cadence → ${cadenceChoice}`);
@@ -409,9 +462,17 @@ export async function interactiveModelSelector(
     }
 
     // Role selected → show model picker
-    const currentModelId = config[roleChoice];
-    const modelItems = buildModelItems(availableModels, currentModelId);
-    const modelChoice = await showModelSelector(ctx, modelItems, roleChoice, currentModelId);
+    const localModel = config[roleChoice];
+    const currentModelId = localModel ?? inheritedConfig[roleChoice];
+    const inheritedModelId = scope === "project" ? inheritedConfig[roleChoice] : undefined;
+    const modelItems = buildModelItems(availableModels, currentModelId, inheritedModelId);
+    const modelChoice = await showModelSelector(
+      ctx,
+      modelItems,
+      roleChoice,
+      currentModelId,
+      scope === "project" && !localModel,
+    );
 
     // BACK_SENTINEL or null (esc) → back to role list
     if (modelChoice === BACK_SENTINEL || modelChoice === null) continue;
@@ -431,5 +492,5 @@ export async function interactiveModelSelector(
   }
 
   if (changed.length === 0) return "No changes.";
-  return `Updated .picode/models.json:\n  ${changed.join("\n  ")}`;
+  return `Updated ${scopeLabel}:\n  ${changed.join("\n  ")}`;
 }

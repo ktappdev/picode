@@ -4,9 +4,16 @@ import { formatThreadLine } from "./core/format";
 import { resumeThread, suspendThread } from "./core/picode-ops";
 import type { Inbox } from "./inbox";
 import { checkBodySize } from "./tools/messaging";
-import { interactiveModelSelector, readModelsConfig } from "./commands-models";
-import { existsSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, unlinkSync } from "node:fs";
+import { interactiveModelSelector } from "./commands-models";
+import {
+  DEFAULT_MODELS,
+  modelsConfigPaths,
+  readModelsConfig,
+  resolveModelFromConfigs,
+  writeModelsConfig,
+  type ModelConfigScope,
+} from "./core/model-config";
 
 /** Slash commands: the human operator's view of the same operations the
  *  picode_* tools give the model. */
@@ -23,7 +30,12 @@ function checkActive(store: PicodeStore, ctx: ExtensionCommandContext): boolean 
   return false;
 }
 
-export function registerCommands(pi: ExtensionAPI, store: PicodeStore, inbox: Inbox) {
+export function registerCommands(
+  pi: ExtensionAPI,
+  store: PicodeStore,
+  inbox: Inbox,
+  agentDir?: string,
+) {
   pi.registerCommand("/picode-status", {
     description: "Show this picode's own state and latest journal entry",
     async handler(_args, ctx) {
@@ -318,84 +330,132 @@ export function registerCommands(pi: ExtensionAPI, store: PicodeStore, inbox: In
 
   pi.registerCommand("/picode-models", {
     description:
-      "Configure worker models: /picode-models (interactive) | /picode-models role model | /picode-models --reset",
+      "Configure worker models: /picode-models [--global|--project] (interactive | role model | --reset)",
     async handler(args, ctx) {
       if (!checkActive(store, ctx)) return;
-      const modelsPath = join(ctx.cwd, ".picode", "models.json");
-      const trimmed = args.trim();
 
-      // --reset: delete file, notify defaults
-      if (trimmed === "--reset") {
-        if (existsSync(modelsPath)) {
-          unlinkSync(modelsPath);
+      const paths = modelsConfigPaths(ctx.cwd, agentDir);
+      const usage =
+        "Usage: /picode-models [--global|--project] (interactive | role model | --reset)";
+      const rawParts = args.trim() ? args.trim().split(/\s+/) : [];
+      const scopeFlags = rawParts.filter(part => part === "--global" || part === "--project");
+      if (scopeFlags.length > 1) {
+        ctx.ui.notify(usage, "warning");
+        return;
+      }
+      const scope: ModelConfigScope = scopeFlags[0] === "--global" ? "global" : "project";
+      const parts = rawParts.filter(part => part !== "--global" && part !== "--project");
+      const scopeLabel = scope === "global" ? "global defaults" : "project overrides";
+
+      // --reset clears only selected scope. Global file remains present as an
+      // empty override file; built-in defaults still resolve underneath it.
+      if (parts[0] === "--reset") {
+        if (parts.length !== 1) {
+          ctx.ui.notify(usage, "warning");
+          return;
         }
-        ctx.ui.notify("Cleared .picode/models.json — defaults restored.", "info");
+        if (scope === "global") {
+          try {
+            writeModelsConfig(paths.global, {});
+          } catch (e) {
+            ctx.ui.notify(e instanceof Error ? e.message : String(e), "error");
+            return;
+          }
+          ctx.ui.notify(
+            "Cleared global Picode model overrides — built-in defaults restored.",
+            "info",
+          );
+        } else {
+          if (existsSync(paths.project)) unlinkSync(paths.project);
+          ctx.ui.notify(
+            "Cleared project Picode model overrides — global defaults restored.",
+            "info",
+          );
+        }
         return;
       }
 
-      // "role model" positional args → set directly (bypass selector)
-      if (trimmed) {
-        const parts = trimmed.split(/\s+/);
-        if (parts.length < 2) {
-          ctx.ui.notify(
-            "Usage: /picode-models (interactive) | /picode-models role model | /picode-models --reset",
-            "warning",
-          );
+      // Positional role/model syntax remains project-scoped for compatibility.
+      // Add --global when setting one global role without opening the selector.
+      if (parts.length > 0) {
+        if (parts.length !== 2) {
+          ctx.ui.notify(usage, "warning");
           return;
         }
         const [role, model] = parts;
-        let models: Record<string, string> = {};
-        if (existsSync(modelsPath)) {
-          try {
-            models = JSON.parse(readFileSync(modelsPath, "utf8")) as Record<string, string>;
-          } catch {
-            ctx.ui.notify(
-              `.picode/models.json exists but is invalid JSON — not overwriting.`,
-              "error",
-            );
-            return;
-          }
+        const modelsPath = paths[scope];
+        let models: Record<string, string>;
+        try {
+          models = readModelsConfig(modelsPath);
+        } catch {
+          ctx.ui.notify(`${modelsPath} is invalid JSON — not overwriting.`, "error");
+          return;
         }
         models[role] = model;
         try {
-          writeFileSync(modelsPath, JSON.stringify(models, null, 2));
-          ctx.ui.notify(`Set ${role} → ${model} in .picode/models.json.`, "info");
+          writeModelsConfig(modelsPath, models);
+          ctx.ui.notify(`Set ${role} → ${model} in ${scopeLabel}.`, "info");
         } catch (e) {
           ctx.ui.notify(e instanceof Error ? e.message : String(e), "error");
         }
         return;
       }
 
-      // No args → interactive selector (if UI) or text listing (no UI)
+      // No UI: show both layers so project inheritance is visible.
       if (!ctx.hasUI) {
         try {
-          const models = readModelsConfig(modelsPath);
-          const entries = Object.entries(models).filter(([k]) => k !== "theme");
-          if (!entries.length) {
-            ctx.ui.notify("No models configured (.picode/models.json absent or empty).", "info");
-            return;
+          const globalOverrides = readModelsConfig(paths.global);
+          const global = { ...DEFAULT_MODELS, ...globalOverrides };
+          for (const role of Object.keys(global)) {
+            if (role === "theme" || role === "coordinator" || role.startsWith("journal")) continue;
+            global[role] = resolveModelFromConfigs(role, {}, globalOverrides);
           }
-          const lines = entries.map(([role, model]) => `  ${role}: ${model}`).join("\n");
-          ctx.ui.notify(`Worker models:\n${lines}`, "info");
-        } catch {
-          ctx.ui.notify(`.picode/models.json exists but is invalid JSON.`, "error");
+          const project = readModelsConfig(paths.project);
+          const format = (config: Record<string, string>) =>
+            Object.entries(config)
+              .filter(([key]) => key !== "theme")
+              .map(([role, model]) => `  ${role}: ${model}`);
+          const projectLines = format(project);
+          const lines = [
+            "Global defaults:",
+            ...format(global),
+            "",
+            "Project overrides:",
+            ...(projectLines.length ? projectLines : ["  (none — inherits global defaults)"]),
+          ];
+          ctx.ui.notify(lines.join("\n"), "info");
+        } catch (e) {
+          ctx.ui.notify(
+            e instanceof Error ? e.message : "Picode model config is invalid JSON.",
+            "error",
+          );
         }
         return;
       }
 
-      // Interactive: validate JSON first, then enter selector loop
+      let selectedScope: ModelConfigScope = scope;
+      if (scopeFlags.length === 0) {
+        const choice = await ctx.ui.select("Configure worker models", [
+          "Global defaults",
+          "This project overrides",
+        ]);
+        if (!choice) return;
+        selectedScope = choice === "Global defaults" ? "global" : "project";
+      }
+
+      const selectedPath = paths[selectedScope];
       try {
-        // readModelsConfig throws on invalid JSON — validate before entering TUI
-        readModelsConfig(modelsPath);
-      } catch {
+        readModelsConfig(selectedPath);
+        if (selectedScope === "project") readModelsConfig(paths.global);
+      } catch (e) {
         ctx.ui.notify(
-          `.picode/models.json exists but is invalid JSON — fix or use --reset.`,
+          e instanceof Error ? e.message : "Picode model config is invalid JSON.",
           "error",
         );
         return;
       }
       try {
-        const summary = await interactiveModelSelector(ctx, modelsPath);
+        const summary = await interactiveModelSelector(ctx, paths, selectedScope);
         ctx.ui.notify(summary, "info");
       } catch (e) {
         ctx.ui.notify(e instanceof Error ? e.message : String(e), "error");

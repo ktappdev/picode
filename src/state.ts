@@ -163,26 +163,6 @@ export function createPicodeStore(
         store.role = detectWorkerRole(store.picodeId);
       }
 
-      // Auto-create default models config for coordinator
-      if (store.role === "coordinator") {
-        const modelsPath = path.join(cwd, ".picode", "models.json");
-        if (!fs.existsSync(modelsPath)) {
-          const defaultModels = {
-            builder: "deepseek/deepseek-v4-pro",
-            reviewer: "deepseek/deepseek-v4-pro",
-            tester: "deepseek/deepseek-v4-pro",
-            designer: "deepseek/deepseek-v4-pro",
-            visionary: "opencode-go/mimo-v2.5",
-            "bug-hunter": "deepseek/deepseek-v4-pro",
-            scout: "deepseek/deepseek-v4-flash",
-            default: "deepseek/deepseek-v4-flash",
-            journal: "deepseek/deepseek-v4-flash",
-            "journal-cadence": "done",
-          };
-          fs.writeFileSync(modelsPath, JSON.stringify(defaultModels, null, 2) + "\n");
-        }
-      }
-
       store.picodeDir = path.join(store.picodesRootDir, store.picodeId);
 
       // Restore previous state if present. Debts and barriers are durable
