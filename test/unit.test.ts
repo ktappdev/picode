@@ -313,7 +313,7 @@ function makeLifecycleHarness(dir: string) {
     "picode_suspend",
     "picode_resume",
   ];
-  let activeTools = [...registeredThreadTools, "bash", "read_file"]; // some unrelated tool too
+  let activeTools = [...registeredThreadTools, "bash", "read_file", "write", "edit", "picode_run"]; // include file and command tools for role-filter assertions
 
   const flags: Record<string, string | boolean | undefined> = {};
 
@@ -1678,7 +1678,7 @@ describe("lifecycle: opt-in gate (§2.3)", () => {
     await h.fire("session_start", h.makeCtx());
     assert.ok(!existsSync(join(tmpDir, ".picode")), "no .picode/ dir for a non-picode session");
     assert.strictEqual(h.setActiveToolsCalls.length, 1);
-    assert.deepStrictEqual(h.activeTools, ["bash", "read_file"]);
+    assert.deepStrictEqual(h.activeTools, ["bash", "read_file", "write", "edit"]);
   });
 
   it("--picode-id passed: activates, creates .picode/, hides picode_journal from the worker", async () => {
@@ -1687,6 +1687,18 @@ describe("lifecycle: opt-in gate (§2.3)", () => {
     await h.fire("session_start", h.makeCtx());
     assert.ok(existsSync(join(tmpDir, ".picode", "picodes", "t9", "state.json")));
     // worker role → picode_journal hidden; the READ_ONLY set may also filter
+    assert.ok(!h.activeTools.includes("picode_journal"));
+    h.store.stopHeartbeat();
+    h.store.stopWatcher();
+  });
+
+  it("designer retains implementation tools while losing journal access", async () => {
+    const h = makeLifecycleHarness(tmpDir);
+    h.setFlag("picode-id", "designer");
+    await h.fire("session_start", h.makeCtx());
+    assert.ok(h.activeTools.includes("write"));
+    assert.ok(h.activeTools.includes("edit"));
+    assert.ok(h.activeTools.includes("picode_run"));
     assert.ok(!h.activeTools.includes("picode_journal"));
     h.store.stopHeartbeat();
     h.store.stopWatcher();
@@ -4158,13 +4170,14 @@ describe("spawn: solePaneInTab", () => {
 });
 
 describe("spawn: resolveThinking", () => {
-  it("maps deep-reasoning roles to high", () => {
-    for (const role of ["builder", "reviewer", "bug-hunter", "designer"]) {
+  it("maps standard deep-reasoning roles to high", () => {
+    for (const role of ["builder", "reviewer", "bug-hunter"]) {
       assert.strictEqual(resolveThinking(role), "high");
     }
   });
-  it("requests max thinking for planner", () => {
+  it("requests max thinking for planner and designer", () => {
     assert.strictEqual(resolveThinking("planner"), "max");
+    assert.strictEqual(resolveThinking("designer"), "max");
   });
   it("maps scouting/vision to medium (explorer alias included)", () => {
     for (const role of ["scout", "explorer", "visionary"]) {

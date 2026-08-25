@@ -89,7 +89,7 @@ const THINKING_BY_ROLE: Record<string, string> = {
   reviewer: "high",
   "bug-hunter": "high",
   planner: "max",
-  designer: "high",
+  designer: "max",
   scout: "medium",
   explorer: "medium",
   visionary: "medium",

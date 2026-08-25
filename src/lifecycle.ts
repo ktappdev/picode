@@ -402,7 +402,6 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
       "coordinator",
       "reviewer",
       "scout",
-      "designer",
       "bug-hunter",
       "planner",
       "runner",
