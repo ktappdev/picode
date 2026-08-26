@@ -4,7 +4,16 @@ import { execSync } from "child_process";
 import { readFileSync, existsSync } from "fs";
 import { join } from "path";
 import { loadModelsConfig, resolveModelForRole } from "../core/model-config";
-import { err, extractRole, effectiveAgentStatus, shellQuote, quietToolResult } from "./shared";
+import {
+  belongsToWorkspace,
+  err,
+  extractPaneInfo,
+  extractRole,
+  effectiveAgentStatus,
+  isValidPaneId,
+  shellQuote,
+  quietToolResult,
+} from "./shared";
 import type { PicodeStore } from "../core/types";
 import { trackPane } from "../herdr/listener";
 
@@ -577,6 +586,14 @@ export function registerSpawnTool(pi: ExtensionAPI, store: PicodeStore) {
           "No tab id — HERDR_TAB_ID not set and no tab param provided. Get a tab_id from picode_panes() or picode_tab_create().",
         );
       }
+      if (!isValidPaneId(targetTabId)) {
+        return err(`Invalid tab_id "${targetTabId}" — expected Herdr format like w1:t3.`);
+      }
+      if (!belongsToWorkspace(targetTabId, workspaceId)) {
+        return err(
+          `tab_id ${targetTabId} is outside current Herdr workspace ${workspaceId}. Use an exact tab ID from picode_panes() or picode_tab_create().`,
+        );
+      }
 
       // Fetch snapshot once — reused by findEmptyPane, getSplitTarget, countPanesInTab
       const snap = fetchSnapshot();
@@ -606,7 +623,7 @@ export function registerSpawnTool(pi: ExtensionAPI, store: PicodeStore) {
             // Get pane status to decide what to do
             try {
               const paneResult = herdrJson(`pane get ${existingPaneId}`);
-              const paneInfo = (paneResult.result as Record<string, unknown> | undefined) || {};
+              const paneInfo = extractPaneInfo(paneResult) || {};
               const label = (paneInfo.label as string) || "";
               const picodeId = extractRole(label);
               const herdrStatus = (paneInfo.agent_status as string) || "unknown";
@@ -656,7 +673,7 @@ export function registerSpawnTool(pi: ExtensionAPI, store: PicodeStore) {
           // Get the actual role from the pane label (could be "builder-1" etc.)
           try {
             const paneResult = herdrJson(`pane get ${newPaneId}`);
-            const paneInfo = (paneResult.result as Record<string, unknown> | undefined) || {};
+            const paneInfo = extractPaneInfo(paneResult) || {};
             const label = (paneInfo.label as string) || "";
             actualRole = extractRole(label) || params.role;
           } catch {

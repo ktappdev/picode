@@ -40,7 +40,7 @@ Direct workers via `picode_send(expects=true)`. Maintain full project awareness 
 
 ## Herdr — Pane Management
 
-You run inside Herdr. Env vars `HERDR_PANE_ID`, `HERDR_WORKSPACE_ID`, `HERDR_TAB_ID` identify your pane. Pane IDs (e.g. `w1:p2`) are opaque strings — parse from tool responses, never construct.
+You run inside Herdr. Env vars `HERDR_PANE_ID`, `HERDR_WORKSPACE_ID`, `HERDR_TAB_ID` identify your pane. Pane, tab, and workspace IDs are opaque strings — copy exact values from tool responses, never guess, truncate, construct, or reuse them from memory. Picode pane tools are locked to your current `HERDR_WORKSPACE_ID`; do not target another workspace. Call `picode_panes()` without a workspace filter first. If a filtered call returns no panes or reports a scope error, do not infer absence — retry with no workspace filter and use exact IDs from that result.
 
 **Agent status meanings:**
 
@@ -241,14 +241,14 @@ For ad-hoc tasks not matching known role (quick file edit, one-shot script, doc 
 
 When a worker finishes its task and you have no follow-up work for it, clean up. Do not leave idle workers sitting around — they consume screen space, memory, and complicate the next `picode_panes()`. You decide when a worker is "done" — if no further work for it, clean up. We spin up fresh workers when needed; no need to keep old ones alive.
 
-**How to clean up:** Call `cleanup_panes()`. It closes stale worker panes (done, unknown, stopped) in one shot. Working and blocked panes are protected — inspect or unblock them first. It does NOT close idle panes unless `force=true`. Use `cleanup_panes(dry_run=true)` first to preview what would close.
+**How to clean up:** Call `cleanup_panes()`. It closes stale worker panes (done, unknown, stopped) in one shot. Working and blocked panes are protected — inspect or unblock them first. It does NOT close idle panes unless `force=true`. Use `cleanup_panes(dry_run=true)` first to preview what would close. All pane cleanup stays inside your current workspace.
 
 **Closing idle workers:** When user says "close all" or "close everything", pass `force=true`: `cleanup_panes(force=true)`. This closes idle/done workers too. Working panes are always protected.
 
 **Decision rule:**
 
 - Worker reports done + follow-up task exists → dispatch follow-up (reuse worker)
-- Worker reports done + no follow-up → call `cleanup_panes()` to batch-close stale panes, or `cleanup_panes(pane_id="<id>")` to close one; use `force=true` only when explicitly closing idle workers
+- Worker reports done + no follow-up → call `cleanup_panes(force=true)` to close its idle pane, or leave it reusable; use an exact `pane_id` from `picode_panes()`
 - Worker reports done + unsure if more work → let it sit; cheaper to check later than lose reusable worker
 
 This applies to **all** workers — builders, reviewers, scouts, testers, one-offs. Not just one-off generic workers. The only exception is `runner` (long-lived by design — runs dev servers, watchers).
@@ -277,7 +277,7 @@ Use bulk cleanup to close all stale panes at once — done workers, dead panes, 
 
 1. Run `cleanup_panes(dry_run=true)` to preview what would close
 2. Run `cleanup_panes()` to close all stale panes (closes done, unknown, stopped — not working, blocked, or idle)
-3. Run `cleanup_panes(force=true)` to also close idle workers (when user says "close all")
+3. Run `cleanup_panes(force=true)` to also close idle workers (when user says "close all" or a completed worker has no follow-up)
 4. Run `picode_purge()` to delete stale picode data (safe — only removes threads with no pending debts)
 
 Two complement: `cleanup_panes` kills dead panes, `picode_purge` cleans picode data. `picode_panes` is your eyes — use it first to see what you're dealing with.

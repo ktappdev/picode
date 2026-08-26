@@ -72,10 +72,28 @@ export function effectiveAgentStatus(
   }
 }
 
-/** Herdr pane IDs are workspace-local opaque IDs such as w1:p2. Keep shell
- *  arguments constrained even though Herdr normally generates this format. */
+/** Herdr resource IDs are workspace-local opaque IDs such as w1:p2 or
+ *  w1:t2. Keep shell arguments constrained even though Herdr normally
+ *  generates this format. */
 export function isValidPaneId(paneId: string): boolean {
   return /^[A-Za-z0-9_-]+:[A-Za-z0-9_-]+$/.test(paneId);
+}
+
+/** Check that a Herdr pane/tab ID belongs to current workspace. IDs are
+ *  opaque to callers, but Herdr's public format keeps workspace prefix. */
+export function belongsToWorkspace(resourceId: string, workspaceId: string): boolean {
+  return resourceId.startsWith(`${workspaceId}:`);
+}
+
+/** Extract pane info from Herdr's JSON-RPC response. Current Herdr wraps it
+ *  as `{ result: { pane: ... } }`; accept direct pane payloads too. */
+export function extractPaneInfo(result: Record<string, unknown>): Record<string, unknown> | null {
+  const payload = result.result;
+  if (!payload || typeof payload !== "object") return null;
+  const record = payload as Record<string, unknown>;
+  const pane = record.pane;
+  if (pane && typeof pane === "object") return pane as Record<string, unknown>;
+  return typeof record.pane_id === "string" ? record : null;
 }
 
 /** Shell-quote a value for safe inclusion in a herdr CLI argument. Single-quote

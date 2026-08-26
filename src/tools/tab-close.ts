@@ -1,7 +1,13 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { execSync } from "child_process";
-import { err, extractRole, effectiveAgentStatus, isValidPaneId } from "./shared";
+import {
+  belongsToWorkspace,
+  err,
+  extractRole,
+  effectiveAgentStatus,
+  isValidPaneId,
+} from "./shared";
 import type { PicodeStore } from "../core/types";
 
 function herdr(args: string): string {
@@ -55,6 +61,11 @@ export function registerTabCloseTool(pi: ExtensionAPI, store: PicodeStore) {
       // Tab IDs use the same workspace:tab format as pane IDs (workspace:pane)
       if (!isValidPaneId(tabId)) {
         return err(`Invalid tab_id "${tabId}" — expected Herdr format like w1:t3.`);
+      }
+      if (!belongsToWorkspace(tabId, workspaceId)) {
+        return err(
+          `tab_id ${tabId} is outside current Herdr workspace ${workspaceId}. Use an exact tab ID from picode_panes().`,
+        );
       }
 
       // Safety: never close the coordinator's own tab

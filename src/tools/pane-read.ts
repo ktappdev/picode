@@ -1,7 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { execSync } from "child_process";
-import { err, isValidPaneId, quietToolResult } from "./shared";
+import { belongsToWorkspace, err, isValidPaneId, quietToolResult } from "./shared";
 
 /** Valid herdr pane read sources. */
 const VALID_SOURCES = new Set(["visible", "recent", "recent-unwrapped", "detection"]);
@@ -53,6 +53,7 @@ export function registerPaneReadTool(pi: ExtensionAPI) {
         return err("HERDR_ENV not set — picode_pane_read only works inside Herdr panes.");
       }
 
+      const workspaceId = process.env.HERDR_WORKSPACE_ID;
       const paneId = (params.pane_id || "").trim();
       if (!paneId) {
         return err(
@@ -63,7 +64,6 @@ export function registerPaneReadTool(pi: ExtensionAPI) {
       if (!isValidPaneId(paneId)) {
         return err(`Invalid pane_id "${paneId}" — expected Herdr format like w1:p2.`);
       }
-
       // Safety: never read our own pane — the coordinator's output is not
       // useful to itself and reading it wastes a tool call.
       const currentPaneId = process.env.HERDR_PANE_ID || "";
@@ -86,6 +86,15 @@ export function registerPaneReadTool(pi: ExtensionAPI) {
       const format = params.format ?? "text";
       if (format !== "text" && format !== "ansi") {
         return err(`format must be 'text' or 'ansi'. Got: ${format}.`);
+      }
+
+      if (!workspaceId) {
+        return err("HERDR_WORKSPACE_ID not set — picode_pane_read requires a current workspace.");
+      }
+      if (!belongsToWorkspace(paneId, workspaceId)) {
+        return err(
+          `pane_id ${paneId} is outside current Herdr workspace ${workspaceId}. Use an exact pane ID from picode_panes().`,
+        );
       }
 
       try {

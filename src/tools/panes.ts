@@ -36,12 +36,14 @@ export function registerPanesTool(pi: ExtensionAPI) {
     name: "picode_panes",
     label: "Picode Panes",
     description:
-      "Survey all Herdr panes in the workspace. Shows agent status, position, and role for each pane. Use this to check which workers are idle (reuse them), working (leave alone), or stopped (clean them up). Prefer reusing idle workers over spawning new ones.",
-    promptSnippet: "Survey all Herdr panes: status, position, role (find idle workers to reuse).",
+      "Survey Herdr panes in the current workspace. Shows agent status, position, and role for each pane. Use this to check which workers are idle (reuse them), working (leave alone), or stopped (clean them up). Prefer reusing idle workers over spawning new ones.",
+    promptSnippet:
+      "Survey current-workspace Herdr panes: status, position, role (find idle workers to reuse).",
     parameters: Type.Object({
       workspace: Type.Optional(
         Type.String({
-          description: "Filter to a specific workspace id (e.g. w7). Default: all workspaces.",
+          description:
+            "Compatibility filter. Must exactly match the current workspace id from Herdr; omit it to use the current workspace automatically.",
         }),
       ),
       status: Type.Optional(
@@ -59,6 +61,16 @@ export function registerPanesTool(pi: ExtensionAPI) {
     async execute(_id, params) {
       if (!process.env.HERDR_ENV) {
         return err("HERDR_ENV not set — picode_panes only works inside Herdr panes.");
+      }
+
+      const workspaceId = process.env.HERDR_WORKSPACE_ID;
+      if (!workspaceId) {
+        return err("HERDR_WORKSPACE_ID not set — picode_panes requires a current workspace.");
+      }
+      if (params.workspace && params.workspace !== workspaceId) {
+        return err(
+          `workspace "${params.workspace}" is outside current Herdr workspace "${workspaceId}". Picode pane tools are workspace-locked; omit workspace or use the exact current id.`,
+        );
       }
 
       try {
@@ -93,11 +105,8 @@ export function registerPanesTool(pi: ExtensionAPI) {
           }
         }
 
-        // Filter
-        let filtered = panes;
-        if (params.workspace) {
-          filtered = filtered.filter(p => p.workspace_id === params.workspace);
-        }
+        // Always stay inside the coordinator's Herdr workspace.
+        let filtered = panes.filter(p => p.workspace_id === workspaceId);
         if (params.status) {
           filtered = filtered.filter(p => p.agent_status === params.status);
         }
@@ -198,11 +207,12 @@ export function registerPanesTool(pi: ExtensionAPI) {
           content: [
             {
               type: "text" as const,
-              text: lines.join("\n") || "(no agent panes found)",
+              text: lines.join("\n") || `Workspace ${workspaceId} — no agent panes found.`,
             },
           ],
           details: {
             ok: true,
+            workspace_id: workspaceId,
             total: summaries.length,
             byStatus: {
               working: workingCount,

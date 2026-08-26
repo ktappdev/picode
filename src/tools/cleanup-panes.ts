@@ -1,7 +1,15 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { execSync } from "child_process";
-import { err, extractRole, isValidPaneId, effectiveAgentStatus, quietToolResult } from "./shared";
+import {
+  belongsToWorkspace,
+  err,
+  extractPaneInfo,
+  extractRole,
+  isValidPaneId,
+  effectiveAgentStatus,
+  quietToolResult,
+} from "./shared";
 import type { PicodeStore } from "../core/types";
 
 /** Worker role labels to clean up (case-insensitive, emoji prefix stripped).
@@ -72,6 +80,11 @@ export function registerCleanupPanesTool(pi: ExtensionAPI, store: PicodeStore) {
           if (!isValidPaneId(targetId)) {
             return err(`Invalid pane_id "${targetId}" — expected Herdr format like w1:p2.`);
           }
+          if (!belongsToWorkspace(targetId, workspaceId)) {
+            return err(
+              `pane_id ${targetId} is outside current Herdr workspace ${workspaceId}. Use an exact pane ID from picode_panes().`,
+            );
+          }
 
           // Safety: never close our own pane
           if (targetId === currentPaneId) {
@@ -84,7 +97,7 @@ export function registerCleanupPanesTool(pi: ExtensionAPI, store: PicodeStore) {
           let paneInfo: Record<string, unknown> | null = null;
           try {
             const result = herdrJson(`pane get ${targetId}`);
-            paneInfo = (result.result as Record<string, unknown> | undefined) || null;
+            paneInfo = extractPaneInfo(result);
           } catch {
             // pane get may fail if pane doesn't exist
           }
@@ -92,6 +105,12 @@ export function registerCleanupPanesTool(pi: ExtensionAPI, store: PicodeStore) {
           if (!paneInfo) {
             return err(
               `Pane ${targetId} not found — it may already be closed. Run picode_panes() to see current panes.`,
+            );
+          }
+
+          if (paneInfo.workspace_id !== workspaceId) {
+            return err(
+              `Pane ${targetId} is outside current Herdr workspace ${workspaceId} — refusing to close it.`,
             );
           }
 

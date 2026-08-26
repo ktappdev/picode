@@ -36,7 +36,12 @@ import { createPicodeStore } from "../src/state";
 import { createInbox } from "../src/inbox";
 import type { Injection } from "../src/inbox";
 import { DEADLINE_EXPIRY_GRACE_MS } from "../src/inbox";
-import { effectiveAgentStatus, quietToolResult } from "../src/tools/shared";
+import {
+  belongsToWorkspace,
+  effectiveAgentStatus,
+  extractPaneInfo,
+  quietToolResult,
+} from "../src/tools/shared";
 import { envelopeMessageRenderer, systemMessageRenderer } from "../src/renderers";
 import { countPanesInTab, solePaneInTab, resolveThinking } from "../src/tools/spawn";
 import { validateLabel } from "../src/tools/tab-create";
@@ -3831,6 +3836,9 @@ describe("system-prompt: picode_send contract is in every worker template", () =
     );
     assert.match(coordinator, /Mandatory image routing/);
     assert.match(coordinator, /exact disk path/);
+    assert.match(coordinator, /IDs are opaque strings/);
+    assert.match(coordinator, /never guess, truncate, construct/);
+    assert.match(coordinator, /locked to your current `HERDR_WORKSPACE_ID`/);
     assert.match(coordinator, /opencode-go\/mimo-v2\.5/);
   });
 });
@@ -3971,6 +3979,49 @@ describe("tools/pane-read: picode_pane_read validation (no herdr needed)", () =>
       delete process.env.HERDR_PANE_ID;
     }
   });
+
+  it("rejects pane IDs from another workspace", async () => {
+    const h = makeHarness(tmpDir);
+    process.env.HERDR_ENV = "1";
+    process.env.HERDR_WORKSPACE_ID = "w1";
+    try {
+      const r = await callTool(h, "picode_pane_read", { pane_id: "w2:p2" });
+      assert.strictEqual(r.details.ok, false);
+      assert.match(r.content[0].text, /outside current Herdr workspace/);
+    } finally {
+      delete process.env.HERDR_ENV;
+      delete process.env.HERDR_WORKSPACE_ID;
+    }
+  });
+});
+
+describe("tools/panes: workspace lock (no herdr needed)", () => {
+  it("rejects a workspace filter outside current workspace", async () => {
+    const h = makeHarness(tmpDir);
+    process.env.HERDR_ENV = "1";
+    process.env.HERDR_WORKSPACE_ID = "w1";
+    try {
+      const r = await callTool(h, "picode_panes", { workspace: "w2" });
+      assert.strictEqual(r.details.ok, false);
+      assert.match(r.content[0].text, /outside current Herdr workspace/);
+    } finally {
+      delete process.env.HERDR_ENV;
+      delete process.env.HERDR_WORKSPACE_ID;
+    }
+  });
+
+  it("recognizes IDs with exact workspace prefix", () => {
+    assert.ok(belongsToWorkspace("w1:p2", "w1"));
+    assert.ok(!belongsToWorkspace("w10:p2", "w1"));
+    assert.ok(!belongsToWorkspace("w2:p2", "w1"));
+  });
+
+  it("unwraps Herdr pane-get responses and rejects error payloads", () => {
+    const pane = { pane_id: "w1:p2", workspace_id: "w1" };
+    assert.deepStrictEqual(extractPaneInfo({ result: { pane } }), pane);
+    assert.deepStrictEqual(extractPaneInfo({ result: pane }), pane);
+    assert.strictEqual(extractPaneInfo({ result: { error: "not found" } }), null);
+  });
 });
 
 describe("tools/cleanup-panes: targeted pane_id validation (no herdr needed)", () => {
@@ -3987,6 +4038,55 @@ describe("tools/cleanup-panes: targeted pane_id validation (no herdr needed)", (
     } finally {
       delete process.env.HERDR_WORKSPACE_ID;
       delete process.env.HERDR_PANE_ID;
+    }
+  });
+
+  it("refuses to close a pane from another workspace", async () => {
+    const h = makeHarness(tmpDir);
+    h.store.role = "coordinator";
+    process.env.HERDR_WORKSPACE_ID = "w1";
+    try {
+      const r = await callTool(h, "cleanup_panes", { pane_id: "w2:p2" });
+      assert.strictEqual(r.details.ok, false);
+      assert.match(r.content[0].text, /outside current Herdr workspace/);
+    } finally {
+      delete process.env.HERDR_WORKSPACE_ID;
+    }
+  });
+});
+
+describe("tools/tab-close: workspace lock (no herdr needed)", () => {
+  it("refuses to close a tab from another workspace", async () => {
+    const h = makeHarness(tmpDir);
+    h.store.role = "coordinator";
+    process.env.HERDR_WORKSPACE_ID = "w1";
+    try {
+      const r = await callTool(h, "picode_tab_close", { tab_id: "w2:t2" });
+      assert.strictEqual(r.details.ok, false);
+      assert.match(r.content[0].text, /outside current Herdr workspace/);
+    } finally {
+      delete process.env.HERDR_WORKSPACE_ID;
+    }
+  });
+});
+
+describe("tools/spawn: workspace lock (no herdr needed)", () => {
+  it("refuses to spawn into a tab from another workspace", async () => {
+    const h = makeHarness(tmpDir);
+    h.store.role = "coordinator";
+    process.env.HERDR_ENV = "1";
+    process.env.HERDR_WORKSPACE_ID = "w1";
+    process.env.HERDR_PANE_ID = "w1:p1";
+    process.env.HERDR_TAB_ID = "w1:t1";
+    try {
+      const r = await callTool(h, "spawn_worker", { role: "scout", tab: "w2:t2" });
+      assert.strictEqual(r.details.ok, false);
+      assert.match(r.content[0].text, /outside current Herdr workspace/);
+    } finally {
+      delete process.env.HERDR_ENV;
+      delete process.env.HERDR_WORKSPACE_ID;
+      delete process.env.HERDR_PANE_ID;
+      delete process.env.HERDR_TAB_ID;
     }
   });
 });
