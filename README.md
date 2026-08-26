@@ -198,6 +198,7 @@ When a picode has the `coordinator` role (auto-detected from the name `coordinat
 - **Reuses panes.** It checks existing panes first and reuses idle or done workers instead of spawning duplicates.
 - **Adaptive layout.** Workers split in the direction that keeps new panes close to square. Grid-aware splitting avoids tall stacks. Empty panes are claimed instead of splitting. The coordinator stays at 50 percent on the left and the worker area fills the right half.
 - **Structured dispatch.** Tasks go out as Objective, Context, Constraints, Action Steps, Deliverables, and Prerequisites.
+- **Recall Round Table.** For ambiguous decisions, `picode_round_table` resumes one exact stopped worker as a read-only consultation. It can use retained context only, replies with a contribution or `PASS`, and shuts down immediately. Recall records are local to `.picode/recall-sessions.json`; they require the same host and saved Pi session file, including when Picode uses Restate for mail storage.
 - **Self-improving.** When the coordinator finds a gap in its own rules, it writes the fix to a per-project prompt override file.
 
 ## Worker models

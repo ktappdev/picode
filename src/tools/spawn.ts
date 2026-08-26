@@ -70,7 +70,7 @@ function resolveModel(role: string, override?: string): string {
   return override || resolveModelForRole(role);
 }
 
-function resolveTheme(override?: string): string | null {
+export function resolveTheme(override?: string): string | null {
   if (override) return override;
   const cfg = loadModelsJson();
   const themeName = cfg["theme"];
@@ -114,6 +114,27 @@ export function resolveThinking(role: string): string | null {
   return null;
 }
 
+export function buildWorkerLaunchCommand(options: {
+  picodeId: string;
+  role: string;
+  model: string | null;
+  theme: string | null;
+  sessionFile?: string;
+  roundTable?: boolean;
+}): string {
+  const parts = ["pi"];
+  if (options.model) parts.push(`--model ${shellQuote(options.model)}`);
+  if (options.theme) parts.push(`--theme ${shellQuote(options.theme)}`);
+  const thinking = resolveThinking(options.role);
+  if (thinking) parts.push(`--thinking ${thinking}`);
+  if (options.sessionFile) parts.push(`--session ${shellQuote(options.sessionFile)}`);
+  if (options.roundTable) {
+    parts.push("--picode-round-table", "--tools picode_round_table_reply");
+  }
+  parts.push(`--picode-id ${shellQuote(options.picodeId)}`);
+  return parts.join(" ");
+}
+
 interface SplitTarget {
   paneId: string;
   direction: "right" | "down";
@@ -137,13 +158,13 @@ function isCoordinatorLabel(label: string): boolean {
 /** Fetch and parse the herdr API snapshot once. Returns panes, layouts, and
  *  a pre-built rect map so callers don't each fetch their own snapshot.
  *  Returns null if the snapshot can't be fetched. */
-interface SnapshotData {
+export interface SnapshotData {
   panes: Array<Record<string, unknown>>;
   layouts: Array<Record<string, unknown>>;
   rectMap: Map<string, { x: number; y: number; width: number; height: number }>;
 }
 
-function fetchSnapshot(): SnapshotData | null {
+export function fetchSnapshot(): SnapshotData | null {
   try {
     const snapshot = herdrJson("api snapshot");
     const snap =
@@ -210,7 +231,7 @@ export function solePaneInTab(
  *  First-worker exception: if the tab has exactly 1 pane (e.g. a freshly
  *  created tab's root pane with no agent), that pane is returned as the
  *  split target even though it has no agent_status. */
-function getSplitTarget(
+export function getSplitTarget(
   currentPaneId: string,
   workspaceId: string,
   role: string,
@@ -751,13 +772,12 @@ export function registerSpawnTool(pi: ExtensionAPI, store: PicodeStore) {
         const theme = resolveTheme(params.theme);
 
         // 8. Build launch command (only for new panes)
-        const parts = ["pi"];
-        if (model) parts.push(`--model ${shellQuote(model)}`);
-        if (theme) parts.push(`--theme ${shellQuote(theme)}`);
-        const thinking = resolveThinking(actualRole);
-        if (thinking) parts.push(`--thinking ${thinking}`);
-        parts.push(`--picode-id ${shellQuote(uniqueId)}`);
-        const launchCmd = parts.join(" ");
+        const launchCmd = buildWorkerLaunchCommand({
+          picodeId: uniqueId,
+          role: actualRole,
+          model,
+          theme,
+        });
 
         // 9. Run launch command in new/claimed pane (not for reused panes)
         if (!paneIdToUse) {

@@ -12,6 +12,8 @@ import {
 import { roleEmoji } from "./core/roles";
 import { modelsConfigPaths } from "./core/model-config";
 import { purgeStalePcodes } from "./tools/purge";
+import { saveRecallParticipant } from "./core/recall-registry";
+import { nowIso } from "./core/time";
 import {
   startHerdrListener,
   setListenerHandle,
@@ -42,9 +44,11 @@ function restingState(store: PicodeStore, whenFree: PicodeState): PicodeState {
 /** Rename this pane in herdr so the label shows role emoji + name
  *  (e.g. 🧭 coordinator). Uses $HERDR_PANE_ID — never rely on focused pane.
  *  Startup-only, so execSync is fine. Errors logged, not fatal. */
-function setHerdrPaneLabel(store: PicodeStore): void {
+function setHerdrPaneLabel(store: PicodeStore, isRoundTable = false): void {
   if (process.env.HERDR_ENV !== "1" || !process.env.HERDR_PANE_ID) return;
-  const label = `${roleEmoji(store.role)} ${store.role ?? "worker"}`;
+  const label = isRoundTable
+    ? `🗣️ Round Table · ${store.picodeId}`
+    : `${roleEmoji(store.role)} ${store.role ?? "worker"}`;
   try {
     execSync(`herdr pane rename "${process.env.HERDR_PANE_ID}" "${label}"`, {
       stdio: "pipe",
@@ -131,6 +135,7 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
   // children, which never inherit participation) never gets a .picode/ dir,
   // a random identity, the picode_* tools, or the picode-model system prompt.
   let active = false;
+  let isRoundTable = false;
   let stopHerdrListener: HerdrListenerHandle | null = null;
   let sitRepTimer: NodeJS.Timeout | null = null;
 
@@ -167,6 +172,7 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
 
     const flagId = pi.getFlag("picode-id");
     const picodeShorthand = pi.getFlag("picode");
+    isRoundTable = pi.getFlag("picode-round-table") === true;
     // --picode (boolean) defaults to coordinator when no --picode-id given
     const resolvedId =
       typeof flagId === "string" && flagId.length > 0
@@ -195,6 +201,8 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
         "picode_run",
         "picode_tab_create",
         "picode_tab_close",
+        "picode_round_table",
+        "picode_round_table_reply",
       ]);
       pi.setActiveTools(pi.getActiveTools().filter(name => !PICODE_TOOLS.has(name)));
       return;
@@ -213,6 +221,16 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
       ctx.ui.notify(String(e), "error");
       ctx.shutdown();
       return;
+    }
+
+    if (!isRoundTable && store.role !== "coordinator" && store.sessionFile) {
+      saveRecallParticipant(ctx.cwd, {
+        id: store.picodeId,
+        role: store.role,
+        sessionFile: store.sessionFile,
+        cwd: ctx.cwd,
+        updatedAt: nowIso(),
+      });
     }
 
     // A new session's agent starts from the base system prompt; the picode
@@ -374,7 +392,7 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
     // Current-task widget: workers only (§ — coordinator routes, doesn't
     // have a single task). Use onInject hook so every drained envelope
     // updates the widget with the first line of the most recent request body.
-    if (store.role !== "coordinator") {
+    if (!isRoundTable && store.role !== "coordinator") {
       inbox.onInject = (parts: Injection[], injectCtx: ExtensionContext) => {
         const taskParts = parts.filter(p => /^\[(request|reply\+request) from /.test(p.text));
         if (taskParts.length > 0) {
@@ -391,10 +409,11 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
 
     // Set the terminal title so the role is visible in window lists and tmux
     // status bars, even when the user is not in herdr.
-    ctx.ui.setTitle(
-      `pi · ${roleEmoji(store.role)} ${store.role ?? "worker"} · ${basename(ctx.cwd)}`,
-    );
-    setHerdrPaneLabel(store);
+    const titleRole = isRoundTable
+      ? `🗣️ Round Table · ${store.picodeId}`
+      : `${roleEmoji(store.role)} ${store.role ?? "worker"}`;
+    ctx.ui.setTitle(`pi · ${titleRole} · ${basename(ctx.cwd)}`);
+    setHerdrPaneLabel(store, isRoundTable);
 
     // Read-only roles keep inspection tools but cannot modify files. Runner
     // still needs bash for long-lived processes; coordinator does not.
@@ -407,7 +426,9 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
       "runner",
       "visionary",
     ]);
-    if (READ_ONLY_ROLES.has(store.role)) {
+    if (isRoundTable) {
+      pi.setActiveTools(["picode_round_table_reply"]);
+    } else if (READ_ONLY_ROLES.has(store.role)) {
       const DENIED = new Set(["write", "edit", "picode_run"]);
       if (store.role === "coordinator") DENIED.add("bash");
       const filtered = pi.getActiveTools().filter(name => !DENIED.has(name));
@@ -417,7 +438,7 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
     // are never tempted to spend a tool call reading a journal that (a) is
     // always empty for them and (b) they are not supposed to use. picode_status
     // stays — it is the worker's own-state recovery path (owed replies).
-    if (store.role !== "coordinator") {
+    if (!isRoundTable && store.role !== "coordinator") {
       const filtered = pi.getActiveTools().filter(name => name !== "picode_journal");
       pi.setActiveTools(filtered);
     }
@@ -592,6 +613,7 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
 
     const modelPaths = modelsConfigPaths(ctx.cwd);
     if (
+      !isRoundTable &&
       journalMode(pi, modelPaths.project, store.role, modelPaths.global) === "turn" &&
       shouldJournal(store, toolUsedThisTurn, "turn")
     ) {
@@ -612,7 +634,9 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
     // in turn_end's guard reachable at all.
     store.owedNudgePending = false;
     const modelPaths = modelsConfigPaths(ctx.cwd);
-    const mode = journalMode(pi, modelPaths.project, store.role, modelPaths.global);
+    const mode = isRoundTable
+      ? "off"
+      : journalMode(pi, modelPaths.project, store.role, modelPaths.global);
     const write =
       mode === "done"
         ? shouldJournal(store, toolUsedThisTurn, "done", userPromptThisRun)
@@ -642,7 +666,8 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
     // it, and would otherwise run without picode rules entirely).
     store.promptDrivenTurnSeen = true;
     return {
-      systemPrompt: event.systemPrompt + "\n\n" + threadModelPrompt(store),
+      systemPrompt:
+        event.systemPrompt + "\n\n" + threadModelPrompt(store, { roundTable: isRoundTable }),
     };
   });
 }

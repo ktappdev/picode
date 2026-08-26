@@ -29,6 +29,10 @@ export default function (pi: ExtensionAPI) {
     description:
       "Role label for this picode (e.g. dev, qa) — targetable via picode_send role:<role>",
   });
+  pi.registerFlag("picode-round-table", {
+    type: "boolean",
+    description: "Start a resumed, read-only Recall Round Table consultation.",
+  });
   pi.registerFlag("picode-journal", {
     type: "string",
     description:

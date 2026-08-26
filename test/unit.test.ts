@@ -136,6 +136,7 @@ function makeHarness(dir: string, id = "t1") {
     registerCommand: (name: string, opts: AnyCommand) => {
       commands[name] = opts;
     },
+    getFlag: () => undefined,
   } as unknown as ExtensionAPI;
 
   const store = createPicodeStore(stubPi);
@@ -170,6 +171,7 @@ function makeHarness(dir: string, id = "t1") {
     },
     isIdle: () => agent.idle,
     waitForIdle: async () => {},
+    shutdown: () => {},
     cwd: dir,
   } as unknown as ExtensionCommandContext;
 
@@ -309,6 +311,7 @@ function makeLifecycleHarness(dir: string) {
   const setActiveToolsCalls: string[][] = [];
   const sentMessages: SentMessage[] = [];
   const userMessages: string[] = [];
+  const titles: string[] = [];
   const registeredThreadTools = [
     "picode_status",
     "picode_list",
@@ -353,7 +356,12 @@ function makeLifecycleHarness(dir: string) {
   function makeCtx(entries: CustomEntry[] = [], header?: { parentSession?: string }) {
     return {
       cwd: dir,
-      ui: { setStatus: () => {}, setTitle: () => {}, setFooter: () => {}, notify: () => {} },
+      ui: {
+        setStatus: () => {},
+        setTitle: (title: string) => titles.push(title),
+        setFooter: () => {},
+        notify: () => {},
+      },
       sessionManager: {
         getEntries: () => entries,
         getSessionFile: () => undefined,
@@ -367,7 +375,7 @@ function makeLifecycleHarness(dir: string) {
     store,
     inbox,
     dir,
-    setFlag(name: string, value: string) {
+    setFlag(name: string, value: string | boolean) {
       flags[name] = value;
     },
     fire(event: string, ctx: unknown, payload: unknown = {}) {
@@ -377,6 +385,7 @@ function makeLifecycleHarness(dir: string) {
     setActiveToolsCalls,
     sentMessages,
     userMessages,
+    titles,
     get activeTools() {
       return activeTools;
     },
@@ -1693,6 +1702,17 @@ describe("lifecycle: opt-in gate (§2.3)", () => {
     assert.ok(existsSync(join(tmpDir, ".picode", "picodes", "t9", "state.json")));
     // worker role → picode_journal hidden; the READ_ONLY set may also filter
     assert.ok(!h.activeTools.includes("picode_journal"));
+    h.store.stopHeartbeat();
+    h.store.stopWatcher();
+  });
+
+  it("Recall Round Table exposes only its reply tool and title", async () => {
+    const h = makeLifecycleHarness(tmpDir);
+    h.setFlag("picode-id", "builder");
+    h.setFlag("picode-round-table", true);
+    await h.fire("session_start", h.makeCtx());
+    assert.deepStrictEqual(h.activeTools, ["picode_round_table_reply"]);
+    assert.match(h.titles.at(-1) ?? "", /🗣️ Round Table · builder/);
     h.store.stopHeartbeat();
     h.store.stopWatcher();
   });

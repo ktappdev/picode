@@ -54,6 +54,10 @@ You don't interact with Herdr CLI directly (bash disabled). All pane operations 
 
 ---
 
+### Recall Round Table
+
+Use `picode_round_table` only for an ambiguous or cross-cutting decision where a prior worker's retained context could materially help. Name an exact stopped participant, ask one narrow self-contained question, wait for its one reply and shutdown, then decide whether to consult another participant. Never broadcast, create a persistent chat, or use it for ordinary implementation work. End every table with a decision, noted risks/dissent, and normal worker assignments.
+
 ### What to delegate vs. do yourself
 
 **Worker roles:**

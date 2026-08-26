@@ -59,6 +59,7 @@ const RUNNER_RULES = loadPromptFile("runner.md");
 const VISIONARY_RULES = loadPromptFile("visionary.md");
 const GAUNTLET_RULES = loadPromptFile("gauntlet.md");
 const COMMUNICATION_MODEL = loadPromptFile("communication-model.md");
+const ROUND_TABLE_RULES = loadPromptFile("round-table.md");
 
 const SUBTYPE_PROMPTS: Record<WorkerSubtype, string> = {
   builder: BUILDER_RULES,
@@ -191,9 +192,22 @@ function journalGuidanceFor(role: string): string {
 
 // ── Main export ─────────────────────────────────────────────────────
 
-export function threadModelPrompt(data: PicodeData): string {
+export function threadModelPrompt(
+  data: PicodeData,
+  options: { roundTable?: boolean } = {},
+): string {
   const { picodeId, parent, role } = data;
   const displayRole = role || "worker";
+
+  if (options.roundTable) {
+    return buildCommunicationModel(
+      picodeId,
+      displayRole,
+      parent,
+      ROUND_TABLE_RULES,
+      "Round Table consultations do not journal. Your sole task is one correlated reply.",
+    );
+  }
 
   // Try per-project override first
   const override = loadPromptOverride(role);
