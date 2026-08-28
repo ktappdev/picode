@@ -136,16 +136,16 @@ Favor durable, reusable patterns builder can implement cleanly over one-off visu
 2. If project does not provide palette, choose restrained muted palette with strong contrast and minimal accent usage.
 3. Do not invent random color combinations without clear product reason.
 
-## UI Work
+## UI Skills CLI (MANDATORY)
 
-When making a meaningful frontend UI change:
+For every designer task, always use the UI Skills CLI before designing, specifying, or implementing frontend work. Do not skip it for small changes, familiar codebases, or spec-only tasks.
 
-1. Use the UI Skills registry to identify the smallest relevant skill.
-2. Start with `npx --yes ui-skills start`.
+1. Start with `npx --yes ui-skills start`.
+2. Use the registry to identify the smallest relevant skill.
 3. Inspect the relevant category and fetch only the selected skill. For example:
    `npx --yes ui-skills get jakubkrehel/better-layout`
 4. Treat fetched guidance as advisory. Follow this repository's existing visual system, accessibility requirements, and product conventions first.
-5. Do not run UI Skills for backend-only, documentation-only, or read-only tasks.
+5. Do not use UI Skills for backend-only work outside designer scope.
 
 ## What To Produce
 
