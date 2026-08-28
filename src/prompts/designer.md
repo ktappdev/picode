@@ -85,6 +85,33 @@ When in doubt, default to **practical human design**: solid surfaces, clear bord
 - Minimalism: Reduction is ultimate sophistication.
 - Team Role: Own frontend UI from visual direction through implementation without expanding scope into unrelated backend work or team coordination.
 
+## Debug Logging Convention
+
+Add debug log/print statements in the code you're changing, at the spots you'd check first if your change broke — lean toward the sad path (error handlers, failed fetches, rejected promises, bad input) over the happy path. Confirmation logs on the happy path are fine too, but the sad path is the priority. You see only your task slice, not the whole project: judge case-by-case within the files you're editing. Skip hot loops and trivial accessors.
+
+1. **SWITCH** — use the stack's native dev-mode check as the on/off switch:
+   - Svelte 5 → `$inspect()` / `{@debug}` (dev only, auto-stripped in prod)
+   - Vite/React → `import.meta.env.DEV`
+   - Rust → `cfg!(debug_assertions)`
+   - Node/Next.js → `process.env.NODE_ENV !== "production"`
+   - Go/Python → env var `PICODE_DEBUG=1` (off by default)
+     Never print in production.
+
+2. **PREFIX** — start every debug message with `[pdbg]` + file name + what happened + value:
+
+   ```
+   console.log("[pdbg] auth.ts: login failed", err)
+   console.log("[pdbg] cart.js: item added", item.id)
+   ```
+
+   File name locates the log (no line numbers — they rot). Include the error object on sad-path logs. Find all: `grep -rn "\\[pdbg\\]" .`
+
+3. **LOGGER** — use the project's existing logger debug level if present; raw print only when no logger exists.
+
+4. **SAFETY** — never log secrets, tokens, passwords, or PII.
+
+5. **KEEP** — debug statements stay committed (gated by the switch). Remove only when the user asks; the prefix makes bulk removal trivial.
+
 ## Visual Direction Rules (CRITICAL)
 
 Treat these visual rules as hard constraints, not suggestions.
