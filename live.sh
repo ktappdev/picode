@@ -22,6 +22,8 @@ echo "Workspace:    $WORK_DIR"
 echo ""
 
 # Translate -t <id> → --picode-id <id>
+# ${args[@]+...} keeps "unbound variable" off macOS bash 3.2 under set -u
+# when no -t flag (and no other args) is given.
 args=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -32,4 +34,4 @@ done
 
 cd "$WORK_DIR" && exec pi \
   --extension "$SCRIPT_DIR/src/index.ts" \
-  "${args[@]}"
+  ${args[@]+"${args[@]}"}
