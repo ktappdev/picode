@@ -179,7 +179,7 @@ Each picode has a role that shapes its system prompt. The role is auto-detected 
 | `visionary`          | Worker  | Reads attached or local images and reports grounded observations. Read-only; requires a multimodal model.                                                                             |
 | `gauntlet`           | Worker  | Adversarial production hardener with split personalities (review → fix → test). Finds realistic production failures, fixes them, leaves regression tests. Full tools except dispatch. |
 
-UI work can route directly to `designer`: it reads the existing frontend, designs and implements its own UI plan, then `reviewer` audits the diff. Use `planner` or `builder` when the change is complex, cross-cutting, or explicitly split into design and implementation.
+UI work can route directly to `designer`: it reads the existing frontend, designs and implements its own UI plan. Use `reviewer` only when risk or diff size warrants a narrow functional-preservation audit; reviewer checks that existing behavior still works, not visual direction. Use `planner` or `builder` when the change is complex, cross-cutting, or explicitly split into design and implementation.
 
 Prefix matching means `builder-1`, `builder-a`, `builder_foo`, and `builder.task` all resolve to the `builder` role. Any name that does not match a known role (or prefix) becomes a generic `worker` with base worker rules only.
 

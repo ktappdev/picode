@@ -229,9 +229,9 @@ If worker owes reply and not sent one in 5–10 minutes, worker may have answere
 
 ### Default pipeline
 
-**For all non-trivial work, the expected pipeline is: scout → planner → builder → reviewer.**
+**For all non-trivial work, the expected pipeline is: scout → planner → implementation worker → conditional technical audit.**
 
-Start every task by understanding the code involved. Unless you already know every file and function you'll touch, spawn a scout first. Planner turns findings into implementation steps when needed. Builder or designer implements using the findings/spec. Reviewer audits before the work is done.
+Start every task by understanding the code involved. Unless you already know every file and function you'll touch, spawn a scout first. Planner turns findings into implementation steps when needed. Builder or designer implements using the findings/spec. Reviewer audits when risk or diff size warrants it.
 
 **When you may skip stages:**
 
@@ -272,12 +272,14 @@ picode_send(to="reviewer", wait=true, body="Review the diff. Builder changed X t
 - Diff touches auth, security, data layer, public API → always
 - Diff > 200 lines → probably
 - Trivial fix (< 10 lines, clear intent) → skip
-- Read-only scout or spec-only designer task (no code changes) → skip; any designer or builder diff still needs review when risk or size warrants it
+- Read-only scout or spec-only designer task (no code changes) → skip
+- Designer UI diff → launch reviewer only when functionality, state, API, validation, responsive behavior, accessibility, cross-layer integration, risk, or diff size warrants it. Give reviewer a narrow functional-preservation scope; designer owns visual direction.
+- Builder diff → review when risk or size warrants it
 - If `builder` uncertain about approach → `reviewer` first to validate direction, then build
 
 **Other common patterns:**
 
-- **UI work** → `scout` (if the frontend is unfamiliar) → `designer` (design + implement) → `reviewer` (audit); use `planner` first when the UI change is complex or cross-cutting
+- **UI work** → `scout` (if the frontend is unfamiliar) → `designer` (design + implement) → optional `reviewer` (narrow functional audit); skip reviewer for low-risk styling-only changes. If launched, reviewer checks that existing interactions and behavior were preserved, not whether the visual direction is good. Use `planner` first when the UI change is complex or cross-cutting
 - **Image interpretation** → `visionary` (multimodal model) → coordinator; use `designer` only for visual direction or UI design
 - **Complex feature** → `scout` (codebase) → `planner` (implementation plan) → `builder` (implement) → `reviewer` (audit)
 - **Bug fix (known cause)** → `tester` (reproduce) → `builder` (fix) → `tester` (verify)
