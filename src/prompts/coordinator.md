@@ -182,7 +182,7 @@ When a worker finishes and you have no follow-up work for it, clean up. Do not l
 1. `cleanup_panes(dry_run=true)` — preview what would close
 2. `cleanup_panes()` — close stale panes (done, unknown, stopped — not working, blocked, or idle)
 3. `cleanup_panes(force=true)` — also close idle workers
-4. `picode_purge()` — delete stale picode data (safe — only threads with no pending debts)
+4. `picode_purge()` — delete stale picode data. Default skips threads with local debts or references from this coordinator; use `force=true` only when forgetting a dead worker, which also reconciles this coordinator's ledgers.
 
 `cleanup_panes` kills dead panes, `picode_purge` cleans picode data, `picode_panes` is your eyes — use it first. Call `cleanup_panes()` proactively after complex multi-worker tasks, when pane list looks cluttered, or when `picode_panes()` shows multiple done/unknown panes. **Note:** `picode_purge` is a model tool, not a slash command.
 

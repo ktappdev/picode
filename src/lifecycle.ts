@@ -11,7 +11,7 @@ import {
 } from "./journal";
 import { roleEmoji } from "./core/roles";
 import { modelsConfigPaths } from "./core/model-config";
-import { purgeStalePcodes } from "./tools/purge";
+import { purgeStalePcodes, referencedPicodeIds } from "./tools/purge";
 import { saveRecallParticipant } from "./core/recall-registry";
 import { nowIso } from "./core/time";
 import {
@@ -332,7 +332,7 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
           encoding: "utf-8",
           stdio: ["ignore", "pipe", "ignore"],
         }).trim();
-        const result = purgeStalePcodes(root, store.picodeId, false);
+        const result = purgeStalePcodes(root, store.picodeId, false, referencedPicodeIds(store));
         if (result.count > 0) {
           ctx.ui.notify(`Auto-purged ${result.count} stale picode(s) on startup`, "info");
         }

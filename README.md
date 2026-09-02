@@ -149,7 +149,7 @@ Messages show up as `[<kind> from <sender> #<id>]`. The kind (request, reply, re
 | `picode_tab_create` | Open a new Herdr tab in the current workspace for spawning workers when the current tab is full. Returns `tab_id` + `root_pane_id`. Coordinator-only.                                       |
 | `picode_tab_close`  | Close an empty or stale Herdr tab. Refuses coordinator's own tab and tabs with working panes. `force=true` to close idle/done panes too. Coordinator-only.                                  |
 | `cleanup_panes`     | Close stale herdr worker panes. `dry_run=true` to preview. `pane_id="<id>"` to close one. `force=true` to close idle workers too (e.g. "close all").                                        |
-| `picode_purge`      | Delete stale picode data directories. Safe — only removes threads with no pending debts.                                                                                                    |
+| `picode_purge`      | Delete stale picode data directories. Default skips local debts and coordinator references; `force=true` also reconciles this picode's ledgers.                                             |
 
 ## Slash commands for humans
 

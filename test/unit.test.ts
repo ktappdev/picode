@@ -1330,6 +1330,123 @@ describe("inbox: checkDeadlines (§9.2)", () => {
   });
 });
 
+describe("unit: purge ledger reconciliation", () => {
+  let origCwd: string;
+
+  beforeEach(() => {
+    origCwd = process.cwd();
+  });
+
+  afterEach(() => {
+    process.chdir(origCwd);
+  });
+
+  it("default purge skips stale workers referenced by current ledgers", async () => {
+    const h = makeHarness(tmpDir);
+    h.store.role = "coordinator";
+    seedRemoteThread(h, "dead", { stale: true });
+    h.store.obligations.push({
+      id: "t1/request",
+      to: "dead",
+      summary: "unfinished request",
+      sentAt: new Date().toISOString(),
+    });
+    await h.store.persist();
+
+    process.chdir(h.dir);
+    const result = await callTool(h, "picode_purge");
+
+    assert.deepStrictEqual(result.details.purged, []);
+    assert.deepStrictEqual(
+      result.details.skipped.find((entry: { id: string }) => entry.id === "dead"),
+      { id: "dead", reason: "referenced by current picode" },
+    );
+    assert.ok(existsSync(join(h.store.picodesRootDir, "dead", "state.json")));
+  });
+
+  it("forced purge clears references and reconciles barriers", async () => {
+    const h = makeHarness(tmpDir);
+    h.store.role = "coordinator";
+    seedRemoteThread(h, "dead", { stale: true });
+    h.store.obligations.push(
+      {
+        id: "t1/dead-request",
+        to: "dead",
+        summary: "dead request",
+        sentAt: new Date().toISOString(),
+      },
+      {
+        id: "t1/live-request",
+        to: "live",
+        summary: "live request",
+        sentAt: new Date().toISOString(),
+      },
+    );
+    h.store.owed.push(
+      {
+        id: "dead/incoming",
+        from: "dead",
+        summary: "dead incoming",
+        receivedAt: new Date().toISOString(),
+      },
+      {
+        id: "live/incoming",
+        from: "live",
+        summary: "live incoming",
+        receivedAt: new Date().toISOString(),
+      },
+    );
+    h.store.barriers.push(
+      {
+        id: "barrier.mixed",
+        pending: ["t1/dead-request", "t1/live-request"],
+        mode: "all",
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: "barrier.dead-only",
+        pending: ["t1/dead-request"],
+        mode: "any",
+        createdAt: new Date().toISOString(),
+      },
+    );
+
+    process.chdir(h.dir);
+    const result = await callTool(h, "picode_purge", { force: true });
+
+    assert.deepStrictEqual(result.details.purged, ["dead"]);
+    assert.deepStrictEqual(result.details.cleanup, {
+      clearedObligations: ["t1/dead-request"],
+      clearedOwed: ["dead/incoming"],
+      updatedBarriers: ["barrier.mixed"],
+      cancelledBarriers: ["barrier.dead-only"],
+    });
+    assert.deepStrictEqual(
+      h.store.obligations.map(obligation => obligation.id),
+      ["t1/live-request"],
+    );
+    assert.deepStrictEqual(
+      h.store.owed.map(owed => owed.id),
+      ["live/incoming"],
+    );
+    assert.deepStrictEqual(h.store.barriers[0].pending, ["t1/live-request"]);
+    const persisted = await h.store.adapter.loadPicodeState("t1");
+    assert.deepStrictEqual(
+      {
+        obligations: persisted?.obligations.map(obligation => obligation.id),
+        owed: persisted?.owed.map(owed => owed.id),
+        barrierPending: persisted?.barriers[0]?.pending,
+      },
+      {
+        obligations: ["t1/live-request"],
+        owed: ["live/incoming"],
+        barrierPending: ["t1/live-request"],
+      },
+    );
+    assert.ok(!existsSync(join(h.store.picodesRootDir, "dead")));
+  });
+});
+
 describe("inbox: checkDeadlines auto-expire (barriers + obligations)", () => {
   it("an obligation past deadline + grace is removed from the store and emits an expired notice", async () => {
     const h = makeHarness(tmpDir);

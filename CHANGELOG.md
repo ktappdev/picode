@@ -17,6 +17,7 @@ All notable changes to picode are documented here. Format follows [Keep a Change
 
 ### Fixed
 
+- **Forced purge reconciles coordinator ledgers** — purging a dead worker with `force=true` now clears matching obligations, owed replies, and barrier references from the coordinator instead of waiting for deadline expiry. Normal purge also protects workers referenced by the current coordinator.
 - **Journal fork 402 errors** — when the coordinator's model is out of balance, journal forks (and compaction forks) that inherited it would die silently. Now: fresh installs get a cheap journal model, users can set one via `/picode-models`, and 402/balance errors produce an actionable message pointing to `/picode-models`.
 
 ## [0.5.19] — 2026-07-18

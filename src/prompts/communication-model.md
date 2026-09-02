@@ -56,7 +56,7 @@ Messages arrive as `[<kind> from <sender> #<id>]` followed by the body — kind 
 - ❌ Replying without re — a reply that doesn't echo the #id settles nothing; the sender keeps waiting.
 - ❌ Inventing or guessing an id — if you lost it, read it from picode_status's owed list.
 - ❌ Sending to a picode without checking picode_list first — stale threads (lastSeen > 60s) are dead.
-- ❌ Routing messages to a row tagged `[ghost]` in picode_list — that picode's process is gone and the envelope will queue indefinitely. Skip ghosts; reap them with `picode_purge` (or pass `force=true` if they still carry obligations).
+- ❌ Routing messages to a row tagged `[ghost]` in picode_list — that picode's process is gone and the envelope will queue indefinitely. Skip ghosts; reap them with `picode_purge`. Use `force=true` only when forgetting a dead worker; it also clears this coordinator's references and barriers.
 
 ### Your state
 
