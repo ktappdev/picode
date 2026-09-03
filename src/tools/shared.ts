@@ -72,6 +72,40 @@ export function effectiveAgentStatus(
   }
 }
 
+/** Tabs whose label says "don't close" are user-owned — never touch.
+ *  Matches don't close / dont close / do not close (case- and
+ *  apostrophe-insensitive, substring match so "don't close — frontend"
+ *  and "dont-close-backend" both count). Coordinator can never create
+ *  these via picode_tab_create (it rejects spaces/apostrophes), so any
+ *  match is unambiguously the user's own tab. */
+export function isProtectedTabLabel(label: string | undefined | null): boolean {
+  if (!label) return false;
+  const normalized = label
+    .toLowerCase()
+    .replace(/[\u2019\u2018`\u00b4]/g, "'")
+    .replace(/[^a-z0-9' ]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) return false;
+  return (
+    normalized.includes("don't close") ||
+    normalized.includes("dont close") ||
+    normalized.includes("do not close")
+  );
+}
+
+/** Build tab_id → label map from a snapshot `tabs` array. */
+export function tabLabelMap(tabs: Array<Record<string, unknown>> | undefined): Map<string, string> {
+  const m = new Map<string, string>();
+  if (!tabs) return m;
+  for (const t of tabs) {
+    const id = t.tab_id as string;
+    if (!id) continue;
+    m.set(id, (t.label as string) || "");
+  }
+  return m;
+}
+
 /** Herdr resource IDs are workspace-local opaque IDs such as w1:p2 or
  *  w1:t2. Keep shell arguments constrained even though Herdr normally
  *  generates this format. */

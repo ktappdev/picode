@@ -6,6 +6,7 @@ import {
   err,
   extractRole,
   effectiveAgentStatus,
+  isProtectedTabLabel,
   isValidPaneId,
 } from "./shared";
 import type { PicodeStore } from "../core/types";
@@ -74,6 +75,25 @@ export function registerTabCloseTool(pi: ExtensionAPI, store: PicodeStore) {
         return err(
           `tab_id ${tabId} is this coordinator's own tab — refusing to close. Pass a worker tab ID.`,
         );
+      }
+
+      // Never close user-owned tabs (e.g. "don't close — frontend").
+      // Those tabs are off-limits even when empty.
+      try {
+        const tabInfo = herdrJson(`tab get ${tabId}`);
+        const tabPayload = (tabInfo.result as Record<string, unknown> | undefined) || {};
+        const tab =
+          (tabPayload.tab as Record<string, unknown> | undefined) ||
+          (typeof tabPayload.tab_id === "string" ? tabPayload : undefined);
+        const tabLabel = (tab?.label as string) || "";
+        if (isProtectedTabLabel(tabLabel)) {
+          return err(
+            `Tab ${tabId} ("${tabLabel}") is user-owned ("don't close") — refusing to close. That tab is off-limits.`,
+          );
+        }
+      } catch {
+        // Can't verify tab label — fall through to the snapshot check below,
+        // which refuses to close blindly if herdr is unreachable.
       }
 
       // Check panes in this tab for active workers

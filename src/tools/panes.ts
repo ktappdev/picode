@@ -1,7 +1,14 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { execSync } from "child_process";
-import { err, extractRole, effectiveAgentStatus, quietToolResult } from "./shared";
+import {
+  err,
+  extractRole,
+  effectiveAgentStatus,
+  isProtectedTabLabel,
+  quietToolResult,
+  tabLabelMap,
+} from "./shared";
 
 /** Statuses that mean the pane is still useful — don't close these. */
 const ACTIVE_STATUSES = new Set(["working", "idle", "done"]);
@@ -86,6 +93,7 @@ export function registerPanesTool(pi: ExtensionAPI) {
           ) || [];
 
         const layouts = (snap.layouts as Record<string, unknown>[]) || [];
+        const tabLabels = tabLabelMap((snap.tabs as Record<string, unknown>[] | undefined) || []);
 
         // Build a map of pane_id → rect from layouts
         const rectMap = new Map<string, { x: number; y: number; width: number; height: number }>();
@@ -123,9 +131,17 @@ export function registerPanesTool(pi: ExtensionAPI) {
           const picodeId = extractRole(label);
           const status = effectiveAgentStatus(herdrStatus, picodeId);
 
+          // User-owned tabs (e.g. "don't close — frontend") are off-limits:
+          // never suggest reuse or cleanup for panes inside them.
+          const paneTabId = (p.tab_id as string) || "";
+          const paneTabLabel = tabLabels.get(paneTabId) || "";
+          const inProtectedTab = isProtectedTabLabel(paneTabLabel);
+
           // Suggestion for coordinator
           let suggestion: string | undefined;
-          if (ACTIVE_STATUSES.has(status)) {
+          if (inProtectedTab) {
+            suggestion = 'OFF-LIMITS: user-owned tab ("don\'t close") — leave alone';
+          } else if (ACTIVE_STATUSES.has(status)) {
             if (status === "idle" || status === "done") {
               suggestion = "REUSE: idle and available for new work";
             } else {
@@ -189,7 +205,11 @@ export function registerPanesTool(pi: ExtensionAPI) {
           }
 
           for (const [tabId, tabPanes] of tabs) {
-            lines.push(`  Tab ${tabId}`);
+            const headerLabel = tabLabels.get(tabId) || "";
+            const headerProtected = isProtectedTabLabel(headerLabel);
+            lines.push(
+              `  Tab ${tabId}${headerLabel ? ` ("${headerLabel}")` : ""}${headerProtected ? ' — OFF-LIMITS ("don\'t close")' : ""}`,
+            );
             for (const p of tabPanes) {
               const rectStr = p.rect
                 ? ` [${p.rect.x}x${p.rect.y}, ${p.rect.width}x${p.rect.height}]`

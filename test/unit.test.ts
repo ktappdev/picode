@@ -40,7 +40,9 @@ import {
   belongsToWorkspace,
   effectiveAgentStatus,
   extractPaneInfo,
+  isProtectedTabLabel,
   quietToolResult,
+  tabLabelMap,
 } from "../src/tools/shared";
 import { envelopeMessageRenderer, systemMessageRenderer } from "../src/renderers";
 import { countPanesInTab, solePaneInTab, resolveThinking } from "../src/tools/spawn";
@@ -4476,6 +4478,62 @@ describe("tab-create: validateLabel", () => {
     assert.ok(validateLabel("; rm -rf /"), "command injection rejected");
     assert.ok(validateLabel("$(whoami)"), "command substitution rejected");
     assert.ok(validateLabel("`whoami`"), "backtick injection rejected");
+  });
+});
+
+// ── Protected (user-owned) tab labels ─────────────────────────────
+
+describe("shared: isProtectedTabLabel", () => {
+  it("matches the three canonical phrasings", () => {
+    assert.ok(isProtectedTabLabel("don't close"));
+    assert.ok(isProtectedTabLabel("dont close"));
+    assert.ok(isProtectedTabLabel("do not close"));
+  });
+
+  it("is case-insensitive and ignores surrounding whitespace", () => {
+    assert.ok(isProtectedTabLabel("DON'T CLOSE"));
+    assert.ok(isProtectedTabLabel("  don't close  "));
+  });
+
+  it("matches prefixed/suffixed user labels", () => {
+    assert.ok(isProtectedTabLabel("don't close — frontend"));
+    assert.ok(isProtectedTabLabel("dont-close-backend"));
+    assert.ok(isProtectedTabLabel("frontend — don't close"));
+  });
+
+  it("normalizes curly apostrophes and other punctuation", () => {
+    assert.ok(isProtectedTabLabel("don’t close — backend"));
+  });
+
+  it("rejects unrelated labels", () => {
+    assert.ok(!isProtectedTabLabel("frontend"));
+    assert.ok(!isProtectedTabLabel("workers-2"));
+    assert.ok(!isProtectedTabLabel(""));
+    assert.ok(!isProtectedTabLabel(null));
+    assert.ok(!isProtectedTabLabel(undefined));
+    assert.ok(!isProtectedTabLabel("close"));
+  });
+
+  it("does not match a bare 'close' or 'don\'t' fragment", () => {
+    assert.ok(!isProtectedTabLabel("don't"));
+    assert.ok(!isProtectedTabLabel("don't worry"));
+  });
+});
+
+describe("shared: tabLabelMap", () => {
+  it("maps tab_id to label and skips missing ids", () => {
+    const m = tabLabelMap([
+      { tab_id: "w1:t1", label: "don't close" },
+      { tab_id: "w1:t2", label: "frontend" },
+      { label: "no-id" },
+    ]);
+    assert.strictEqual(m.get("w1:t1"), "don't close");
+    assert.strictEqual(m.get("w1:t2"), "frontend");
+    assert.strictEqual(m.has("no-id"), false);
+  });
+
+  it("returns an empty map for undefined input", () => {
+    assert.strictEqual(tabLabelMap(undefined).size, 0);
   });
 });
 

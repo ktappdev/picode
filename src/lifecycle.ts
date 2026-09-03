@@ -13,6 +13,7 @@ import { roleEmoji } from "./core/roles";
 import { modelsConfigPaths } from "./core/model-config";
 import { purgeStalePcodes, referencedPicodeIds } from "./tools/purge";
 import { saveRecallParticipant } from "./core/recall-registry";
+import { isProtectedTabLabel, tabLabelMap } from "./tools/shared";
 import { nowIso } from "./core/time";
 import {
   startHerdrListener,
@@ -266,9 +267,13 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
         const panes = snap?.panes || [];
         const ws = process.env.HERDR_WORKSPACE_ID;
         const myPane = process.env.HERDR_PANE_ID;
+        // User-owned tabs (e.g. "don't close — frontend") are off-limits:
+        // never close their panes during startup cleanup.
+        const tabLabels = tabLabelMap(snap?.tabs);
         for (const p of panes) {
           if (p.workspace_id !== ws) continue;
           if (p.pane_id === myPane) continue;
+          if (isProtectedTabLabel(tabLabels.get(p.tab_id as string) || "")) continue;
           const status = p.agent_status;
           if (status === "working" || status === "idle") continue;
           try {

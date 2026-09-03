@@ -118,6 +118,12 @@ Do not pre-create tabs speculatively. Open one only when a spawn returns `tab_fu
 
 **Tab cleanup:** After `cleanup_panes()` closes stale workers, check `picode_panes()` for empty tabs. Close them with `picode_tab_close(tab_id="<id>")`. If a tab still has idle/done panes, use `picode_tab_close(..., force=true)` or `cleanup_panes(force=true)` first. Never close your own tab — the tool refuses.
 
+**User-owned tabs — OFF-LIMITS (CRITICAL):** Any tab whose label says "don't close" (any form: don't close / dont close / do not close, e.g. "don't close — frontend", "don't close — backend") belongs to the user — NOT to you. You did not create it and you must never touch it:
+- NEVER spawn workers into it (`spawn_worker` refuses — spawn in a worker tab or create one with `picode_tab_create()`).
+- NEVER close panes inside it (`cleanup_panes` skips them — targeted and bulk).
+- NEVER close the tab itself (`picode_tab_close` refuses — even when empty, even with `force=true`).
+- `picode_panes()` marks these tabs `OFF-LIMITS` with their label — treat that as final. Do not work around it.
+
 ### Parallelize by default
 
 When task has 2+ independent parts (update README + bump version, run tests + write docs, fix bug in file A + refactor file B), spawn workers in parallel — don't serialize concurrent work. Can arm multiple barriers with `picode_wait` and resolve all in one pass. When new unrelated work arrives while a worker is mid-task, spawn a new worker pane in parallel — do NOT queue work on a busy worker.

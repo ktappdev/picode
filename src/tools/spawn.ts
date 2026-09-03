@@ -10,9 +10,11 @@ import {
   extractPaneInfo,
   extractRole,
   effectiveAgentStatus,
+  isProtectedTabLabel,
   isValidPaneId,
   shellQuote,
   quietToolResult,
+  tabLabelMap,
 } from "./shared";
 import type { PicodeStore } from "../core/types";
 import { trackPane } from "../herdr/listener";
@@ -161,6 +163,7 @@ function isCoordinatorLabel(label: string): boolean {
 export interface SnapshotData {
   panes: Array<Record<string, unknown>>;
   layouts: Array<Record<string, unknown>>;
+  tabs: Array<Record<string, unknown>>;
   rectMap: Map<string, { x: number; y: number; width: number; height: number }>;
 }
 
@@ -175,6 +178,9 @@ export function fetchSnapshot(): SnapshotData | null {
       Record<string, unknown>
     >;
     const layouts = ((snap.layouts as Record<string, unknown>[] | undefined) || []) as Array<
+      Record<string, unknown>
+    >;
+    const tabs = ((snap.tabs as Record<string, unknown>[] | undefined) || []) as Array<
       Record<string, unknown>
     >;
 
@@ -195,7 +201,7 @@ export function fetchSnapshot(): SnapshotData | null {
       }
     }
 
-    return { panes, layouts, rectMap };
+    return { panes, layouts, tabs, rectMap };
   } catch {
     return null;
   }
@@ -620,6 +626,18 @@ export function registerSpawnTool(pi: ExtensionAPI, store: PicodeStore) {
       const snap = fetchSnapshot();
       if (!snap) {
         return err("Failed to fetch herdr snapshot — is herdr running?");
+      }
+
+      // Refuse to spawn into user-owned tabs (e.g. "don't close — frontend").
+      // Those tabs are off-limits: never place workers there.
+      {
+        const labels = tabLabelMap(snap.tabs);
+        const targetLabel = labels.get(targetTabId) || "";
+        if (isProtectedTabLabel(targetLabel)) {
+          return err(
+            `Tab ${targetTabId} ("${targetLabel}") is user-owned ("don't close") — refusing to spawn there. Spawn in a worker tab or create one with picode_tab_create().`,
+          );
+        }
       }
 
       try {

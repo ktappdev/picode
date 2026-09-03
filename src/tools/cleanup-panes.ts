@@ -6,6 +6,7 @@ import {
   err,
   extractPaneInfo,
   extractRole,
+  isProtectedTabLabel,
   isValidPaneId,
   effectiveAgentStatus,
   quietToolResult,
@@ -116,6 +117,27 @@ export function registerCleanupPanesTool(pi: ExtensionAPI, store: PicodeStore) {
 
           const label = (paneInfo.label as string) || "";
           const herdrStatus = (paneInfo.agent_status as string) || "unknown";
+          // Never touch panes inside user-owned tabs (e.g. "don't close —
+          // frontend"). Those tabs are off-limits even for targeted closes.
+          const paneTabId = (paneInfo.tab_id as string) || "";
+          if (paneTabId) {
+            try {
+              const tabResult = herdrJson(`tab get ${paneTabId}`);
+              const tabPayload = (tabResult.result as Record<string, unknown> | undefined) || {};
+              const tab =
+                (tabPayload.tab as Record<string, unknown> | undefined) ||
+                (typeof tabPayload.tab_id === "string" ? tabPayload : undefined);
+              const tabLabel = (tab?.label as string) || "";
+              if (isProtectedTabLabel(tabLabel)) {
+                return err(
+                  `Pane ${targetId} is in user-owned tab "${tabLabel}" ("don't close") — refusing to close. That tab is off-limits.`,
+                );
+              }
+            } catch {
+              // Can't verify tab label — fail open so an explicit targeted
+              // close isn't blocked by a herdr hiccup.
+            }
+          }
           // Cross-check picode heartbeat: a zombie worker (process dead,
           // herdr still says working/blocked) should be cleanupable, not
           // protected by a stale status lie.
@@ -193,6 +215,23 @@ export function registerCleanupPanesTool(pi: ExtensionAPI, store: PicodeStore) {
           ((result.result as Record<string, unknown> | undefined)?.panes as
             Record<string, unknown>[] | undefined) || [];
 
+        // User-owned tabs (e.g. "don't close — frontend") are off-limits:
+        // never bulk-close panes inside them. Labels come from tab list.
+        const protectedTabIds = new Set<string>();
+        try {
+          const tabResult = herdrJson(`tab list --workspace ${workspaceId}`);
+          const tabPayload = (tabResult.result as Record<string, unknown> | undefined) || {};
+          const tabs = (tabPayload.tabs as Record<string, unknown>[] | undefined) || [];
+          for (const t of tabs) {
+            const id = t.tab_id as string;
+            if (!id) continue;
+            if (isProtectedTabLabel((t.label as string) || "")) protectedTabIds.add(id);
+          }
+        } catch {
+          // Can't verify tab labels — fail open so bulk cleanup isn't
+          // blocked by a herdr hiccup; targeted + spawn guards still hold.
+        }
+
         // Current pane ID — never close ourselves, even if labeled as a worker.
         // (Already set above before the targeted-mode branch.)
 
@@ -214,6 +253,10 @@ export function registerCleanupPanesTool(pi: ExtensionAPI, store: PicodeStore) {
             skipped.push(paneId);
             continue;
           }
+
+          // Never bulk-close panes inside user-owned tabs.
+          const paneTabId = (pane.tab_id as string) || "";
+          if (paneTabId && protectedTabIds.has(paneTabId)) continue;
 
           const role = extractRole(label);
           if (!WORKER_ROLE_PATTERN.test(role)) {
