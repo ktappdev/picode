@@ -13,6 +13,8 @@ import { registerPanesTool } from "./panes";
 import { registerPaneReadTool } from "./pane-read";
 import { registerRunTool } from "./run";
 import { registerRoundTableTools } from "./round-table";
+import { registerFinishTool } from "./finish";
+import { registerReviveTool } from "./revive";
 
 /** The model-facing picode_* tools: the five protocol tools (§14 — send,
  *  wait, status, list, journal) plus the two client-local on-hold controls
@@ -31,4 +33,6 @@ export function registerTools(pi: ExtensionAPI, store: PicodeStore, inbox: Inbox
   registerPaneReadTool(pi);
   registerRunTool(pi);
   registerRoundTableTools(pi, store, inbox);
+  registerFinishTool(pi, store, inbox);
+  registerReviveTool(pi, store, inbox);
 }

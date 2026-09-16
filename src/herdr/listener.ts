@@ -82,6 +82,16 @@ export function setListenerHandle(handle: HerdrListenerHandle | null): void {
   activeHandle = handle;
 }
 
+/** Read the active listener handle. Exists so a host that started the
+ *  listener can stop it without holding the handle itself — lifecycle.ts
+ *  keeps its own reference and only stops on session_shutdown, which tests
+ *  and embedders do not always fire. Without a getter the only way out is a
+ *  session_shutdown, so a forgotten listener leaks a live net.Socket (or a
+ *  reconnect timer when herdr is down) and the process never exits. */
+export function getListenerHandle(): HerdrListenerHandle | null {
+  return activeHandle;
+}
+
 /** Track a pane ID on the active listener (called by spawn_worker).
  *  No-op if no listener is running. */
 export function trackPane(paneId: string): void {

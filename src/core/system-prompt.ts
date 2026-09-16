@@ -192,10 +192,46 @@ function journalGuidanceFor(role: string): string {
 
 // ── Main export ─────────────────────────────────────────────────────
 
-export function threadModelPrompt(
-  data: PicodeData,
-  options: { roundTable?: boolean } = {},
-): string {
+export interface ThreadPromptOptions {
+  /** Read-only Recall Round Table consultation — a stripped, tool-less mode. */
+  roundTable?: boolean;
+  /** Pre-rendered "Recent workers" digest (see core/worker-ledger.ts).
+   *  Coordinator only — a worker has no roster to consider. */
+  workers?: string;
+  /** Set when this session was resumed by `revive_closed_session`, carrying
+   *  the timestamp of the worker's last heartbeat before it stopped. */
+  revived?: { since: string };
+}
+
+function humanDowntime(ms: number): string {
+  const minutes = Math.max(0, Math.round(ms / 60_000));
+  if (minutes < 1) return "moments";
+  if (minutes < 60) return `${minutes} minutes`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} hours`;
+  return `${Math.round(hours / 24)} days`;
+}
+
+/** A revived worker resumes a session whose whole context predates the gap,
+ *  so it must be told the gap exists. Without this it silently trusts a view
+ *  of the tree that may be hours stale — the dangerous failure mode for
+ *  revival is not wasted tokens, it is a confident edit against a world that
+ *  has moved on. */
+function revivedNotice(since: string): string {
+  const at = new Date(since).getTime();
+  const downFor = Number.isFinite(at) ? humanDowntime(Date.now() - at) : null;
+  return [
+    "### You were revived",
+    "",
+    `This session was stopped${downFor ? ` ${downFor} ago` : " earlier"} and has just been resumed, so everything in your context predates that gap. **The working tree may have moved on since you last looked.**`,
+    "",
+    "- Treat your recalled state as a starting point, not as current fact.",
+    "- Re-read a file before you change it, and re-run anything you are about to claim still passes.",
+    "- Your own `picode_finish` note is the best record of what was actually left open.",
+  ].join("\n");
+}
+
+export function threadModelPrompt(data: PicodeData, options: ThreadPromptOptions = {}): string {
   const { picodeId, parent, role } = data;
   const displayRole = role || "worker";
 
@@ -208,6 +244,14 @@ export function threadModelPrompt(
       "Round Table consultations do not journal. Your sole task is one correlated reply.",
     );
   }
+
+  // Optional trailing blocks, appended to every non-Round-Table prompt.
+  // A Round Table consultation is a single correlated reply, so it gets
+  // neither the roster digest nor a revival caveat.
+  const withContext = (base: string): string =>
+    [base, options.revived ? revivedNotice(options.revived.since) : "", options.workers ?? ""]
+      .filter(block => block.length > 0)
+      .join("\n\n");
 
   // Try per-project override first
   const override = loadPromptOverride(role);
@@ -238,12 +282,8 @@ export function threadModelPrompt(
           overrideBody
         : overrideBody;
 
-    return buildCommunicationModel(
-      picodeId,
-      displayRole,
-      parent,
-      roleBlock,
-      journalGuidanceFor(role),
+    return withContext(
+      buildCommunicationModel(picodeId, displayRole, parent, roleBlock, journalGuidanceFor(role)),
     );
   }
 
@@ -257,11 +297,7 @@ export function threadModelPrompt(
       .join("\n\n");
   }
 
-  return buildCommunicationModel(
-    picodeId,
-    displayRole,
-    parent,
-    roleBlock,
-    journalGuidanceFor(role),
+  return withContext(
+    buildCommunicationModel(picodeId, displayRole, parent, roleBlock, journalGuidanceFor(role)),
   );
 }

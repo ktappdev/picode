@@ -33,6 +33,7 @@ import type {
   Theme,
 } from "@earendil-works/pi-coding-agent";
 import { createPicodeStore } from "../src/state";
+import type { PicodeStore } from "../src/core/types";
 import { createInbox } from "../src/inbox";
 import type { Injection } from "../src/inbox";
 import { DEADLINE_EXPIRY_GRACE_MS } from "../src/inbox";
@@ -48,6 +49,7 @@ import { envelopeMessageRenderer, systemMessageRenderer } from "../src/renderers
 import { countPanesInTab, solePaneInTab, resolveThinking } from "../src/tools/spawn";
 import { validateLabel } from "../src/tools/tab-create";
 import { registerLifecycle, extractFirstLine } from "../src/lifecycle";
+import { getListenerHandle, setListenerHandle } from "../src/herdr/listener";
 import { deadlineFromSeconds } from "../src/core/time";
 import { checkBodySize, MAX_BODY_BYTES } from "../src/tools/messaging";
 import { registerTools } from "../src/tools/index";
@@ -354,6 +356,9 @@ function makeLifecycleHarness(dir: string) {
   const store = createPicodeStore(stubPi);
   const inbox = createInbox(store, stubPi);
   registerLifecycle(stubPi, store, inbox);
+  // session_start starts a watcher + heartbeat; the top-level afterEach
+  // closes them so the runner can exit.
+  openStores.push(store);
 
   function makeCtx(entries: CustomEntry[] = [], header?: { parentSession?: string }) {
     return {
@@ -397,11 +402,56 @@ function makeLifecycleHarness(dir: string) {
 
 let tmpDir: string;
 
+/** Herdr env inherited from the developer's shell. When this suite runs from
+ *  inside a Herdr pane — which is how picode is normally developed — these are
+ *  already set. A test that flips `HERDR_ENV` to "1" to satisfy the
+ *  coordinator's must-run-in-herdr guard then *also* satisfies
+ *  `startHerdrListener`'s guard (which additionally requires
+ *  HERDR_WORKSPACE_ID), opening a real `net.Socket` subscription to the live
+ *  daemon. Nothing closes it, so libuv stays alive and `node --test` never
+ *  exits — after reporting every test green. Parked here so the suite is
+ *  hermetic wherever it runs: a test must opt in explicitly, never inherit. */
+const HERDR_ENV_KEYS = [
+  "HERDR_ENV",
+  "HERDR_WORKSPACE_ID",
+  "HERDR_PANE_ID",
+  "HERDR_TAB_ID",
+] as const;
+let savedHerdrEnv: Record<string, string | undefined> = {};
+
+/** Stores whose lifecycle wiring a test has started. `session_start` opens a
+ *  real `fs.watch` (local-fs.ts `watchInbox`) and a real heartbeat interval
+ *  (lifecycle.ts) — neither is anything an assertion cares about, but both
+ *  hold libuv handles, so leaving them open keeps the runner alive after the
+ *  last test has passed. Tracked here so afterEach closes them. */
+const openStores: PicodeStore[] = [];
+
 beforeEach(() => {
   tmpDir = mkdtempSync(join(tmpdir(), "pi-picode-unit-"));
+  savedHerdrEnv = {};
+  for (const key of HERDR_ENV_KEYS) {
+    savedHerdrEnv[key] = process.env[key];
+    delete process.env[key];
+  }
 });
 
 afterEach(() => {
+  for (const [key, value] of Object.entries(savedHerdrEnv)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  // Close handles before the directory they watch is removed, so the watcher
+  // isn't left reporting ENOENT against a deleted path.
+  for (const store of openStores.splice(0)) {
+    store.stopWatcher();
+    store.stopHeartbeat();
+  }
+  // Belt-and-suspenders for any test that starts the listener itself. The
+  // handle is not reachable from the store — lifecycle.ts holds it in its own
+  // closure and stops it only on session_shutdown, which these tests never
+  // fire. stop() clears the socket and both of the listener's timers.
+  getListenerHandle()?.stop();
+  setListenerHandle(null);
   rmSync(tmpDir, { recursive: true, force: true });
 });
 
@@ -3963,8 +4013,16 @@ describe("system-prompt: picode_send contract is in every worker template", () =
       "missing plain-text-only warning",
     );
     assert.ok(
-      workerBase.includes("Use `picode_send` for everything"),
-      "missing 'Use picode_send for everything' bullet",
+      workerBase.includes("Use `picode_send` for status updates"),
+      "missing picode_send usage bullet",
+    );
+    // The close-out path moved from a plain "done" send to picode_finish, so
+    // this guard now protects that wiring too: if the finish instruction ever
+    // drops out of the shared base, every worker silently stops leaving
+    // handoff notes and the revivable-worker ledger goes blind.
+    assert.ok(
+      workerBase.includes("Close an assigned task with `picode_finish`"),
+      "missing picode_finish close-out rule",
     );
   });
   it("COORDINATOR_RULES has the silent-recovery rule", () => {
@@ -3979,6 +4037,11 @@ describe("system-prompt: picode_send contract is in every worker template", () =
     assert.match(coordinator, /never guess, truncate, construct/);
     assert.match(coordinator, /locked to your current `HERDR_WORKSPACE_ID`/);
     assert.match(coordinator, /opencode-go\/mimo-v2\.5/);
+    // The revivable-worker ladder is a decision rule, not a tool description:
+    // without it in the prompt the coordinator never notices a worker worth
+    // resuming and revive_closed_session is never called.
+    assert.match(coordinator, /revive_closed_session\(picode_id, task\)/);
+    assert.match(coordinator, /spawn fresh instead/);
   });
 });
 
@@ -4514,7 +4577,7 @@ describe("shared: isProtectedTabLabel", () => {
     assert.ok(!isProtectedTabLabel("close"));
   });
 
-  it("does not match a bare 'close' or 'don\'t' fragment", () => {
+  it("does not match a bare 'close' or 'don't' fragment", () => {
     assert.ok(!isProtectedTabLabel("don't"));
     assert.ok(!isProtectedTabLabel("don't worry"));
   });

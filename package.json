@@ -1,6 +1,6 @@
 {
   "name": "picode",
-  "version": "0.5.19",
+  "version": "0.6.0",
   "description": "Cross-picode communication extension for pi coding agent — independent threads that coordinate work, share state, and converse without losing context",
   "license": "MIT",
   "keywords": [
@@ -40,7 +40,7 @@
   },
   "scripts": {
     "test": "npm run test:unit && npm run test:e2e",
-    "test:unit": "node --import tsx --test test/unit.test.ts test/round-table.test.ts",
+    "test:unit": "node --import tsx --test test/unit.test.ts test/round-table.test.ts test/revive.test.ts",
     "test:mcp": "node --import tsx --test test/mcp.test.ts",
     "test:e2e": "node --import tsx --test test/e2e.test.ts",
     "test:e2e:restate": "node --import tsx --test test/e2e-restate.test.ts",

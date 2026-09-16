@@ -33,6 +33,11 @@ export default function (pi: ExtensionAPI) {
     type: "boolean",
     description: "Start a resumed, read-only Recall Round Table consultation.",
   });
+  pi.registerFlag("picode-revived", {
+    type: "string",
+    description:
+      "Set by revive_closed_session to the ISO timestamp of this worker's last heartbeat before it stopped. Tells the resumed session its context may be stale.",
+  });
   pi.registerFlag("picode-journal", {
     type: "string",
     description:

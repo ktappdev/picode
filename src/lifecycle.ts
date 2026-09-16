@@ -2,6 +2,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import type { PicodeStore, PicodeState } from "./core/types";
 import type { Inbox, Injection } from "./inbox";
 import { threadModelPrompt } from "./core/system-prompt";
+import { formatWorkerDigest, recentWorkers } from "./core/worker-ledger";
 import {
   journalMode,
   shouldJournal,
@@ -204,6 +205,8 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
         "picode_tab_close",
         "picode_round_table",
         "picode_round_table_reply",
+        "picode_finish",
+        "revive_closed_session",
       ]);
       pi.setActiveTools(pi.getActiveTools().filter(name => !PICODE_TOOLS.has(name)));
       return;
@@ -662,7 +665,7 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
     await inbox.drainInbox(ctx);
   });
 
-  pi.on("before_agent_start", async event => {
+  pi.on("before_agent_start", async (event, ctx) => {
     if (!active) return;
     // Only prompt()-driven runs assemble the system prompt through this
     // handler — record that the agent's system prompt now carries the picode
@@ -670,9 +673,26 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
     // trigger turns (they inherit state.systemPrompt instead of rebuilding
     // it, and would otherwise run without picode rules entirely).
     store.promptDrivenTurnSeen = true;
+
+    // Roster digest — coordinator only, and cheap by construction: bounded
+    // to the most recent workers, with session scans memoised by mtime.
+    const workers =
+      store.role === "coordinator" && !isRoundTable
+        ? formatWorkerDigest(recentWorkers(ctx.cwd))
+        : "";
+
+    // Stamped by revive_closed_session at launch with the timestamp of this
+    // worker's last heartbeat before it stopped, so a resumed session knows
+    // how stale its own context is.
+    const revivedFlag = pi.getFlag("picode-revived");
+    const revived =
+      typeof revivedFlag === "string" && revivedFlag ? { since: revivedFlag } : undefined;
+
     return {
       systemPrompt:
-        event.systemPrompt + "\n\n" + threadModelPrompt(store, { roundTable: isRoundTable }),
+        event.systemPrompt +
+        "\n\n" +
+        threadModelPrompt(store, { roundTable: isRoundTable, workers, revived }),
     };
   });
 }
