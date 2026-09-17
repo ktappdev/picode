@@ -10,6 +10,12 @@ import {
   splitJournalEntries,
   JOURNAL_CONTEXT_MAX_MESSAGES,
 } from "./journal";
+import {
+  advanceSitrep,
+  initialSitrepStreak,
+  resolveSitrepMaxIdle,
+  sitrepSignature,
+} from "./core/sitrep";
 import { roleEmoji } from "./core/roles";
 import { modelsConfigPaths } from "./core/model-config";
 import { purgeStalePcodes, referencedPicodeIds } from "./tools/purge";
@@ -26,11 +32,29 @@ import { execSync } from "node:child_process";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-/** Interval for periodic coordinator sit-rep injections (ms).
+/** Default interval for periodic coordinator sit-rep injections (ms).
  *  Every N minutes, if the coordinator is idle and has tracked panes,
  *  inject a sit-rep prompt so it checks worker health and stale barriers.
  *  Override with PICODE_SITREP_INTERVAL_MS env var. */
-const SITREP_INTERVAL_MS = Number(process.env.PICODE_SITREP_INTERVAL_MS) || 600_000; // 10 min default
+export const SITREP_INTERVAL_MS_DEFAULT = 600_000; // 10 min
+
+/** Resolved at arming time, not module load: env read at import time makes the
+ *  policy untestable (and a shell-exported override silently rewrites it for
+ *  every test that imports this file). */
+function sitRepIntervalMs(): number {
+  return Number(process.env.PICODE_SITREP_INTERVAL_MS) || SITREP_INTERVAL_MS_DEFAULT;
+}
+
+/** Consecutive unchanged checks tolerated before the timer stops itself —
+ *  see core/sitrep.ts for the policy. 0 = poll forever. */
+function sitRepMaxIdle(): number {
+  return resolveSitrepMaxIdle(process.env.PICODE_SITREP_MAX_IDLE);
+}
+
+/** How long after injecting a sit-rep the run still counts as "ours" for
+ *  journal suppression. Bounds the blast radius of a sit-rep whose turn never
+ *  ran: it must not silence the journal for an unrelated later run. */
+const SITREP_RUN_WINDOW_MS = 120_000;
 
 /** Wiring into pi's event stream: state transitions across the turn cycle,
  *  the silent-debtor nudge, journal cadence triggers, and the picode-model
@@ -140,6 +164,110 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
   let isRoundTable = false;
   let stopHerdrListener: HerdrListenerHandle | null = null;
   let sitRepTimer: NodeJS.Timeout | null = null;
+
+  // --- Periodic sit-rep, bounded (core/sitrep.ts) -------------------------
+  // Armed only for a coordinator running inside herdr. The timer stops itself
+  // once consecutive checks stop finding news, and restarts on real activity.
+  let sitRepEligible = false;
+  let sitRepCtx: ExtensionContext | null = null;
+  let sitRepStreak = initialSitrepStreak();
+  // Set while a sit-rep run is in flight so the journal can tell a no-op check
+  // apart from real work and skip its forked model call (see
+  // sitRepRunChangedNothing).
+  let sitRepRunAt = 0;
+  let sitRepRunSignature: string | null = null;
+
+  /** The picture a sit-rep inspects, right now. */
+  function currentSitrepSignature(): string {
+    return sitrepSignature({
+      trackedPanes: getTrackedPaneCount(),
+      obligations: store.obligations.map(o => o.id),
+      barriers: store.barriers.map(b => b.id),
+      owed: store.owed.map(o => o.id),
+    });
+  }
+
+  /** True when this run was started by the sit-rep timer and nothing
+   *  structural has moved since it injected. A check that found nothing must
+   *  not also pay for a forked journal entry — that would be a second model
+   *  call for the same no-op. */
+  function sitRepRunChangedNothing(): boolean {
+    return (
+      sitRepRunSignature !== null &&
+      Date.now() - sitRepRunAt < SITREP_RUN_WINDOW_MS &&
+      sitRepRunSignature === currentSitrepSignature()
+    );
+  }
+
+  function stopSitRepTimer(): void {
+    if (sitRepTimer) clearInterval(sitRepTimer);
+    sitRepTimer = null;
+  }
+
+  /** Real activity: the next check gets a fresh baseline, and a timer that
+   *  paused itself starts checking again. Deliberately NOT called for the
+   *  sit-rep's own injection — that would reset the very cap it enforces. */
+  function notePicodeActivity(): void {
+    sitRepStreak = initialSitrepStreak();
+    sitRepRunSignature = null;
+    if (sitRepEligible && sitRepCtx && !sitRepTimer) armSitRepTimer(sitRepCtx);
+  }
+
+  /** (Re)start the sit-rep interval against this session's context. */
+  function armSitRepTimer(ctx: ExtensionContext): void {
+    stopSitRepTimer();
+    sitRepCtx = ctx;
+    sitRepTimer = setInterval(() => {
+      // Skip if coordinator is actively working or thinking
+      if (store.state === "thinking" || store.state === "working" || store.state === "on-hold") {
+        return;
+      }
+      // Skip if compaction is in progress — injection would race context rewrite
+      if (!inbox.canInject()) {
+        return;
+      }
+      // Skip if no tracked panes — nothing to sit-rep about
+      if (getTrackedPaneCount() === 0) {
+        return;
+      }
+
+      const signature = currentSitrepSignature();
+      const maxIdle = sitRepMaxIdle();
+      const { streak, decision } = advanceSitrep(sitRepStreak, signature, maxIdle);
+      sitRepStreak = streak;
+
+      // Nothing has changed for maxIdle checks in a row: stop waking the model
+      // over an unchanged picture. The session stays alive and silent — the
+      // next operator message or delivered envelope re-arms the timer via
+      // notePicodeActivity. `maxIdle === 0` never pauses.
+      if (decision === "pause") {
+        stopSitRepTimer();
+        ctx.ui.notify(
+          `Sit-rep paused: ${maxIdle} checks in a row found no changes. No further checks until you send a message or picode traffic arrives.`,
+          "info",
+        );
+        return;
+      }
+
+      sitRepRunAt = Date.now();
+      sitRepRunSignature = signature;
+
+      // Inject sit-rep as followUp (non-interrupting — waits for current
+      // turn). Collapsed picode-system message once a prompt()-driven run
+      // has assembled the picode system prompt; until then the verbose
+      // sendUserMessage fallback keeps that first run correct.
+      const sitrep =
+        "[picode-system] Periodic sit-rep: run picode_panes() and picode_status(tail=5). Check for: (1) zombie workers — working but no recent activity, (2) stale barriers — expired deadlines, (3) idle workers that could be reused or closed. Act on findings — close zombies, purge stale barriers, reassign idle workers. Don't just report.";
+      if (store.promptDrivenTurnSeen) {
+        pi.sendMessage(
+          { customType: "picode-system", content: sitrep, display: true, details: {} },
+          { triggerTurn: true, deliverAs: "followUp" },
+        );
+      } else {
+        pi.sendUserMessage(sitrep, { deliverAs: "followUp" });
+      }
+    }, sitRepIntervalMs());
+  }
 
   // Targeted guard: upstream extensions (e.g. pi-windsurf) can throw
   // ERR_INVALID_STATE when cancelling a locked ReadableStream on idle
@@ -300,37 +428,13 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
       stopHerdrListener = startHerdrListener(pi, process.env.HERDR_WORKSPACE_ID);
       setListenerHandle(stopHerdrListener);
 
-      // Start periodic sit-rep timer — wakes coordinator every SITREP_INTERVAL_MS
-      // to check worker health and stale barriers. Only fires when coordinator
-      // is idle (done/open state), not during active work, compaction, or suspend.
-      sitRepTimer = setInterval(() => {
-        // Skip if coordinator is actively working or thinking
-        if (store.state === "thinking" || store.state === "working" || store.state === "on-hold") {
-          return;
-        }
-        // Skip if compaction is in progress — injection would race context rewrite
-        if (!inbox.canInject()) {
-          return;
-        }
-        // Skip if no tracked panes — nothing to sit-rep about
-        if (getTrackedPaneCount() === 0) {
-          return;
-        }
-        // Inject sit-rep as followUp (non-interrupting — waits for current
-        // turn). Collapsed picode-system message once a prompt()-driven run
-        // has assembled the picode system prompt; until then the verbose
-        // sendUserMessage fallback keeps that first run correct.
-        const sitrep =
-          "[picode-system] Periodic sit-rep: run picode_panes() and picode_status(tail=5). Check for: (1) zombie workers — working but no recent activity, (2) stale barriers — expired deadlines, (3) idle workers that could be reused or closed. Act on findings — close zombies, purge stale barriers, reassign idle workers. Don't just report.";
-        if (store.promptDrivenTurnSeen) {
-          pi.sendMessage(
-            { customType: "picode-system", content: sitrep, display: true, details: {} },
-            { triggerTurn: true, deliverAs: "followUp" },
-          );
-        } else {
-          pi.sendUserMessage(sitrep, { deliverAs: "followUp" });
-        }
-      }, SITREP_INTERVAL_MS);
+      // Start periodic sit-rep timer — wakes the coordinator to check worker
+      // health and stale barriers. Only fires when the coordinator is idle
+      // (done/open state), not during active work, compaction, or suspend. A
+      // delivered envelope is real activity: it restarts a paused timer.
+      sitRepEligible = true;
+      inbox.onInjected = () => notePicodeActivity();
+      armSitRepTimer(ctx);
     }
 
     // Auto-purge stale picode data on coordinator startup (fire-and-forget)
@@ -489,10 +593,9 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
   });
 
   pi.on("session_shutdown", async event => {
-    if (sitRepTimer) {
-      clearInterval(sitRepTimer);
-      sitRepTimer = null;
-    }
+    stopSitRepTimer();
+    sitRepEligible = false;
+    sitRepCtx = null;
     process.off("uncaughtException", streamGuard);
     if (stopHerdrListener) {
       stopHerdrListener.stop();
@@ -554,7 +657,12 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
     // Extension-sourced input is picode's own machinery (envelope injections,
     // system prompts) — the "did the operator speak" signal is for humans and
     // RPC clients only.
-    if (event.source !== "extension") userPromptThisRun = true;
+    if (event.source !== "extension") {
+      userPromptThisRun = true;
+      // The operator is back: give an idle or self-paused sit-rep timer a
+      // fresh baseline and let it check again.
+      notePicodeActivity();
+    }
   });
 
   pi.on("turn_start", async (_event, ctx) => {
@@ -621,6 +729,7 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
 
     const modelPaths = modelsConfigPaths(ctx.cwd);
     if (
+      !sitRepRunChangedNothing() &&
       !isRoundTable &&
       journalMode(pi, modelPaths.project, store.role, modelPaths.global) === "turn" &&
       shouldJournal(store, toolUsedThisTurn, "turn")
@@ -645,10 +754,16 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
     const mode = isRoundTable
       ? "off"
       : journalMode(pi, modelPaths.project, store.role, modelPaths.global);
+    // A sit-rep that found nothing is not journal news: skip the fork so the
+    // no-op costs one model call instead of two. The run marker is cleared
+    // either way — it describes this run only.
+    const noNewsSitRep = sitRepRunChangedNothing();
+    sitRepRunSignature = null;
     const write =
-      mode === "done"
+      !noNewsSitRep &&
+      (mode === "done"
         ? shouldJournal(store, toolUsedThisTurn, "done", userPromptThisRun)
-        : mode === "turn" && shouldJournal(store, toolUsedThisTurn, "run-end");
+        : mode === "turn" && shouldJournal(store, toolUsedThisTurn, "run-end"));
     userPromptThisRun = false;
     if (write) {
       await forkJournalFor(ctx);

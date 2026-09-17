@@ -10,7 +10,7 @@
  * Run: npm run test:unit (milliseconds, no API cost)
  */
 
-import { describe, it, beforeEach, afterEach } from "node:test";
+import { describe, it, beforeEach, afterEach, mock } from "node:test";
 import assert from "node:assert/strict";
 import {
   mkdtempSync,
@@ -82,6 +82,13 @@ import {
   JOURNAL_COMPACT_COOLDOWN_MS,
 } from "../src/journal";
 import { buildWakeLaunch } from "../src/restate/wake-launch";
+import {
+  advanceSitrep,
+  initialSitrepStreak,
+  resolveSitrepMaxIdle,
+  sitrepSignature,
+  SITREP_MAX_IDLE_DEFAULT,
+} from "../src/core/sitrep";
 import { createLocalFsAdapter } from "../src/adapter/local-fs";
 import type { StorageAdapter } from "../src/adapter/types";
 import type { StateFile, Envelope, PicodeSummary } from "../src/core/types";
@@ -295,6 +302,12 @@ function owedRecord(from: string, id: string, summary = "?") {
 // handler. This one goes through the real pi.on(...) wiring instead.
 type CustomEntry = { type: "custom"; customType: string; data?: unknown };
 
+/** An entry as far as lifecycle is concerned. Identity/résumé tests only need
+ *  `custom`; the journal-fork path builds its slice from `message` entries, so
+ *  tests that drive a real fork have to supply those. */
+type LifecycleEntry =
+  CustomEntry | { type: "message"; message: { role: string; [key: string]: unknown } };
+
 type SentCustom = {
   customType: string;
   content: string;
@@ -316,6 +329,7 @@ function makeLifecycleHarness(dir: string) {
   const sentMessages: SentMessage[] = [];
   const userMessages: string[] = [];
   const titles: string[] = [];
+  const notifications: { text: string; level?: string }[] = [];
   const registeredThreadTools = [
     "picode_status",
     "picode_list",
@@ -360,14 +374,14 @@ function makeLifecycleHarness(dir: string) {
   // closes them so the runner can exit.
   openStores.push(store);
 
-  function makeCtx(entries: CustomEntry[] = [], header?: { parentSession?: string }) {
+  function makeCtx(entries: LifecycleEntry[] = [], header?: { parentSession?: string }) {
     return {
       cwd: dir,
       ui: {
         setStatus: () => {},
         setTitle: (title: string) => titles.push(title),
         setFooter: () => {},
-        notify: () => {},
+        notify: (text: string, level?: string) => notifications.push({ text, level }),
       },
       sessionManager: {
         getEntries: () => entries,
@@ -382,6 +396,7 @@ function makeLifecycleHarness(dir: string) {
     store,
     inbox,
     dir,
+    notifications,
     setFlag(name: string, value: string | boolean) {
       flags[name] = value;
     },
@@ -2052,6 +2067,186 @@ describe("lifecycle: opt-in gate (§2.3)", () => {
     assert.strictEqual(h.store.promptDrivenTurnSeen, true, "before_agent_start primes");
     h.store.stopHeartbeat();
     h.store.stopWatcher();
+  });
+});
+
+describe("core: bounded sit-rep policy", () => {
+  it("falls back to the default cap on junk, so a typo cannot disable the cap", () => {
+    assert.strictEqual(resolveSitrepMaxIdle(undefined), SITREP_MAX_IDLE_DEFAULT);
+    assert.strictEqual(resolveSitrepMaxIdle(""), SITREP_MAX_IDLE_DEFAULT);
+    assert.strictEqual(resolveSitrepMaxIdle("   "), SITREP_MAX_IDLE_DEFAULT);
+    assert.strictEqual(resolveSitrepMaxIdle("three"), SITREP_MAX_IDLE_DEFAULT);
+    assert.strictEqual(resolveSitrepMaxIdle("-2"), SITREP_MAX_IDLE_DEFAULT);
+    assert.strictEqual(resolveSitrepMaxIdle("5"), 5);
+    assert.strictEqual(resolveSitrepMaxIdle("2.9"), 2);
+    assert.strictEqual(
+      resolveSitrepMaxIdle("0"),
+      0,
+      "0 is the explicit 'never pause' escape hatch",
+    );
+  });
+
+  it("fingerprint ignores ordering but reacts to every input", () => {
+    const base = { trackedPanes: 2, obligations: ["b", "a"], barriers: ["bar1"], owed: [] };
+    assert.strictEqual(
+      sitrepSignature(base),
+      sitrepSignature({ trackedPanes: 2, obligations: ["a", "b"], barriers: ["bar1"], owed: [] }),
+    );
+    assert.notStrictEqual(sitrepSignature(base), sitrepSignature({ ...base, trackedPanes: 1 }));
+    assert.notStrictEqual(sitrepSignature(base), sitrepSignature({ ...base, obligations: ["a"] }));
+    assert.notStrictEqual(sitrepSignature(base), sitrepSignature({ ...base, barriers: [] }));
+    assert.notStrictEqual(sitrepSignature(base), sitrepSignature({ ...base, owed: ["boss/q1"] }));
+  });
+
+  it("lets maxIdle no-change checks through, then pauses instead of injecting", () => {
+    let streak = initialSitrepStreak();
+    const decisions: string[] = [];
+    for (let i = 0; i < 5; i++) {
+      const step = advanceSitrep(streak, "same", 3);
+      streak = step.streak;
+      decisions.push(step.decision);
+    }
+    // One baseline + three no-change checks, then silence.
+    assert.deepStrictEqual(decisions, ["inject", "inject", "inject", "inject", "pause"]);
+  });
+
+  it("a changed picture resets the streak", () => {
+    let streak = initialSitrepStreak();
+    for (let i = 0; i < 3; i++) streak = advanceSitrep(streak, "a", 3).streak;
+    assert.strictEqual(streak.idle, 2);
+    const moved = advanceSitrep(streak, "b", 3);
+    assert.strictEqual(moved.decision, "inject");
+    assert.strictEqual(moved.streak.idle, 0);
+  });
+
+  it("maxIdle 0 polls forever", () => {
+    let streak = initialSitrepStreak();
+    for (let i = 0; i < 25; i++) {
+      const step = advanceSitrep(streak, "same", 0);
+      streak = step.streak;
+      assert.strictEqual(step.decision, "inject");
+    }
+  });
+});
+
+describe("lifecycle: bounded sit-reps", () => {
+  /** Fires session_start as a coordinator with a fast sit-rep interval and a
+   *  stubbed pane count. Before the stub goes in, the herdr listener that
+   *  session_start just started is stopped: the sit-rep policy needs a pane
+   *  count, not a live socket subscription (or its reconnect timer). */
+  async function sitrepHarness(maxIdle: number) {
+    process.env.HERDR_ENV = "1";
+    process.env.HERDR_WORKSPACE_ID = "w-test";
+    process.env.PICODE_SITREP_INTERVAL_MS = "1000";
+    process.env.PICODE_SITREP_MAX_IDLE = String(maxIdle);
+    const h = makeLifecycleHarness(tmpDir);
+    h.setFlag("picode-id", "coordinator");
+    h.setFlag("picode-role", "coordinator");
+    await h.fire("session_start", h.makeCtx());
+    getListenerHandle()?.stop();
+    setListenerHandle({
+      stop: () => {},
+      trackPane: () => {},
+      untrackPane: () => {},
+      trackedPaneCount: () => 1,
+    });
+    return h;
+  }
+
+  /** Restore the sit-rep knobs and close the handles the harness opened. */
+  function closeSitrepHarness(h: ReturnType<typeof makeLifecycleHarness>) {
+    h.store.stopHeartbeat();
+    h.store.stopWatcher();
+    for (const key of ["PICODE_SITREP_INTERVAL_MS", "PICODE_SITREP_MAX_IDLE"]) {
+      delete process.env[key];
+    }
+  }
+
+  it("pauses after the idle cap and re-arms when the operator speaks", async () => {
+    mock.timers.enable({ apis: ["setInterval"] });
+    const h = await sitrepHarness(2);
+    try {
+      const tick = () => mock.timers.tick(1000);
+      tick(); // baseline
+      tick(); // unchanged #1
+      tick(); // unchanged #2
+      assert.strictEqual(h.userMessages.length, 3, "each check wakes the coordinator");
+      assert.strictEqual(h.notifications.length, 0, "nothing to report yet");
+
+      tick(); // the check after the cap pauses instead of injecting
+      assert.strictEqual(h.userMessages.length, 3, "a paused timer must not wake the model");
+      assert.match(h.notifications.at(-1)!.text, /2 checks in a row found no changes/);
+
+      mock.timers.tick(600_000);
+      assert.strictEqual(h.userMessages.length, 3, "paused means paused — an hour changes nothing");
+
+      // Operator speaks: fresh baseline, checks run again.
+      await h.fire("input", h.makeCtx(), { source: "prompt" });
+      tick();
+      assert.strictEqual(h.userMessages.length, 4, "operator input re-arms the timer");
+      closeSitrepHarness(h);
+    } finally {
+      mock.timers.reset();
+    }
+  });
+
+  it("a delivered envelope re-arms a paused timer", async () => {
+    mock.timers.enable({ apis: ["setInterval"] });
+    const h = await sitrepHarness(1);
+    try {
+      mock.timers.tick(1000); // baseline
+      mock.timers.tick(1000); // unchanged #1
+      mock.timers.tick(1000); // > cap → pause
+      assert.strictEqual(h.userMessages.length, 2);
+      const pausedAt = h.userMessages.length;
+
+      // An envelope landing is real activity — the inbox hook restarts the
+      // timer, so a paused idle check never eats a teammate's message.
+      h.inbox.onInjected?.([{ text: "[request from boss] status?", urgency: "low" }]);
+      mock.timers.tick(1000);
+      assert.strictEqual(h.userMessages.length, pausedAt + 1);
+      closeSitrepHarness(h);
+    } finally {
+      mock.timers.reset();
+    }
+  });
+
+  it("skips the journal fork for a sit-rep run that changed nothing, keeps it for real work", async () => {
+    mock.timers.enable({ apis: ["setInterval"] });
+    const h = await sitrepHarness(3);
+    const forked: string[] = [];
+    h.store.forkJournal = prompt => forked.push(prompt);
+    // One ctx over a shared entries array: the fork slices off messages it has
+    // already summarized, so a second run needs new entries to be fork-worthy.
+    const entries: LifecycleEntry[] = [];
+    const runCtx = () => h.makeCtx(entries);
+    try {
+      mock.timers.tick(1000);
+      assert.strictEqual(h.userMessages.length, 1, "sit-rep injected");
+
+      // The sit-rep run: tools ran, the run settled (open → done), and the
+      // picture did not otherwise move.
+      entries.push({ type: "message", message: { role: "user", content: "check the workers" } });
+      await h.fire("tool_execution_start", runCtx(), {});
+      await h.fire("agent_end", runCtx());
+      assert.strictEqual(forked.length, 0, "a no-op check must not buy a second model call");
+
+      // Same shape again, but this run actually moved something.
+      mock.timers.tick(1000);
+      entries.push({ type: "message", message: { role: "user", content: "builder replied" } });
+      await h.fire("tool_execution_start", runCtx(), {});
+      h.store.obligations.push({
+        id: "coord/o9",
+        to: "builder",
+        summary: "build the lexer",
+        sentAt: new Date().toISOString(),
+      });
+      await h.fire("agent_end", runCtx());
+      assert.strictEqual(forked.length, 1, "a run that changed state still journals");
+      closeSitrepHarness(h);
+    } finally {
+      mock.timers.reset();
+    }
   });
 });
 
