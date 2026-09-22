@@ -14,6 +14,7 @@ import {
   writeModelsConfig,
   type ModelConfigScope,
 } from "./core/model-config";
+import { isQuietTui, resolveQuietTui, setQuietTui, writeQuietTui } from "./core/quiet-tui";
 
 /** Slash commands: the human operator's view of the same operations the
  *  picode_* tools give the model. */
@@ -253,6 +254,80 @@ export function registerCommands(
       } catch (e) {
         ctx.ui.notify(e instanceof Error ? e.message : String(e), "error");
       }
+    },
+  });
+
+  // Operator-screen quiet mode: hides picode's traffic rows (envelope batches,
+  // system prompts, tool call headers) — DISPLAY ONLY. Envelopes, obligations,
+  // barriers, journal, status, and the model's context are untouched; pi's
+  // renderers and the `display` flag never affect behavior (convertToLlm
+  // ignores display). Resolution: PICODE_QUIET_TUI env > project > global file.
+  pi.registerCommand("/picode-quiet", {
+    description:
+      "Quiet operator screen: /picode-quiet [on|off|status] [--project] — hides picode traffic rows (display only)",
+    getArgumentCompletions(argumentPrefix: string) {
+      if (argumentPrefix.includes(" ")) return null;
+      const flags = [
+        { value: "on", label: "on", description: "hide picode traffic rows" },
+        { value: "off", label: "off", description: "show them again (today's view)" },
+        { value: "status", label: "status", description: "current mode + which config set it" },
+        {
+          value: "--project",
+          label: "--project",
+          description: "write this repo's config instead of global",
+        },
+      ];
+      return flags.filter(f => f.value.startsWith(argumentPrefix.trim()));
+    },
+    async handler(args, ctx) {
+      if (!checkActive(store, ctx)) return;
+      const parts = args.trim().split(/\s+/).filter(Boolean);
+      const useProject = parts.includes("--project");
+      const scope = useProject ? "project" : "global";
+      const cmd = parts.find(p => p !== "--project") ?? "toggle";
+
+      if (cmd === "status") {
+        const r = resolveQuietTui(ctx.cwd, agentDir);
+        ctx.ui.notify(
+          `Quiet screen: ${r.value ? "on" : "off"} (source: ${r.source}; priority env > project > global).`,
+          "info",
+        );
+        return;
+      }
+      if (cmd !== "on" && cmd !== "off" && cmd !== "toggle") {
+        ctx.ui.notify("Usage: /picode-quiet [on|off|status] [--project]", "warning");
+        return;
+      }
+
+      const next = cmd === "toggle" ? !isQuietTui() : cmd === "on";
+      writeQuietTui(next, scope, ctx.cwd, agentDir);
+      setQuietTui(next);
+
+      // Rebuild rows already on screen: flipping expansion round-trips every
+      // chat child through setExpanded, and both message and tool components
+      // re-run their renderers then. Restoring the original value preserves
+      // the user's expand preference; both calls land in the same render tick,
+      // so nothing flashes. Older pi builds without these methods simply don't
+      // refresh existing rows (new rows still obey quiet).
+      if (
+        typeof ctx.ui.getToolsExpanded === "function" &&
+        typeof ctx.ui.setToolsExpanded === "function"
+      ) {
+        const expanded = ctx.ui.getToolsExpanded();
+        ctx.ui.setToolsExpanded(!expanded);
+        ctx.ui.setToolsExpanded(expanded);
+      }
+
+      // Report the RESOLVED truth, not the intended value — env or the other
+      // scope's file may override this write.
+      const r = resolveQuietTui(ctx.cwd, agentDir);
+      const overridden = r.value !== next;
+      ctx.ui.notify(
+        `Quiet screen: ${r.value ? "on" : "off"} (source: ${r.source})${
+          overridden ? " — overridden by higher-priority config" : ""
+        }`,
+        overridden ? "warning" : "info",
+      );
     },
   });
 

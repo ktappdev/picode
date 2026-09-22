@@ -24,7 +24,7 @@ export const DEFAULT_MODELS: Readonly<ModelConfig> = Object.freeze({
 const PROJECT_CONFIG_DIR = ".picode";
 const MODELS_FILENAME = "models.json";
 
-function projectRoot(cwd: string): string {
+export function projectRoot(cwd: string): string {
   try {
     const root = execFileSync("git", ["rev-parse", "--show-toplevel"], {
       cwd,

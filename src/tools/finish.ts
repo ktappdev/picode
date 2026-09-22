@@ -4,7 +4,7 @@ import type { PicodeStore } from "../core/types";
 import { writeHandoff, type HandoffNote, type HandoffOutcome } from "../core/handoff";
 import { nowIso } from "../core/time";
 import type { Inbox } from "../inbox";
-import { err, quietToolResult } from "./shared";
+import { err, quietCallRenderer, quietToolResult } from "./shared";
 
 /** The report body used when the worker doesn't write its own. Mirrors the
  *  handoff note so the coordinator and the ledger say the same thing. */
@@ -134,6 +134,7 @@ export function registerFinishTool(pi: ExtensionAPI, store: PicodeStore, inbox: 
         details: result,
       };
     },
+    renderCall: quietCallRenderer("picode_finish"),
     renderResult: quietToolResult,
   });
 }

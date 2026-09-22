@@ -23,7 +23,7 @@ import {
   utimesSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { execFileSync } from "node:child_process";
 import type {
   AgentToolResult,
@@ -42,10 +42,12 @@ import {
   effectiveAgentStatus,
   extractPaneInfo,
   isProtectedTabLabel,
+  quietCallRenderer,
   quietToolResult,
   tabLabelMap,
 } from "../src/tools/shared";
 import { envelopeMessageRenderer, systemMessageRenderer } from "../src/renderers";
+import { isQuietTui, resolveQuietTui, setQuietTui } from "../src/core/quiet-tui";
 import { countPanesInTab, solePaneInTab, resolveThinking } from "../src/tools/spawn";
 import { validateLabel } from "../src/tools/tab-create";
 import { registerLifecycle, extractFirstLine } from "../src/lifecycle";
@@ -173,12 +175,23 @@ function makeHarness(dir: string, id = "t1") {
   // run) and "agent streaming" (injections queue). Default mirrors mid-run.
   const agent = { idle: false };
 
+  // /picode-quiet flips tool expansion round-trip to force already-rendered
+  // rows to re-run their renderers; record the sequence so a test can assert
+  // it. Fresh chats start collapsed.
+  let toolsExpanded = false;
+  const expansionFlips: boolean[] = [];
+
   const ctx = {
     ui: {
       setStatus: () => {},
       setTitle: () => {},
       setFooter: () => {},
       notify: (text: string, level?: string) => notifications.push({ text, level }),
+      getToolsExpanded: () => toolsExpanded,
+      setToolsExpanded: (v: boolean) => {
+        toolsExpanded = v;
+        expansionFlips.push(v);
+      },
     },
     isIdle: () => agent.idle,
     waitForIdle: async () => {},
@@ -196,6 +209,7 @@ function makeHarness(dir: string, id = "t1") {
     sentCustom,
     notifications,
     dir,
+    expansionFlips,
     get idle() {
       return agent.idle;
     },
@@ -433,6 +447,7 @@ const HERDR_ENV_KEYS = [
   "HERDR_TAB_ID",
 ] as const;
 let savedHerdrEnv: Record<string, string | undefined> = {};
+let savedQuietEnv: string | undefined;
 
 /** Stores whose lifecycle wiring a test has started. `session_start` opens a
  *  real `fs.watch` (local-fs.ts `watchInbox`) and a real heartbeat interval
@@ -448,6 +463,12 @@ beforeEach(() => {
     savedHerdrEnv[key] = process.env[key];
     delete process.env[key];
   }
+  // Same hermeticity for the quiet-screen switch: never inherit a
+  // PICODE_QUIET_TUI from the developer's shell, and start every test loud —
+  // quiet describes flip the flag themselves.
+  savedQuietEnv = process.env.PICODE_QUIET_TUI;
+  delete process.env.PICODE_QUIET_TUI;
+  setQuietTui(false);
 });
 
 afterEach(() => {
@@ -455,6 +476,10 @@ afterEach(() => {
     if (value === undefined) delete process.env[key];
     else process.env[key] = value;
   }
+  if (savedQuietEnv === undefined) delete process.env.PICODE_QUIET_TUI;
+  else process.env.PICODE_QUIET_TUI = savedQuietEnv;
+  // Renderers read module state — never let one test's quiet flip leak.
+  setQuietTui(false);
   // Close handles before the directory they watch is removed, so the watcher
   // isn't left reporting ENOENT against a deleted path.
   for (const store of openStores.splice(0)) {
@@ -5046,5 +5071,239 @@ describe("slash command argument completions", () => {
       ["--force"],
     );
     assert.deepStrictEqual((await cmd.getArgumentCompletions?.("--force ")) ?? [], []);
+  });
+});
+
+// --- operator quiet screen (display-only) -------------------------------
+// Resolution + render-time behavior of /picode-quiet. Nothing here touches
+// the protocol: envelope delivery, obligations, and the model's context are
+// built before any renderer runs (convertToLlm ignores `display`),
+// so every test below asserts SCREEN output only.
+
+describe("operator quiet: config resolution", () => {
+  const agentDir = () => join(tmpDir, "agent");
+
+  function seed(path: string, contents: string) {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, contents);
+  }
+
+  it("PICODE_QUIET_TUI env beats both files", () => {
+    seed(join(tmpDir, ".picode", "quiet-tui.json"), "false");
+    seed(join(agentDir(), ".picode", "quiet-tui.json"), "false");
+    process.env.PICODE_QUIET_TUI = "1";
+    assert.deepStrictEqual(resolveQuietTui(tmpDir, agentDir()), { value: true, source: "env" });
+  });
+
+  it("project file beats the global file", () => {
+    seed(join(tmpDir, ".picode", "quiet-tui.json"), "true");
+    seed(join(agentDir(), ".picode", "quiet-tui.json"), "false");
+    assert.deepStrictEqual(resolveQuietTui(tmpDir, agentDir()), { value: true, source: "project" });
+  });
+
+  it("global file applies when the project has none", () => {
+    seed(join(agentDir(), ".picode", "quiet-tui.json"), "true");
+    assert.deepStrictEqual(resolveQuietTui(tmpDir, agentDir()), { value: true, source: "global" });
+  });
+
+  it("no config anywhere defaults to loud", () => {
+    assert.deepStrictEqual(resolveQuietTui(tmpDir, agentDir()), {
+      value: false,
+      source: "default",
+    });
+  });
+
+  it("malformed project file falls through instead of crashing", () => {
+    seed(join(tmpDir, ".picode", "quiet-tui.json"), "{not json");
+    seed(join(agentDir(), ".picode", "quiet-tui.json"), "true");
+    assert.deepStrictEqual(resolveQuietTui(tmpDir, agentDir()), { value: true, source: "global" });
+  });
+});
+
+describe("operator quiet: message renderers", () => {
+  const theme = {
+    fg: (_k: string, s: string) => s,
+    bg: (_k: string, s: string) => s,
+  } as unknown as Theme;
+
+  function envelope(content: string, details: unknown, expanded: boolean) {
+    return envelopeMessageRenderer(
+      { customType: "picode-envelope", content, display: true, details } as never,
+      { expanded },
+      theme,
+    );
+  }
+
+  function system(content: string, expanded: boolean) {
+    return systemMessageRenderer(
+      { customType: "picode-system", content, display: true, details: {} } as never,
+      { expanded },
+      theme,
+    );
+  }
+
+  it("quiet hides a collapsed low-urgency envelope — truthy-empty, or pi falls back", () => {
+    setQuietTui(true);
+    const component = envelope(
+      "[request from scout #coord/01ABC]\ninvestigate the flaky test",
+      { count: 1, highUrgency: false },
+      false,
+    );
+    // Undefined would make CustomMessageComponent fall back to FULL default
+    // rendering — the exact opposite of quiet.
+    assert.ok(component, "renderer must return a component");
+    assert.strictEqual(component.render(120).join("\n"), "");
+  });
+
+  it("quiet keeps a collapsed high-urgency envelope visible", () => {
+    setQuietTui(true);
+    const component = envelope(
+      "[reply from builder #coord/01DEF]\nshipped",
+      { count: 1, highUrgency: true },
+      false,
+    );
+    assert.match(component!.render(120).join("\n"), /⚠/);
+  });
+
+  it("quiet still shows envelope content when expanded", () => {
+    setQuietTui(true);
+    const component = envelope(
+      "[request from scout #coord/01ABC]\ninvestigate the flaky test",
+      { count: 1, highUrgency: false },
+      true,
+    );
+    assert.match(component!.render(120).join("\n"), /investigate the flaky test/);
+  });
+
+  it("quiet hides a collapsed system message", () => {
+    setQuietTui(true);
+    const component = system("[picode-system] Periodic sit-rep: run picode_panes().", false);
+    assert.ok(component, "renderer must return a component");
+    assert.strictEqual(component.render(120).join("\n"), "");
+  });
+});
+
+describe("operator quiet: tool call rows", () => {
+  const theme = {
+    fg: (_k: string, s: string) => s,
+    bg: (_k: string, s: string) => s,
+    bold: (s: string) => s,
+  } as unknown as Theme;
+  const render = quietCallRenderer("picode_send");
+
+  it("quiet + collapsed renders an empty call row", () => {
+    setQuietTui(true);
+    assert.strictEqual(render({}, theme, { expanded: false }).render(120).join("\n"), "");
+  });
+
+  it("quiet + expanded still names the row", () => {
+    setQuietTui(true);
+    assert.match(render({}, theme, { expanded: true }).render(120).join("\n"), /picode_send/);
+  });
+
+  it("loud renders the name exactly like pi's fallback", () => {
+    setQuietTui(false);
+    assert.match(render({}, theme, { expanded: false }).render(120).join("\n"), /picode_send/);
+  });
+
+  it("every operator-quiet tool wires renderCall — and the verbose ones don't", () => {
+    const h = makeHarness(tmpDir);
+    const QUIET_TOOLS = [
+      "picode_status",
+      "picode_list",
+      "picode_journal",
+      "picode_panes",
+      "picode_pane_read",
+      "cleanup_panes",
+      "picode_purge",
+      "picode_send",
+      "picode_wait",
+      "spawn_worker",
+      "picode_finish",
+      "revive_closed_session",
+    ];
+    for (const name of QUIET_TOOLS) {
+      assert.ok(h.tools[name], `${name} is registered`);
+      assert.strictEqual(
+        typeof (h.tools[name] as { renderCall?: unknown }).renderCall,
+        "function",
+        `${name} renders a quiet call row`,
+      );
+    }
+    for (const name of ["picode_run", "picode_suspend", "picode_resume"]) {
+      const tool = h.tools[name] as { renderCall?: unknown } | undefined;
+      if (tool) assert.strictEqual(tool.renderCall, undefined, `${name} stays verbose`);
+    }
+  });
+});
+
+describe("operator quiet: /picode-quiet", () => {
+  const globalFile = () => join(tmpDir, "agent", ".picode", "quiet-tui.json");
+  const projectFile = () => join(tmpDir, ".picode", "quiet-tui.json");
+
+  it("on persists and applies quiet", async () => {
+    const h = makeHarness(tmpDir);
+    await callCommand(h, "/picode-quiet", "on");
+    assert.strictEqual(isQuietTui(), true, "flag applied");
+    assert.strictEqual(readFileSync(globalFile(), "utf8").trim(), "true");
+  });
+
+  it("off persists and applies loud again", async () => {
+    const h = makeHarness(tmpDir);
+    setQuietTui(true);
+    await callCommand(h, "/picode-quiet", "off");
+    assert.strictEqual(isQuietTui(), false);
+    assert.strictEqual(readFileSync(globalFile(), "utf8").trim(), "false");
+  });
+
+  it("no-argument toggles the current mode, twice", async () => {
+    const h = makeHarness(tmpDir);
+    await callCommand(h, "/picode-quiet");
+    assert.strictEqual(isQuietTui(), true);
+    await callCommand(h, "/picode-quiet");
+    assert.strictEqual(isQuietTui(), false);
+  });
+
+  it("a toggle round-trips tool expansion so on-screen rows re-render", async () => {
+    const h = makeHarness(tmpDir);
+    await callCommand(h, "/picode-quiet");
+    // expand → collapse re-runs every row's renderer, ending back at the
+    // user's original collapsed state in the same render tick.
+    assert.deepStrictEqual(h.expansionFlips, [true, false]);
+  });
+
+  it("--project writes this repo's config, not the global one", async () => {
+    const h = makeHarness(tmpDir);
+    await callCommand(h, "/picode-quiet", "on --project");
+    assert.ok(existsSync(projectFile()), "project config written");
+    assert.ok(!existsSync(globalFile()), "global config untouched");
+  });
+
+  it("status reports the resolved source without writing a file", async () => {
+    const h = makeHarness(tmpDir);
+    await callCommand(h, "/picode-quiet", "status");
+    assert.match(h.notifications.at(-1)!.text, /source: default/);
+    assert.ok(!existsSync(globalFile()) && !existsSync(projectFile()));
+  });
+
+  it("an unknown argument warns with usage and changes nothing", async () => {
+    const h = makeHarness(tmpDir);
+    await callCommand(h, "/picode-quiet", "banana");
+    assert.match(h.notifications.at(-1)!.text, /Usage: \/picode-quiet/);
+    assert.strictEqual(isQuietTui(), false);
+    assert.ok(!existsSync(globalFile()));
+  });
+});
+
+describe("operator quiet: session_start applies config", () => {
+  it("an active session resolves the project quiet file into the render flag", async () => {
+    mkdirSync(join(tmpDir, ".picode"), { recursive: true });
+    writeFileSync(join(tmpDir, ".picode", "quiet-tui.json"), "true\n");
+    const h = makeLifecycleHarness(tmpDir);
+    h.setFlag("picode-id", "t-quiet");
+    await h.fire("session_start", h.makeCtx());
+    assert.strictEqual(isQuietTui(), true);
+    h.store.stopHeartbeat();
+    h.store.stopWatcher();
   });
 });

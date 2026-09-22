@@ -15,6 +15,7 @@ import {
   extractRole,
   isProtectedTabLabel,
   isValidPaneId,
+  quietCallRenderer,
   quietToolResult,
   shellQuote,
   tabLabelMap,
@@ -422,6 +423,7 @@ export function registerReviveTool(pi: ExtensionAPI, store: PicodeStore, inbox: 
         details: result,
       };
     },
+    renderCall: quietCallRenderer("revive_closed_session"),
     renderResult: quietToolResult,
   });
 }

@@ -6,6 +6,7 @@ import type {
   ToolRenderResultOptions,
   Theme,
 } from "@earendil-works/pi-coding-agent";
+import { isQuietTui } from "../core/quiet-tui";
 import { STALE_MS } from "../core/types";
 
 /** Collapsed → blank tool row (operator doesn't read sit-rep output — it's
@@ -19,6 +20,27 @@ export function quietToolResult(
   if (!expanded) return new Text("", 0, 0);
   const t = result.content.find(c => c.type === "text");
   return new Text(t && t.type === "text" ? `\n${theme.fg("toolOutput", t.text)}` : "", 0, 0);
+}
+
+/** Call-slot renderer for the operator-quiet picode tools. Loud: the tool
+ *  name, byte-identical to pi's own fallback (createCallFallback styles
+ *  toolCall.name as toolTitle), so the row looks unchanged. Quiet: an empty
+ *  Text while *collapsed* — ToolExecutionComponent's header Box then has no
+ *  lines and collapses, leaving only the row's Spacer — and the name when
+ *  expanded, so expand-all still anchors every row.
+ *
+ *  The empty Text must be truthy: the component renders whatever the renderer
+ *  returns, and only `undefined` means "fall back to full default rendering".
+ *  Args never render through this call renderer in pi (the default arg row is
+ *  skipped whenever a custom renderCall is registered) — same in quiet. */
+export function quietCallRenderer(toolName: string) {
+  // `context` is structurally typed: ToolRenderContext lives in pi's
+  // dist/core/extensions/types and isn't part of the package's public
+  // exports — every render call receives it, and `expanded` is all we read.
+  return (_args: unknown, theme: Theme, context: { expanded: boolean }): Text => {
+    if (isQuietTui() && !context.expanded) return new Text("", 0, 0);
+    return new Text(theme.fg("toolTitle", theme.bold(toolName)), 0, 0);
+  };
 }
 
 /** Uniform tool-error payload: message for the model, ok:false for callers. */

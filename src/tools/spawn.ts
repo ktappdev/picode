@@ -13,6 +13,7 @@ import {
   isProtectedTabLabel,
   isValidPaneId,
   shellQuote,
+  quietCallRenderer,
   quietToolResult,
   tabLabelMap,
 } from "./shared";
@@ -893,6 +894,7 @@ export function registerSpawnTool(pi: ExtensionAPI, store: PicodeStore) {
         return err(`spawn_worker unexpected error: ${String(e)}`);
       }
     },
+    renderCall: quietCallRenderer("spawn_worker"),
     renderResult: quietToolResult,
   });
 }

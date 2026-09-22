@@ -3,7 +3,7 @@ import { Type } from "typebox";
 import type { PicodeStore } from "../core/types";
 import { barrierLines, formatThreadLine, obligationLines, owedLines } from "../core/format";
 import { splitJournalEntries, compactEntry } from "../journal";
-import { err, quietToolResult } from "./shared";
+import { err, quietCallRenderer, quietToolResult } from "./shared";
 /** Read-only tools: this picode's status, the workspace roster, journals. */
 export function registerIntrospectionTools(pi: ExtensionAPI, store: PicodeStore) {
   pi.registerTool({
@@ -90,6 +90,7 @@ export function registerIntrospectionTools(pi: ExtensionAPI, store: PicodeStore)
         },
       };
     },
+    renderCall: quietCallRenderer("picode_status"),
     renderResult: quietToolResult,
   });
 
@@ -114,6 +115,7 @@ export function registerIntrospectionTools(pi: ExtensionAPI, store: PicodeStore)
         details: { threads },
       };
     },
+    renderCall: quietCallRenderer("picode_list"),
     renderResult: quietToolResult,
   });
 
@@ -182,6 +184,7 @@ export function registerIntrospectionTools(pi: ExtensionAPI, store: PicodeStore)
         details: { ok: true, id: params.id, journal },
       };
     },
+    renderCall: quietCallRenderer("picode_journal"),
     renderResult: quietToolResult,
   });
 }

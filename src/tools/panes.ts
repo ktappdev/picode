@@ -6,6 +6,7 @@ import {
   extractRole,
   effectiveAgentStatus,
   isProtectedTabLabel,
+  quietCallRenderer,
   quietToolResult,
   tabLabelMap,
 } from "./shared";
@@ -247,6 +248,7 @@ export function registerPanesTool(pi: ExtensionAPI) {
         return err(`picode_panes unexpected error: ${String(e)}`);
       }
     },
+    renderCall: quietCallRenderer("picode_panes"),
     renderResult: quietToolResult,
   });
 }

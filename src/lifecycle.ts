@@ -18,6 +18,7 @@ import {
 } from "./core/sitrep";
 import { roleEmoji } from "./core/roles";
 import { modelsConfigPaths } from "./core/model-config";
+import { resolveQuietTui, setQuietTui } from "./core/quiet-tui";
 import { purgeStalePcodes, referencedPicodeIds } from "./tools/purge";
 import { saveRecallParticipant } from "./core/recall-registry";
 import { isProtectedTabLabel, tabLabelMap } from "./tools/shared";
@@ -354,6 +355,11 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
       ctx.shutdown();
       return;
     }
+
+    // Operator quiet screen: resolve the display-only preference now that cwd
+    // is known — render callbacks get no ctx, so they read this module flag
+    // (refreshed again by /picode-quiet).
+    setQuietTui(resolveQuietTui(ctx.cwd).value);
 
     if (!isRoundTable && store.role !== "coordinator" && store.sessionFile) {
       saveRecallParticipant(ctx.cwd, {

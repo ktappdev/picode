@@ -3,7 +3,7 @@ import { Type } from "typebox";
 import { rmSync, readdirSync, readFileSync, existsSync } from "fs";
 import { join } from "path";
 import { execSync } from "child_process";
-import { quietToolResult } from "./shared";
+import { quietCallRenderer, quietToolResult } from "./shared";
 import type { PicodeStore } from "../core/types";
 
 const STALE_MS = 60_000;
@@ -238,6 +238,7 @@ export function registerPurgeTool(pi: ExtensionAPI, store: PicodeStore) {
         details: { ok: true, ...result, cleanup },
       };
     },
+    renderCall: quietCallRenderer("picode_purge"),
     renderResult: quietToolResult,
   });
 }

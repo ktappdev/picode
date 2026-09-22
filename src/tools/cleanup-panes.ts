@@ -9,6 +9,7 @@ import {
   isProtectedTabLabel,
   isValidPaneId,
   effectiveAgentStatus,
+  quietCallRenderer,
   quietToolResult,
 } from "./shared";
 import type { PicodeStore } from "../core/types";
@@ -320,6 +321,7 @@ export function registerCleanupPanesTool(pi: ExtensionAPI, store: PicodeStore) {
         return err(`cleanup_panes unexpected error: ${String(e)}`);
       }
     },
+    renderCall: quietCallRenderer("cleanup_panes"),
     renderResult: quietToolResult,
   });
 }

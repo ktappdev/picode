@@ -1,5 +1,6 @@
 import { Box, Text, type Component } from "@earendil-works/pi-tui";
 import type { MessageRenderer, Theme } from "@earendil-works/pi-coding-agent";
+import { isQuietTui } from "./core/quiet-tui";
 
 /** CustomMessage content is a string or content parts; the model sees the
  *  same text either way, so collapse to plain text for rendering. */
@@ -22,6 +23,14 @@ export const envelopeMessageRenderer: MessageRenderer = (message, { expanded }, 
   const details = message.details as { count?: number; highUrgency?: boolean } | undefined;
   const count = details?.count ?? 1;
 
+  // Quiet mode: a collapsed low-urgency batch renders as an empty Text — zero
+  // lines under the component's Spacer. The empty component MUST stay truthy:
+  // CustomMessageComponent falls back to DEFAULT rendering (full content) when
+  // a renderer returns nothing. High-urgency batches keep their ⚠ line so
+  // escalations still surface, and expanded still shows everything — expand
+  // is the in-place escape hatch while quiet.
+  if (!expanded && isQuietTui() && !details?.highUrgency) return new Text("", 0, 0);
+
   // First envelope header line looks like "[kind from <id> #<eid> re #<rid>]".
   const firstHeader = /^\[([^\]]+)\]/.exec(content)?.[1] ?? "incoming envelope";
   const more = count > 1 ? theme.fg("dim", `  (+${count - 1} more)`) : "";
@@ -42,6 +51,8 @@ export const envelopeMessageRenderer: MessageRenderer = (message, { expanded }, 
  *  line naming the traffic; expanded → the full prompt text. */
 export const systemMessageRenderer: MessageRenderer = (message, { expanded }, theme) => {
   const content = messageText(message.content);
+  // Quiet mode: same truthy-empty rule as the envelope renderer above.
+  if (!expanded && isQuietTui()) return new Text("", 0, 0);
   const firstLine = content.split("\n", 1)[0] ?? "";
   const summary = firstLine.replace(/^\[picode-system\]\s*/, "").slice(0, 72);
   const collapsed = `${theme.fg("customMessageLabel", "⚙ ")}${theme.fg("dim", summary)}`;
