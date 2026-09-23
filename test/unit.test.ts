@@ -2101,7 +2101,38 @@ describe("lifecycle: opt-in gate (§2.3)", () => {
       "string",
       "Picode rules are persisted as a system section",
     );
-    assert.equal(result, undefined, "the hook must not force a one-run system prompt override");
+    assert.equal(
+      result,
+      undefined,
+      "the hook must not force a one-run system prompt override: returning `systemPrompt` makes Pi strip every persisted system message and project a fresh head (dist/core/agent-session.js _installAgentForcedPromptProjection), so a roster digest that moves would rewrite the leading prompt and re-bill the whole conversation",
+    );
+    h.store.stopHeartbeat();
+    h.store.stopWatcher();
+  });
+
+  it("keeps the forced-prompt fallback only for Pi without structured sections", async () => {
+    const h = makeLifecycleHarness(tmpDir);
+    h.setFlag("picode-id", "t9");
+    const ctx = h.makeCtx();
+    await h.fire("session_start", ctx);
+
+    // Pi versions without `systemPromptOptions.sections` cannot persist the
+    // rules in the transcript, so the one-run override is the only way to get
+    // them into a prompt-driven request. Pin that branch: it is the only
+    // remaining path where Picode rewrites the leading prompt, and it must not
+    // break silently for users on those versions.
+    const result = (await h.fire("before_agent_start", ctx, {
+      systemPrompt: "base",
+      systemPromptOptions: {},
+    })) as { systemPrompt?: string } | undefined;
+
+    assert.ok(result?.systemPrompt, "an older Pi still receives the rules as a forced prompt");
+    assert.ok(
+      result.systemPrompt.startsWith("base\n\n"),
+      "the forced prompt extends the base prompt rather than replacing it",
+    );
+    assert.ok(result.systemPrompt.includes("t9"), "the Picode rules reach the request");
+
     h.store.stopHeartbeat();
     h.store.stopWatcher();
   });

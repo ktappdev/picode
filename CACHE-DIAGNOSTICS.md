@@ -1,9 +1,23 @@
 # Prompt-cache diagnostics
 
 Runbook for the intermittent "large cache miss" reports in Picode sessions — what
-was observed, what the tracker records, how to read it, and what each reading
-means. Read this before changing anything in `src/cache-diagnostics.ts` or
-`src/lifecycle.ts`'s `before_agent_start` handler.
+was observed, what the cause turned out to be, what the tracker records, how to read
+it, and what is still unproven. Read this before changing anything in
+`src/cache-diagnostics.ts` or `src/lifecycle.ts`'s `before_agent_start` handler.
+
+**Cause found.** Picode returned a forced `systemPrompt` from `before_agent_start`.
+Pi's projection for a forced prompt discards every persisted system message and
+rebuilds the leading prompt from freshly computed text — including a worker roster
+digest that changes whenever a worker moves. Because the system prompt precedes the
+conversation, a moving digest re-billed the **entire conversation** on every turn it
+moved. Fixed in `a240998`; the mechanism is in
+[Candidate A](#candidate-a--the-forced-whole-prompt-override-root-cause). Plain Pi
+has no such moving prefix head, which is why the symptom appeared only with Picode.
+
+What remains unproven is not the mechanism but the endorsement: no trace yet shows
+a **roster change** under the fixed code. The one live sample had no workers, so it
+is the case that was already healthy — see
+[the honest ledger](#what-would-close-it).
 
 ## The symptom
 
@@ -16,8 +30,10 @@ almost no idle time between them:
 
 Each number is the size of the _whole_ prompt, not a slice of it. A miss that
 covers nearly every prompt token means the cacheable prefix diverged at or very
-near its start — not that one block near the end changed. The working suspicion
-was that something was interrupting or rebuilding the session between requests.
+near its start — not that one block near the end changed. The working suspicion was
+that something was interrupting or rebuilding the session between requests. It was:
+Picode was rebuilding the leading prompt on every prompt-driven run, and the text it
+rebuilt from changed with the worker roster.
 
 ## What was established in the repo
 
@@ -25,31 +41,66 @@ was that something was interrupting or rebuilding the session between requests.
 | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | Does Picode clear a provider cache anywhere?         | No. Nothing in `src/` touches cache keys, TTLs, or retention.                                                                                   |
 | Is the coordinator prompt identical across requests? | No. `before_agent_start` computes a fresh worker roster digest per prompt-driven run (`src/lifecycle.ts:813-816`, `src/core/worker-ledger.ts`). |
-| Did that digest invalidate the whole prefix?         | No. The digest is appended at the _end_ of the system prompt, so on its own it can only invalidate a suffix.                                    |
-| What changes the _start_ of the prompt?              | Two candidate mechanisms, both below. Neither is proven.                                                                                        |
+| Did that digest invalidate the whole prefix?         | **Yes, on the pre-2026-09-22 code** — see below. The earlier "only a suffix" answer was wrong and is what kept this bug alive.                  |
+| What changes the _start_ of the prompt?              | Candidate A, now explained. Candidate B (cache key) remains open.                                                                               |
 
-### Candidate A — the forced whole-prompt override
+### Candidate A — the forced whole-prompt override (**root cause**)
 
-Until this change, the handler returned `{ systemPrompt: base + "\n\n" + picode }`.
-Pi treats a returned `systemPrompt` as a **forced prompt**: it is projected onto
-the request as the leading system prompt and is _not_ persisted
-(`dist/core/extensions/runner.js:1043`, `dist/core/agent-session.js:1048`). The
-per-run options are discarded when the run settles
-(`dist/core/agent-session.js:1100`).
+The handler used to return `{ systemPrompt: base + "\n\n" + picode }`. Pi treats a
+returned `systemPrompt` as a **forced prompt**, and the projection is more
+destructive than "overrides the leading prompt" suggests:
 
-That matters because `sendMessage(..., { triggerTurn: true })` never fires
-`before_agent_start` at all — `sendCustomMessage` calls `_runAgentPrompt`
-directly (`dist/core/agent-session.js:1481`). Every coordinator envelope
-injection and sit-rep takes that path (`src/inbox.ts:145`, `src/lifecycle.ts:278`),
-so those turns rebuilt the system prompt from the base options while
-`prompt()`-driven turns used the forced text. Two interleaved prompt shapes for
-one session is a plausible whole-prefix invalidator.
+```js
+_installAgentForcedPromptProjection() {
+    this.agent.transformContext = async (messages, signal) => {
+        const forced = this._runSystemPromptOptions?.forceSystemPrompt;
+        if (forced === undefined) return transformed;
+        const current = getCurrentSystemMessage(transformed);
+        const head = { role: "system", content: forced, ... };
+        return [head, ...transformed.filter((message) => message.role !== "system")];
+    };
+}
+```
 
-**Fixed here.** The rules now travel as a structured section
-(`src/lifecycle.ts:831-840`), which Pi diffs and persists in the transcript
-(`dist/core/agent-session.js:1025-1032`), so every turn shape sees the same
-rules. Older Pi versions without `systemPromptOptions.sections` keep the legacy
-override (`src/lifecycle.ts:844-856`).
+`dist/core/agent-session.js:1044-1058`
+
+Two consequences, and the second is the one that cost money:
+
+1. **Every persisted system message is discarded** from the body — including the
+   transcript's own `sections` patches. Turns that took this path and turns that
+   did not therefore carried structurally different bodies.
+2. **The head is rebuilt from freshly computed text on every run.** `picode`
+   contains the worker roster digest, which changes whenever a worker spawns,
+   finishes, dies, or changes status. The system prompt is the _first_ thing in
+   the request, so changing its tail does not invalidate a suffix — it
+   invalidates **everything after it, which is the entire conversation**.
+
+That is the shape of the original symptom: the re-bill equals the whole prompt
+(~79k, then ~80k, ~81k, ~83k as the conversation grew), because the provider
+matched no prefix at all. Picode's earlier analysis reasoned "the digest is
+appended at the end of the system prompt, so on its own it can only invalidate a
+suffix" — true of the system prompt's own length, false of the request, because
+the system prompt precedes every message.
+
+This also explains why the symptom appears **with Picode and not with plain Pi**.
+No built-in Pi path varies the system prompt mid-session, so plain Pi never has a
+moving prefix head. Picode's roster digest is exactly that, and it moves precisely
+when workers are churning — the busiest, most expensive sessions.
+
+**Fixed in `a240998`.** The rules now travel as a structured section
+(`src/lifecycle.ts:831-840`). Pi diffs sections against the transcript and
+persists only a patch (`dist/core/system-prompt.js:135-146`,
+`dist/core/agent-session.js:1031`), which `convertResponsesMessages` appends at
+its transcript position — the **end** of `input` — leaving the leading
+`instructions` and every earlier message byte-identical
+(`pi-ai/dist/api/openai-responses-shared.js:126-137`). A roster change now costs
+one small appended system delta instead of the conversation.
+
+Older Pi versions without `systemPromptOptions.sections` keep the legacy override
+(`src/lifecycle.ts:844-856`). That branch is the only remaining path where Picode
+rewrites the leading prompt, and it is pinned by a test
+(`test/unit.test.ts`, "keeps the forced-prompt fallback only for Pi without
+structured sections").
 
 ### Candidate B — the provider cache key
 
@@ -66,14 +117,19 @@ prompt_cache_key: cacheSessionId,
 Paths in this file are relative to the Picode repo unless they start with `dist/`,
 which is the installed `pi` package root.
 
-Any new session therefore starts with a cold cache regardless of prompt content:
-resuming/reviving a worker, `/new`, a fork, or a restart. Commit `574bcd5`
-(2026-09-16, "revive a stopped worker with its session intact") added
-`revive_closed_session`, which deliberately starts a _new_ Pi session for a
-stopped worker. If the misses cluster around worker lifecycle events, this is
-the likelier explanation, and prompt fingerprints will look unchanged.
+Any new session starts with a cold cache regardless of prompt content: reviving a
+worker, `/new`, a fork, or a restart. Commit `574bcd5` (2026-09-16, "revive a
+stopped worker with its session intact") added `revive_closed_session`, which
+deliberately starts a _new_ Pi session for a stopped worker.
 
-**Resolve which one by reading the trace, not by reasoning from the code.**
+This is a real cost, but note what it cannot explain: a genuinely cold session has
+no previous request, so it is assessed `no-baseline` and Pi raises **no miss
+notice** at all. Cold starts are invisible to the notice channel. Every notice the
+operator sees is therefore a _within-session_ re-bill — which is Candidate A's
+territory, not B's. B is the reason a revived worker's first request costs full
+price; A was the reason a live session kept re-billing its whole history.
+
+**Candidate A is fixed. Candidate B is inherent and still unmeasured.**
 
 ## What the tracker records
 
@@ -311,10 +367,10 @@ prev@read      -  24777@0  25166@24064  25222@24064  25880@25088  26068@25088  2
 
 Reading it:
 
-- **The fix held, on this sample.** `cacheRead` grew 0 → 24,064 → 25,088, so
-  95–97% of every prompt was served from cache. The original incident re-billed
-  ~79k–83k of a ~79k prompt, i.e. almost nothing was shared. These misses are two
-  orders of magnitude smaller.
+- **`cacheRead` is healthy here, but this sample does not validate the fix.** With
+  `workerCount: 0` the roster digest is empty and constant, so the leading prompt
+  was stable under _both_ the old and the new code. The sample is the one shape
+  where the bug could not appear. See the note below.
 - **Reading A was right, B was not.** `cacheRead` is not frozen. It advanced by
   exactly 1,024 tokens (one granule) once the conversation outgrew the old anchor:
   24,064 → 25,088. The 1,102-token miss on turn 3 was the anchor lagging the
@@ -322,64 +378,116 @@ Reading it:
 - **`missedTokens` is the wrong number to watch.** Re-derived with the split,
   turn 3 is 1,102 re-billed + 56 new, and turn 7 is 1,029 re-billed + 27 new. The
   re-bill is about one granule of the prompt's tail. It recurs while the prompt
-  keeps growing and scales with prompt length, not with damage. The incident's
-  ~79k was not this shape at all.
+  keeps growing and scales with prompt length, not with damage.
 - **Not TTL.** The last miss came after 100 s idle, and `cacheRead` was 25,088 on
   both sides of it, so the prefix survived the gap. Only an `idleMs` past the
   configured tier should be read as eviction.
 - **No payload evidence.** This trace predates the payload records, so it cannot
   say whether the request body was byte-identical. The next one can.
 
-Two facts keep this from being closed. `workerCount: 0` means the roster was empty
-for the whole run, so the sample never exercises the paths most likely to disturb
-a prefix — spawn, revive, cleanup, or a non-empty digest. And the improvement is
-confounded: the `a240998` prompt fix and the absence of workers both landed
-between the incident and this sample. Re-record before attributing it to either.
+What the sample does establish is the **contrast**. These misses are one granule
+of tails on a stable prompt, 95–97% read from cache. The incident re-billed the
+whole prompt, 79k–83k, with almost nothing shared. Those are not the same disease,
+and the difference lines up with the one variable this run held constant: a
+workerless roster.
+
+So the honest ledger is:
+
+| Claim                                                     | Status                                                         |
+| --------------------------------------------------------- | -------------------------------------------------------------- |
+| The forced-prompt path invalidates the whole prefix       | **Read from the code** (`_installAgentForcedPromptProjection`) |
+| The roster digest is what moved inside that forced prompt | **Read from the code** (`sections.picode` carries the digest)  |
+| That is why the incident re-billed the whole prompt       | **Inferred from the symptom shape, not traced**                |
+| The section path preserves the prefix under roster churn  | **Inferred from Pi's diff + append path, not measured**        |
+| The 2026-09-23 sample proves the fix works                | **No — it cannot, `workerCount: 0`**                           |
+
+A session that never spawned a worker before this fix would also have shown
+`fullPromptHash` identical across turns, because an empty digest does not move.
+That is the gap: the evidence for the fix is mechanistic, and the one live sample
+is the case that was already healthy.
+
+### What would close it
+
+One coordinator run **with workers**, under an unchanged prompt, read for
+`reBilledTokens` against `payloadChanges`. Specifically: spawn a worker, watch the
+roster digest change, and check whether the next response re-bills the
+conversation (`payloadChanges` naming `request message 0`, i.e. the head moved) or
+only a small appended delta (`payloadChanges` naming the digest's own message).
+That is the measurement nobody has taken yet.
 
 ## The decisive experiment
 
 Run this when you have a spare session and want to settle A vs B.
 
-1. **Remove the noise.** Cache warming makes its own provider requests and can
-   itself trigger misses. Set it off for the test:
+1. **Ignore cache warming on OpenAI models — it is inert.** It only runs when the
+   model declares a `promptCache` lifetime, and no `openai`/`openai-codex`/
+   `azure-openai` model in the catalog declares one (`docs/models.md:99`).
+   `getPromptCacheTtlMs` returns `undefined` and the warmer stops with "cache
+   lifetime unavailable" before scheduling anything
+   (`dist/core/cache-warmer.js:128-132`). On `gpt-5.6-luna` the setting has no
+   effect in either direction, so there is nothing to remove for the test — and
+   nothing to gain by setting it to `"off"`. It matters only if you move to an
+   Anthropic model, where the default `"streaming"` is the right choice and a
+   coordinator's per-worker warmers are the thing to watch, not the mode.
 
    ```json
-   { "cacheWarming": "off", "showCacheMissNotices": true }
+   { "showCacheMissNotices": true }
    ```
 
-   `cacheWarming` is a global setting only. Keep `PI_CACHE_RETENTION` at whatever
-   you normally run, and note it — retention tier changes the control condition.
+   Keep `PI_CACHE_RETENTION` at whatever you normally run, and note it — retention
+   tier changes the control condition.
+
+   Also worth knowing before blaming anything else: `pi-cache-optimizer` bails out
+   of all prompt rewriting for the whole Responses family, by design
+   (`index.ts:10840-10869`, `isToolOrderingEligibleModel`), so it is not a
+   participant on `openai-codex` either.
 
 2. **Control run.** One coordinator, one operator prompt, then a second operator
    prompt a few seconds later. No `spawn_worker`, no `revive_closed_session`, no
    `cleanup_panes`, no journal, no compaction, no model change. Then read the
-   trace.
+   trace. Expect this to be clean — the 2026-09-23 sample already showed a stable
+   workerless prompt reads ~96% from cache. The control is here to prove the
+   instrument works, not to find the bug.
 
    - Misses with `promptChanges: ["Pi or preceding-extension system prompt"]` →
-     Candidate A was not the whole story; something before Picode is unstable.
+     something before Picode is unstable. Investigate that before anything else.
    - Misses with `promptChanges: []` → neither A nor B is prompt content. Check
      session identity and retention.
-   - No misses → the prompt is stable in the quiet case. Proceed.
+   - No misses → the prompt is stable in the quiet case. Proceed to the run that
+     actually matters.
 
-3. **Treatment run.** Same coordinator shape, but exercise the worker lifecycle:
-   spawn a worker, let it finish, then revive and close it. Read both traces —
-   the coordinator's and the worker's.
+3. **Treatment run — the one that matters.** Same coordinator shape, but exercise
+   the worker lifecycle: spawn a worker, let it finish, then revive and close it.
+   Read both traces — the coordinator's and the worker's.
 
-   - Misses in the **revived worker's** trace, with `promptChanges: []` and a new
-     `sessionHash` in its `prompt` records → Candidate B. `revive_closed_session`
-     starts a new Pi session, so the provider cache key changes and the first
-     request is legitimately cold. Nothing about Picode's prompt is wrong; the
-     cost is inherent to reviving.
-   - Misses in the **coordinator's** trace with `promptChanges` naming a Picode
-     component → the roster digest or revival notice is reaching the prefix.
-     Investigate whether the section is being re-diffed in a way that replaces
-     rather than appends.
-   - Misses in the **coordinator's** trace with `promptChanges: []` and no
-     session change → neither candidate explains them. Check retention tier,
-     other extensions, and whether the misses track wall-clock time.
+   The thing to watch is the response immediately after the roster digest changes,
+   and the question is only this: **does `reBilledTokens` jump to the size of the
+   conversation, or stay near the size of the digest delta?**
+
+   - `reBilledTokens` ≈ the digest delta, `cacheReadAdvanced: true`, and
+     `payloadChanges` naming the digest's own appended message → **the fix holds**.
+     A moving roster now costs one small system delta. This is the measurement
+     nobody has taken, and it is the whole reason this runbook exists.
+   - `reBilledTokens` ≈ the whole conversation, with `payloadChanges` naming
+     `request message 0` → **the fix does not hold.** The digest is still reaching
+     the leading prompt. Re-read `src/lifecycle.ts:831-840` and Pi's
+     `diffSystemPromptSections` before touching anything else.
+   - Misses in the **revived worker's** trace only, with a new `sessionHash` in
+     its `prompt` records → Candidate B, working as designed.
+     `revive_closed_session` starts a new Pi session, so the provider cache key
+     changes and the first request is legitimately cold. Note that Pi raises no
+     notice for it (`no-baseline`) — it is visible in the trace, not in the TUI.
+   - Misses in the **coordinator's** trace with `promptChanges: []` and no session
+     change → neither candidate explains them. Check retention tier, other
+     extensions, and whether the misses track wall-clock time.
 
 4. **Record the outcome in this file** under a dated heading, including the Pi
    version, model, retention tier, and the raw `assessment` lines for any miss.
+
+When reporting a finding, include: Pi version, provider/model, `PI_CACHE_RETENTION`,
+whether `cacheWarming` was on, the `assessment` object, `promptChanges`,
+`payloadChanges`, `previousRequest.source`, and `idleMs`. Those facts are what make
+a miss reproducible from this file alone.
 
 When reporting a finding, include: Pi version, provider/model, `PI_CACHE_RETENTION`,
 whether `cacheWarming` was on, the `assessment` object, `promptChanges`,
