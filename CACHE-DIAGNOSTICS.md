@@ -14,6 +14,14 @@ moved. Fixed in `a240998`; the mechanism is in
 [Candidate A](#candidate-a--the-forced-whole-prompt-override-root-cause). Plain Pi
 has no such moving prefix head, which is why the symptom appeared only with Picode.
 
+**And a second, larger cost that was never a miss.** The same roster digest shared a
+prompt section with Picode's rules, and Pi re-sends the whole value of any section
+that changed — 36,944 characters re-sent to deliver a 222-character change, about
+once per turn. Fixed in `e272dc5`; see
+[the section-granularity finding](#not-a-miss-the-roster-digest-was-inflated-166x-by-section-granularity).
+The tracker's miss numbers were healthy the whole time this was costing money,
+because duplication inflates the prompt without breaking its prefix.
+
 What remains unproven is not the mechanism but the endorsement: no trace yet shows
 a **roster change** under the fixed code. The one live sample had no workers, so it
 is the case that was already healthy — see
@@ -365,6 +373,72 @@ is TTL expiry, which is normal and expected.
   not why. A read that stops short of the previous prompt looks the same whether
   the prefix broke or the provider simply rounds to a granule; the difference is
   that a granule-rounded read advances next turn and a broken one does not.
+
+## Not a miss: the roster digest was inflated ~166x by section granularity
+
+Found while auditing the same prompt path, fixed in `e272dc5`. Worth separating
+from the miss story, because it is **not** a cache problem — the prefix holds — and
+tracking down misses would never have revealed it.
+
+Pi patches structured prompt sections by name, and for any section whose value
+changed it re-sends the **whole new value**:
+
+```js
+parts.push(
+  value === null
+    ? `Removed system prompt section "${name}".`
+    : `Updated system prompt section "${name}":\n\n${value}`,
+);
+```
+
+`pi-ai/dist/utils/text.js` (`renderSystemMessageUpdate`)
+
+Picode kept its worker roster digest in the same `picode` section as its rules.
+Measured against the real prompt (`threadModelPrompt` for a coordinator):
+
+| Part                         | Characters |
+| ---------------------------- | ---------- |
+| Coordinator `picode` section | 36,722     |
+| Worker roster digest         | 222        |
+| What a roster change re-sent | 36,944     |
+
+A ~166x amplification, and it fired far more often than "a worker spawned"
+suggests. The digest renders each stopped worker's age, and that string changes
+every minute:
+
+```js
+if (minutes < 60) return `${minutes}m`;
+```
+
+`src/core/worker-ledger.ts:286` (`humanAge`)
+
+So with any recently-stopped worker in the roster, an active coordinator appended
+a full copy of its own rules roughly **once per turn** — every copy billed as new
+content at full input price, and every copy retained in the transcript for the
+rest of the session. That is context pressure, and context pressure leads to
+compaction, and compaction is what resets a provider cache. The second-order cost
+was larger than the first.
+
+The fix splits the roster into its own section (`splitPicodeRoster`,
+`src/core/system-prompt.ts`). The cut is at the same boundary `threadModelPrompt`
+joins on, with the same separator, so the leading prompt is byte-identical: Pi
+renders sections by joining their values with a blank line in insertion order,
+with **no names and no wrappers**. A roster move now costs 222 characters instead
+of 36,944.
+
+Two consequences for anyone reading an older trace:
+
+- **`fullPromptHash` before `e272dc5` was not the wire text.** It was built from a
+  `<picode>...</picode>` wrapper that Pi does not emit. Hashes still compare among
+  themselves within an era; they do not compare across that commit.
+- **Expect a one-time bump on upgrade.** The section layout changed, so the first
+  request after upgrading re-reads the leading prompt once. That is the fix, not a
+  regression.
+
+This is also the honest limit of what a miss-focused investigation can find. Every
+number in the tracker's own summary — `cacheRead`, `reBilledTokens`, `missedTokens`
+— was healthy while this was costing real money per turn, because duplication
+inflates the prompt without breaking the prefix.
 
 ## Observed 2026-09-23 — workerless coordinator, first live trace
 
