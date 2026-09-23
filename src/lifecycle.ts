@@ -5,7 +5,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { PicodeStore, PicodeState } from "./core/types";
 import type { Inbox, Injection } from "./inbox";
-import { threadModelPrompt } from "./core/system-prompt";
+import { splitPicodeRoster, threadModelPrompt } from "./core/system-prompt";
 import { formatWorkerDigest, recentWorkers } from "./core/worker-ledger";
 import { registerCacheDiagnostics } from "./cache-diagnostics";
 import {
@@ -829,29 +829,22 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
     });
     const basePrompt = event.systemPrompt;
     if (hasSystemPromptSections(event.systemPromptOptions)) {
-      event.systemPromptOptions.sections.picode = picodePrompt;
-      cacheDiagnostics.recordPrompt(
-        ctx,
-        basePrompt,
-        picodePrompt,
-        workers,
-        workerRows.length,
-        `<picode>\n${picodePrompt}\n</picode>`,
-      );
+      // Two sections, not one. A roster change re-sends the whole value of
+      // whichever section changed, so keeping the roster in the same section as
+      // the rules meant re-sending ~37k characters of rules to deliver a ~200
+      // character digest. See splitPicodeRoster. Pi joins the values with a
+      // blank line in insertion order, so this renders as the single-section form.
+      const { rules, roster } = splitPicodeRoster(picodePrompt, workers);
+      event.systemPromptOptions.sections.picode = rules;
+      if (roster) event.systemPromptOptions.sections["picode-workers"] = roster;
+      cacheDiagnostics.recordPrompt(ctx, basePrompt, picodePrompt, workers, workerRows.length);
       return;
     }
 
     // Older Pi versions do not expose structured sections; preserve their
     // existing prompt behavior while using transcript-backed sections when available.
     const renderedPrompt = `${basePrompt}\n\n${picodePrompt}`;
-    cacheDiagnostics.recordPrompt(
-      ctx,
-      basePrompt,
-      picodePrompt,
-      workers,
-      workerRows.length,
-      picodePrompt,
-    );
+    cacheDiagnostics.recordPrompt(ctx, basePrompt, picodePrompt, workers, workerRows.length);
     return { systemPrompt: renderedPrompt };
   });
 }

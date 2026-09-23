@@ -8,6 +8,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { splitPicodeRoster } from "./system-prompt";
 
 /** Pi ignores cache misses at or below this prefix granularity. */
 export const CACHE_MISS_NOISE_FLOOR_TOKENS = 1_024;
@@ -136,31 +137,28 @@ export function hashCacheSessionId(sessionId: string): string {
 
 /** Hash prompt components only; never persist prompt text or worker notes.
  *
- * `picodeSection` is how Picode's content appears appended to Pi's rendered
- * prompt: the plain text on the legacy `systemPrompt` override path, or Pi's
- * `<picode>...</picode>` wrapper when the content travels as a structured
- * section. `fullPromptHash` is therefore a synthetic reconstruction of the
- * components Picode can see, in Pi's render order — a stable change detector,
- * not the literal provider payload (other extensions may append after us).
+ * `picodePrompt` is what Picode appends after Pi's own prompt. Pi renders
+ * structured sections by joining their values with a blank line, in insertion
+ * order, with no names or wrappers (`getSystemMessageText`,
+ * `pi-ai/dist/utils/text.js`) — and `splitPicodeRoster` splits the same text at
+ * the same boundary with the same separator. So `${basePrompt}\n\n${picodePrompt}`
+ * is the leading system prompt as the model sees it, which makes `fullPromptHash`
+ * a real change detector rather than a reconstruction. It is still the leading
+ * prompt only: extensions loaded after Picode may append.
  */
 export function snapshotCachePrompt(
   basePrompt: string,
   picodePrompt: string,
   workerDigest: string,
   workerCount: number,
-  picodeSection: string,
 ): CachePromptSnapshot {
-  const workerSuffix = workerDigest ? `\n\n${workerDigest}` : "";
-  const picodeWithoutWorkers =
-    workerSuffix && picodePrompt.endsWith(workerSuffix)
-      ? picodePrompt.slice(0, -workerSuffix.length)
-      : picodePrompt;
-  const rendered = `${basePrompt}\n\n${picodeSection}`;
+  const { rules } = splitPicodeRoster(picodePrompt, workerDigest);
+  const rendered = `${basePrompt}\n\n${picodePrompt}`;
   return {
     fullPromptHash: fingerprint(rendered),
     basePromptHash: fingerprint(basePrompt),
     picodePromptHash: fingerprint(picodePrompt),
-    picodeWithoutWorkersHash: fingerprint(picodeWithoutWorkers),
+    picodeWithoutWorkersHash: fingerprint(rules),
     workerDigestHash: fingerprint(workerDigest),
     fullPromptChars: rendered.length,
     workerCount,

@@ -14,6 +14,7 @@ import {
   snapshotCachePayload,
   snapshotCachePrompt,
 } from "../src/core/cache-diagnostics";
+import { splitPicodeRoster } from "../src/core/system-prompt";
 
 const tempDirs: string[] = [];
 
@@ -51,20 +52,8 @@ function assistantEntry(options: {
 
 describe("cache diagnostics", () => {
   it("fingerprints prompts without retaining their text and identifies changed components", () => {
-    const previous = snapshotCachePrompt(
-      "system secret",
-      "rules\n\nworkers A",
-      "workers A",
-      1,
-      "section A",
-    );
-    const current = snapshotCachePrompt(
-      "system secret",
-      "rules\n\nworkers B",
-      "workers B",
-      1,
-      "section B",
-    );
+    const previous = snapshotCachePrompt("system secret", "rules\n\nworkers A", "workers A", 1);
+    const current = snapshotCachePrompt("system secret", "rules\n\nworkers B", "workers B", 1);
 
     assert.notEqual(previous.fullPromptHash, current.fullPromptHash);
     assert.deepEqual(changedPromptComponents(previous, current), ["Picode worker digest"]);
@@ -72,21 +61,40 @@ describe("cache diagnostics", () => {
     assert.equal(JSON.stringify(previous).includes("workers A"), false);
   });
 
-  it("measures the full prompt as the base plus Picode's rendered contribution", () => {
+  it("measures the full prompt as the base plus Picode's contribution, and isolates the rules", () => {
     const base = "base prompt";
-    const picode = "thread rules";
-    const section = snapshotCachePrompt(base, picode, "", 0, `<picode>\n${picode}\n</picode>`);
-    const legacy = snapshotCachePrompt(base, picode, "", 0, picode);
+    const picode = "thread rules\n\nworkers A";
+    const snapshot = snapshotCachePrompt(base, picode, "workers A", 1);
 
-    // Same rules, two transport shapes: the section wrapper is part of what the
-    // model sees, so the two fingerprints must differ.
-    assert.equal(section.picodePromptHash, legacy.picodePromptHash);
-    assert.notEqual(section.fullPromptHash, legacy.fullPromptHash);
-    assert.equal(section.fullPromptChars, `${base}\n\n<picode>\n${picode}\n</picode>`.length);
+    // Pi renders structured sections by joining their values with a blank line
+    // and no names or wrappers (getSystemMessageText), which is exactly how
+    // splitPicodeRoster re-joins them — so this is the leading prompt itself.
+    assert.equal(snapshot.fullPromptChars, `${base}\n\n${picode}`.length);
+    assert.equal(snapshot.workerCount, 1);
 
-    // An unchanged base and rules must not be reported as a Picode change even
-    // though the wrapper participates in the full-prompt fingerprint.
-    assert.deepEqual(changedPromptComponents(section, legacy), []);
+    // The rules half must be independent of the roster, so a roster move can be
+    // detected without the rules appearing to change.
+    const rosterMoved = snapshotCachePrompt(base, "thread rules\n\nworkers B", "workers B", 1);
+    assert.deepEqual(changedPromptComponents(snapshot, rosterMoved), ["Picode worker digest"]);
+  });
+
+  it("splits the worker roster off the rules at the boundary threadModelPrompt uses", () => {
+    const rules = "communication model\n\nrole rules";
+    const roster = "### Recent workers\n- builder-a1";
+
+    const composed = `${rules}\n\n${roster}`;
+    assert.deepEqual(splitPicodeRoster(composed, roster), { rules, roster });
+
+    // Re-joining reproduces the composed prompt exactly — this is what keeps the
+    // split text-neutral, and therefore cache-neutral.
+    const { rules: kept, roster: split } = splitPicodeRoster(composed, roster);
+    assert.equal([kept, split].filter(Boolean).join("\n\n"), composed);
+
+    // No roster, or a digest that is not actually the suffix: never split, so a
+    // future composition change degrades to the old single-section shape rather
+    // than silently dropping rules.
+    assert.deepEqual(splitPicodeRoster(rules, ""), { rules, roster: "" });
+    assert.deepEqual(splitPicodeRoster(rules, roster), { rules, roster: "" });
   });
 
   it("finds previous usage and resets the baseline at a compaction boundary", () => {
@@ -343,13 +351,7 @@ describe("cache diagnostics", () => {
 
   it("persists only fingerprints and recovers the previous response fingerprint", () => {
     const cwd = tempDir();
-    const snapshot = snapshotCachePrompt(
-      "private system prompt",
-      "private Picode prompt",
-      "",
-      0,
-      "rendered private system prompt",
-    );
+    const snapshot = snapshotCachePrompt("private system prompt", "private Picode prompt", "", 0);
     const tracePath = appendCacheDiagnostic(cwd, "../../unsafe-id", {
       kind: "response",
       timestamp: new Date(2_000).toISOString(),

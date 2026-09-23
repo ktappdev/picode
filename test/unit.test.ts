@@ -2136,6 +2136,70 @@ describe("lifecycle: opt-in gate (§2.3)", () => {
     h.store.stopHeartbeat();
     h.store.stopWatcher();
   });
+
+  it("keeps the worker roster in its own section, so a roster move never re-sends the rules", async () => {
+    const prevHerdr = process.env.HERDR_ENV;
+    process.env.HERDR_ENV = "1";
+    try {
+      const h = makeLifecycleHarness(tmpDir);
+      h.setFlag("picode-id", "coordinator");
+      h.setFlag("picode-role", "coordinator");
+      const ctx = h.makeCtx();
+      await h.fire("session_start", ctx);
+
+      // Seed one stopped worker so the digest is non-empty, and let its age move
+      // between the two runs the way wall-clock moves it in a live session.
+      const seedWorker = (minutesAgo: number) => {
+        const workerDir = join(tmpDir, ".picode", "picodes", "builder-a1");
+        mkdirSync(workerDir, { recursive: true });
+        writeFileSync(
+          join(workerDir, "state.json"),
+          JSON.stringify({
+            role: "builder",
+            status: "stopped",
+            state: "open",
+            lastSeen: new Date(Date.now() - minutesAgo * 60_000).toISOString(),
+          }),
+        );
+      };
+
+      seedWorker(12);
+      const first: Record<string, string> = {};
+      await h.fire("before_agent_start", ctx, {
+        systemPrompt: "base",
+        systemPromptOptions: { sections: first },
+      });
+
+      seedWorker(40);
+      const second: Record<string, string> = {};
+      await h.fire("before_agent_start", ctx, {
+        systemPrompt: "base",
+        systemPromptOptions: { sections: second },
+      });
+
+      assert.ok(first["picode-workers"], "the roster travels in a section of its own");
+      assert.notEqual(
+        first["picode-workers"],
+        second["picode-workers"],
+        "the roster moved between the two runs",
+      );
+      assert.equal(
+        first.picode,
+        second.picode,
+        "a roster move must leave the rules section byte-identical: Pi re-sends the whole value of any section that changed, so one shared section re-sent the coordinator's ~37k-character rule block to deliver a ~200-character digest",
+      );
+      assert.equal(
+        first.picode.includes("builder-a1"),
+        false,
+        "the rules section must not carry the roster rows — the coordinator prompt documents the digest by name, so assert on the seeded worker's actual row instead",
+      );
+      h.store.stopHeartbeat();
+      h.store.stopWatcher();
+    } finally {
+      if (prevHerdr === undefined) delete process.env.HERDR_ENV;
+      else process.env.HERDR_ENV = prevHerdr;
+    }
+  });
 });
 
 describe("core: bounded sit-rep policy", () => {

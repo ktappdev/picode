@@ -301,3 +301,30 @@ export function threadModelPrompt(data: PicodeData, options: ThreadPromptOptions
     buildCommunicationModel(picodeId, displayRole, parent, roleBlock, journalGuidanceFor(role)),
   );
 }
+
+/** Split a composed Picode prompt into stable rules and the volatile worker roster.
+ *
+ *  Pi patches structured prompt sections by name, and re-sends the **whole new
+ *  value** of any section whose text changed (`renderSystemMessageUpdate`). While
+ *  the roster lived inside the `picode` section, one roster change re-sent the
+ *  entire coordinator prompt — ~37k characters — to deliver a ~200-character
+ *  digest. That is not a cache problem (the prefix still holds) but it is a real
+ *  one: the roster moves whenever a worker spawns, exits, or changes status, and
+ *  every minute a recently-stopped worker's age ticks over
+ *  (`humanAge`, `src/core/worker-ledger.ts:286`), so an active coordinator appends
+ *  a full copy of its own rules roughly once per turn. Keeping the roster in its
+ *  own section makes a roster change cost the digest instead of the rules.
+ *
+ *  `rules` and `roster` re-join with a blank line, in this order, which is exactly
+ *  how `threadModelPrompt` composes them — so the leading prompt is byte-identical
+ *  to the single-section form, and Pi's own join renders the same text.
+ */
+export function splitPicodeRoster(
+  picodePrompt: string,
+  workerDigest: string,
+): { rules: string; roster: string } {
+  if (!workerDigest) return { rules: picodePrompt, roster: "" };
+  const suffix = `\n\n${workerDigest}`;
+  if (!picodePrompt.endsWith(suffix)) return { rules: picodePrompt, roster: "" };
+  return { rules: picodePrompt.slice(0, -suffix.length), roster: workerDigest };
+}

@@ -64,7 +64,6 @@ export function registerCacheDiagnostics(
     picodePrompt: string,
     workerDigest: string,
     workerCount: number,
-    picodeSection: string,
   ): void;
 } {
   let currentPrompt: CachePromptSnapshot | undefined;
@@ -166,14 +165,8 @@ export function registerCacheDiagnostics(
       currentPayload = undefined;
       previousResponsePayload = undefined;
     },
-    recordPrompt(ctx, basePrompt, picodePrompt, workerDigest, workerCount, picodeSection) {
-      currentPrompt = snapshotCachePrompt(
-        basePrompt,
-        picodePrompt,
-        workerDigest,
-        workerCount,
-        picodeSection,
-      );
+    recordPrompt(ctx, basePrompt, picodePrompt, workerDigest, workerCount) {
+      currentPrompt = snapshotCachePrompt(basePrompt, picodePrompt, workerDigest, workerCount);
       appendCacheDiagnostic(ctx.cwd, store.picodeId, {
         kind: "prompt",
         timestamp: new Date().toISOString(),
