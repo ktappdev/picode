@@ -302,6 +302,16 @@ Manage it through the slash command:
 | `/picode-journal clear`   | Delete the journal file.                                  |
 | `/picode-journal compact` | Force compaction now, even under the 200-entry threshold. |
 
+## Prompt-cache diagnostics
+
+Active Picode sessions write a local trace to `.picode/cache-diagnostics/`. It records prompt-component fingerprints and provider usage counters (input, cache-read, cache-write, and reported cost), never prompt or message text. Traces are bounded to about 1 MB per picode.
+
+When provider usage indicates a cache miss larger than Pi's 1,024-token noise floor, Picode warns whether its prompt changed since the previous request (for example, the worker digest) or stayed unchanged. A changed fingerprint is a correlation, not proof of provider causation; an unchanged Picode prompt points toward cache retention, session/model changes, or another extension. Traces mark whether the preceding cache request was an assistant response or Pi's cache warmer, including the warm request's reported cost when available. The warning includes the trace path for follow-up.
+
+On Pi versions with structured system-prompt sections, Picode stores its thread rules as a transcript-backed section so custom-message-triggered turns retain the same rules. Older Pi versions keep the existing per-run prompt override behavior.
+
+See [CACHE-DIAGNOSTICS.md](CACHE-DIAGNOSTICS.md) for the runbook: what the trace fields mean, how to read a miss, what the tracker cannot prove, and the experiment that settles whether a miss comes from prompt content or from a new provider cache key.
+
 ## Human monitoring and steering
 
 `bin/picode-cli.mjs` lets a human act on the picode system without running pi. It is a full protocol citizen working over plain files.
