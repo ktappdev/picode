@@ -1,8 +1,13 @@
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type {
+  BuildSystemPromptOptions,
+  ExtensionAPI,
+  ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import type { PicodeStore, PicodeState } from "./core/types";
 import type { Inbox, Injection } from "./inbox";
 import { threadModelPrompt } from "./core/system-prompt";
 import { formatWorkerDigest, recentWorkers } from "./core/worker-ledger";
+import { registerCacheDiagnostics } from "./cache-diagnostics";
 import {
   journalMode,
   shouldJournal,
@@ -32,6 +37,15 @@ import {
 import { execSync } from "node:child_process";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+
+function hasSystemPromptSections(
+  options: BuildSystemPromptOptions,
+): options is BuildSystemPromptOptions & { sections: Record<string, string> } {
+  if (!("sections" in options)) return false;
+  const sections = options.sections;
+  if (typeof sections !== "object" || sections === null || Array.isArray(sections)) return false;
+  return Object.values(sections).every(section => typeof section === "string");
+}
 
 /** Default interval for periodic coordinator sit-rep injections (ms).
  *  Every N minutes, if the coordinator is idle and has tracked panes,
@@ -165,6 +179,7 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
   let isRoundTable = false;
   let stopHerdrListener: HerdrListenerHandle | null = null;
   let sitRepTimer: NodeJS.Timeout | null = null;
+  const cacheDiagnostics = registerCacheDiagnostics(pi, store, () => active);
 
   // --- Periodic sit-rep, bounded (core/sitrep.ts) -------------------------
   // Armed only for a coordinator running inside herdr. The timer stops itself
@@ -377,6 +392,7 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
     // — a fresh session's entries must not be skipped by the old session's
     // count.
     store.promptDrivenTurnSeen = false;
+    cacheDiagnostics.reset();
     journaledMessageCount = 0;
 
     // Coordinator must run inside herdr
@@ -789,18 +805,15 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
   pi.on("before_agent_start", async (event, ctx) => {
     if (!active) return;
     // Only prompt()-driven runs assemble the system prompt through this
-    // handler — record that the agent's system prompt now carries the picode
-    // thread-model block, so collapsed sendMessage injections can safely
-    // trigger turns (they inherit state.systemPrompt instead of rebuilding
-    // it, and would otherwise run without picode rules entirely).
+    // handler. Persist the Picode rules as a structured section so later
+    // sendMessage-triggered runs inherit them from the transcript; a forced
+    // systemPrompt override applies only to this run and is not persisted.
     store.promptDrivenTurnSeen = true;
 
     // Roster digest — coordinator only, and cheap by construction: bounded
     // to the most recent workers, with session scans memoised by mtime.
-    const workers =
-      store.role === "coordinator" && !isRoundTable
-        ? formatWorkerDigest(recentWorkers(ctx.cwd))
-        : "";
+    const workerRows = store.role === "coordinator" && !isRoundTable ? recentWorkers(ctx.cwd) : [];
+    const workers = formatWorkerDigest(workerRows);
 
     // Stamped by revive_closed_session at launch with the timestamp of this
     // worker's last heartbeat before it stopped, so a resumed session knows
@@ -809,11 +822,36 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
     const revived =
       typeof revivedFlag === "string" && revivedFlag ? { since: revivedFlag } : undefined;
 
-    return {
-      systemPrompt:
-        event.systemPrompt +
-        "\n\n" +
-        threadModelPrompt(store, { roundTable: isRoundTable, workers, revived }),
-    };
+    const picodePrompt = threadModelPrompt(store, {
+      roundTable: isRoundTable,
+      workers,
+      revived,
+    });
+    const basePrompt = event.systemPrompt;
+    if (hasSystemPromptSections(event.systemPromptOptions)) {
+      event.systemPromptOptions.sections.picode = picodePrompt;
+      cacheDiagnostics.recordPrompt(
+        ctx,
+        basePrompt,
+        picodePrompt,
+        workers,
+        workerRows.length,
+        `<picode>\n${picodePrompt}\n</picode>`,
+      );
+      return;
+    }
+
+    // Older Pi versions do not expose structured sections; preserve their
+    // existing prompt behavior while using transcript-backed sections when available.
+    const renderedPrompt = `${basePrompt}\n\n${picodePrompt}`;
+    cacheDiagnostics.recordPrompt(
+      ctx,
+      basePrompt,
+      picodePrompt,
+      workers,
+      workerRows.length,
+      picodePrompt,
+    );
+    return { systemPrompt: renderedPrompt };
   });
 }

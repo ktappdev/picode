@@ -400,6 +400,7 @@ function makeLifecycleHarness(dir: string) {
       sessionManager: {
         getEntries: () => entries,
         getSessionFile: () => undefined,
+        getSessionId: () => "test-session",
         getHeader: () => header ?? null,
       },
       isIdle: () => true,
@@ -2088,8 +2089,19 @@ describe("lifecycle: opt-in gate (§2.3)", () => {
     h.store.promptDrivenTurnSeen = true;
     await h.fire("session_start", ctx);
     assert.strictEqual(h.store.promptDrivenTurnSeen, false, "session_start resets the primer");
-    await h.fire("before_agent_start", ctx, { systemPrompt: "base" });
+    const sections: Record<string, string> = {};
+    const event = {
+      systemPrompt: "base",
+      systemPromptOptions: { sections },
+    };
+    const result = await h.fire("before_agent_start", ctx, event);
     assert.strictEqual(h.store.promptDrivenTurnSeen, true, "before_agent_start primes");
+    assert.equal(
+      typeof sections.picode,
+      "string",
+      "Picode rules are persisted as a system section",
+    );
+    assert.equal(result, undefined, "the hook must not force a one-run system prompt override");
     h.store.stopHeartbeat();
     h.store.stopWatcher();
   });
