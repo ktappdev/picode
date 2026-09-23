@@ -304,7 +304,7 @@ Manage it through the slash command:
 
 ## Prompt-cache diagnostics
 
-Active Picode sessions write a local trace to `.picode/cache-diagnostics/`. It records prompt-component fingerprints and provider usage counters (input, cache-read, cache-write, and reported cost), never prompt or message text. Traces are bounded to about 1 MB per picode.
+Active Picode sessions write a local trace to `.picode/cache-diagnostics/`. It records prompt-component and request-body fingerprints plus provider usage counters (input, cache-read, cache-write, and reported cost), never prompt text, message text, tool descriptions, or worker notes. Traces are bounded to about 1 MB per picode.
 
 When provider usage indicates a cache miss larger than Pi's 1,024-token noise floor, Picode warns whether its prompt changed since the previous request (for example, the worker digest) or stayed unchanged. A changed fingerprint is a correlation, not proof of provider causation; an unchanged Picode prompt points toward cache retention, session/model changes, or another extension. Traces mark whether the preceding cache request was an assistant response or Pi's cache warmer, including the warm request's reported cost when available. The warning includes the trace path for follow-up.
 

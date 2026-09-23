@@ -35,6 +35,7 @@ export interface CacheUsageSample {
 
 export interface PreviousCacheRequest {
   promptTokens: number;
+  cacheRead: number;
   modelKey: string;
   timestamp: number;
   reportedCache: boolean;
@@ -42,14 +43,49 @@ export interface PreviousCacheRequest {
   cost?: number;
 }
 
+/** Segments of the real provider request, in the order the provider sees them. */
+export interface PayloadSegment {
+  index: number;
+  role: string;
+  type: string;
+  hash: string;
+  chars: number;
+}
+
+/** Fingerprint of the actual request body, so a prefix break can name its cause. */
+export interface PayloadSnapshot {
+  payloadHash: string;
+  instructionsHash: string | null;
+  instructionsChars: number | null;
+  toolsHash: string | null;
+  toolsCount: number | null;
+  /** Null when the adapter sent no cache key, i.e. provider caching was off. */
+  cacheKeyHash: string | null;
+  segmentCount: number;
+  segments: PayloadSegment[];
+}
+
+/** How many leading request segments to fingerprint. The prefix break shows up
+ *  at the head, so a handful is enough to localise it. */
+const PAYLOAD_SEGMENTS_KEPT = 8;
+
 export type CacheAssessment =
   | { status: "no-baseline" }
   | { status: "no-prompt" }
   | { status: "cache-unreported" }
-  | { status: "within-noise-floor"; missedTokens: number }
+  | {
+      status: "within-noise-floor";
+      missedTokens: number;
+      reBilledTokens: number;
+      newTokens: number;
+      cacheReadAdvanced: boolean;
+    }
   | {
       status: "miss";
       missedTokens: number;
+      reBilledTokens: number;
+      newTokens: number;
+      cacheReadAdvanced: boolean;
       idleMs: number;
       modelChanged: boolean;
     };
@@ -61,6 +97,13 @@ export type CacheDiagnosticRecord =
       sessionHash: string;
       role: string;
       snapshot: CachePromptSnapshot;
+    }
+  | {
+      kind: "payload";
+      timestamp: string;
+      sessionHash: string;
+      role: string;
+      snapshot: PayloadSnapshot;
     }
   | {
       kind: "response";
@@ -78,6 +121,7 @@ export type CacheDiagnosticRecord =
       previousRequest: PreviousCacheRequest | null;
       assessment: CacheAssessment;
       promptChanges: string[] | null;
+      payloadChanges: string[] | null;
       snapshot: CachePromptSnapshot | null;
     };
 
@@ -196,6 +240,7 @@ export function findPreviousCacheRequest(
       if (tokens > 0 && timestamp !== undefined) {
         previous = {
           promptTokens: tokens,
+          cacheRead: usage ? (finiteNumber(usage.cacheRead) ?? 0) : 0,
           modelKey: `${String(entry.provider ?? "")}/${String(entry.model ?? "")}`,
           timestamp,
           reportedCache: true,
@@ -218,6 +263,7 @@ export function findPreviousCacheRequest(
     if (timestamp === undefined) continue;
     previous = {
       promptTokens: tokens,
+      cacheRead: finiteNumber(usage.cacheRead) ?? 0,
       modelKey: `${String(message.provider ?? "")}/${String(message.model ?? "")}`,
       timestamp,
       reportedCache:
@@ -247,16 +293,132 @@ export function assessCacheUsage(
     0,
     Math.min(previous.promptTokens, currentPromptTokens) - current.cacheRead,
   );
+  // A request is billed as two buckets. Tokens the provider had already seen are
+  // waste when they are not cache-read; tokens beyond the largest prompt the
+  // provider has seen (or the cached prefix) are new content and always cost
+  // full price. Conflating the two makes a growing conversation look like a
+  // prefix break, which is the misreading this split exists to prevent.
+  const frontier = Math.max(previous.promptTokens, current.cacheRead);
+  const newTokens = Math.max(0, currentPromptTokens - frontier);
+  const reBilledTokens = Math.max(0, currentPromptTokens - current.cacheRead - newTokens);
+  const cacheReadAdvanced = current.cacheRead > previous.cacheRead;
+
   if (missedTokens <= CACHE_MISS_NOISE_FLOOR_TOKENS) {
-    return { status: "within-noise-floor", missedTokens };
+    return {
+      status: "within-noise-floor",
+      missedTokens,
+      reBilledTokens,
+      newTokens,
+      cacheReadAdvanced,
+    };
   }
 
   return {
     status: "miss",
     missedTokens,
+    reBilledTokens,
+    newTokens,
+    cacheReadAdvanced,
     idleMs: Math.max(0, current.timestamp - previous.timestamp),
     modelChanged: `${current.provider}/${current.model}` !== previous.modelKey,
   };
+}
+
+function segment(value: unknown, index: number): PayloadSegment {
+  const item = object(value);
+  if (!item) {
+    const text = typeof value === "string" ? value : safeJson(value);
+    return { index, role: "?", type: typeof value, hash: fingerprint(text), chars: text.length };
+  }
+  const role = typeof item.role === "string" ? item.role : "?";
+  const type = typeof item.type === "string" ? item.type : "?";
+  const content = item.content ?? item.text ?? item;
+  const text = typeof content === "string" ? content : safeJson(content);
+  return { index, role, type, hash: fingerprint(text), chars: text.length };
+}
+
+/** Never throw on a cyclic or exotic payload; hashing must not break a request. */
+function safeJson(value: unknown): string {
+  try {
+    return JSON.stringify(value) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function payloadItems(body: Record<string, unknown>): unknown[] {
+  // Responses-style bodies carry `input`; chat-style bodies carry `messages`.
+  for (const key of ["input", "messages"]) {
+    const value = body[key];
+    if (Array.isArray(value)) return value;
+  }
+  return [];
+}
+
+/** Fingerprint the real request body so a prefix break can name its own cause.
+ *
+ * Only hashes and lengths are kept — never request content. The provider caches
+ * a prefix in the order it receives it (instructions, then tools, then input
+ * messages), so each segment is hashed separately and the first difference names
+ * where the prefix was lost.
+ */
+export function snapshotCachePayload(payload: unknown): PayloadSnapshot | undefined {
+  const body = object(payload);
+  if (!body) return undefined;
+
+  const instructions =
+    typeof body.instructions === "string"
+      ? body.instructions
+      : typeof body.system === "string"
+        ? body.system
+        : undefined;
+  const tools = Array.isArray(body.tools) ? body.tools : undefined;
+  const cacheKey = typeof body.prompt_cache_key === "string" ? body.prompt_cache_key : undefined;
+  const items = payloadItems(body);
+
+  return {
+    payloadHash: fingerprint(safeJson({ instructions, tools, items })),
+    instructionsHash: instructions === undefined ? null : fingerprint(instructions),
+    instructionsChars: instructions?.length ?? null,
+    toolsHash: tools === undefined ? null : fingerprint(safeJson(tools)),
+    toolsCount: tools?.length ?? null,
+    cacheKeyHash: cacheKey === undefined ? null : fingerprint(cacheKey),
+    segmentCount: items.length,
+    segments: items.slice(0, PAYLOAD_SEGMENTS_KEPT).map(segment),
+  };
+}
+
+/** Name the first part of the request that differs from the previous one. */
+export function changedPayloadSegments(
+  previous: PayloadSnapshot | undefined,
+  current: PayloadSnapshot | undefined,
+): string[] | null {
+  if (!previous || !current) return null;
+
+  const changes: string[] = [];
+  if (previous.instructionsHash !== current.instructionsHash) {
+    changes.push("provider instructions");
+  }
+  if (previous.toolsHash !== current.toolsHash) {
+    changes.push(
+      `tool definitions (${previous.toolsCount ?? "?"} -> ${current.toolsCount ?? "?"})`,
+    );
+  }
+  if (previous.cacheKeyHash !== current.cacheKeyHash) {
+    changes.push("provider cache key (session identity changed)");
+  }
+
+  const shared = Math.min(previous.segments.length, current.segments.length);
+  for (let index = 0; index < shared; index++) {
+    const before = previous.segments[index];
+    const after = current.segments[index];
+    if (before.hash !== after.hash || before.role !== after.role) {
+      changes.push(`request message ${index} (${after.role})—the cached prefix ends here`);
+      break;
+    }
+  }
+
+  return changes;
 }
 
 function tracePath(cwd: string, picodeId: string): string {

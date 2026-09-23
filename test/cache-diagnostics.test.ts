@@ -6,10 +6,12 @@ import { afterEach, describe, it } from "node:test";
 import {
   appendCacheDiagnostic,
   assessCacheUsage,
+  changedPayloadSegments,
   changedPromptComponents,
   findPreviousCacheRequest,
   findPreviousPromptSnapshot,
   hashCacheSessionId,
+  snapshotCachePayload,
   snapshotCachePrompt,
 } from "../src/core/cache-diagnostics";
 
@@ -115,6 +117,7 @@ describe("cache diagnostics", () => {
       ]),
       {
         promptTokens: 5_000,
+        cacheRead: 4_500,
         modelKey: "openai-codex/gpt-6-luna",
         timestamp: 1_000,
         reportedCache: true,
@@ -140,7 +143,15 @@ describe("cache diagnostics", () => {
         cacheWrite: 0,
         cost: 0.05,
       }),
-      { status: "miss", missedTokens: 50_000, idleMs: 1_000, modelChanged: false },
+      {
+        status: "miss",
+        missedTokens: 50_000,
+        reBilledTokens: 50_000,
+        newTokens: 0,
+        cacheReadAdvanced: false,
+        idleMs: 1_000,
+        modelChanged: false,
+      },
     );
   });
 
@@ -173,8 +184,161 @@ describe("cache diagnostics", () => {
         cacheWrite: 0,
         cost: 0.01,
       }),
-      { status: "within-noise-floor", missedTokens: 500 },
+      {
+        status: "within-noise-floor",
+        missedTokens: 500,
+        reBilledTokens: 500,
+        newTokens: 49_500,
+        cacheReadAdvanced: true,
+      },
     );
+  });
+
+  it("separates re-billed tokens from new tokens when the cached prefix is frozen", () => {
+    // The live shape that started this investigation: a workerless coordinator whose
+    // cached prefix stops at the static prompt while the conversation keeps growing.
+    const frozen = {
+      promptTokens: 25_166,
+      cacheRead: 24_064,
+      modelKey: "openai-codex/gpt-5.6-luna",
+      timestamp: 1_790_125_864_158,
+      reportedCache: true,
+      source: "assistant" as const,
+    };
+
+    assert.deepEqual(
+      assessCacheUsage(frozen, {
+        provider: "openai-codex",
+        model: "gpt-5.6-luna",
+        timestamp: 1_790_125_892_382,
+        input: 1_158,
+        cacheRead: 24_064,
+        cacheWrite: 0,
+        cost: 0.00147848,
+      }),
+      {
+        status: "miss",
+        missedTokens: 1_102,
+        reBilledTokens: 1_102,
+        newTokens: 56,
+        cacheReadAdvanced: false,
+        idleMs: 28_224,
+        modelChanged: false,
+      },
+    );
+  });
+
+  it("does not call pure conversation growth a miss", () => {
+    // Every token is either the new tail or a cache read, so nothing was re-billed
+    // even though the prompt is larger than the previous one.
+    assert.deepEqual(
+      assessCacheUsage(
+        {
+          promptTokens: 10_000,
+          cacheRead: 9_984,
+          modelKey: "openai-codex/gpt-5.6-luna",
+          timestamp: 1_000,
+          reportedCache: true,
+          source: "assistant",
+        },
+        {
+          provider: "openai-codex",
+          model: "gpt-5.6-luna",
+          timestamp: 2_000,
+          input: 400,
+          cacheRead: 10_368,
+          cacheWrite: 0,
+          cost: 0.001,
+        },
+      ),
+      {
+        status: "within-noise-floor",
+        missedTokens: 0,
+        reBilledTokens: 0,
+        newTokens: 400,
+        cacheReadAdvanced: true,
+      },
+    );
+  });
+
+  it("fingerprints the request body without retaining instructions, tools, or messages", () => {
+    const snapshot = snapshotCachePayload({
+      model: "gpt-5.6-luna",
+      instructions: "private coordinator rules",
+      prompt_cache_key: "session-secret-id",
+      tools: [{ name: "bash", description: "private tool description" }],
+      input: [
+        { role: "developer", content: "private section patch" },
+        { role: "user", content: [{ type: "input_text", text: "private operator prompt" }] },
+      ],
+    });
+
+    assert.ok(snapshot);
+    assert.equal(snapshot.toolsCount, 1);
+    assert.equal(snapshot.segmentCount, 2);
+    assert.deepEqual(
+      snapshot.segments.map(s => [s.index, s.role]),
+      [
+        [0, "developer"],
+        [1, "user"],
+      ],
+    );
+    assert.equal(snapshot.instructionsChars, "private coordinator rules".length);
+
+    const serialized = JSON.stringify(snapshot);
+    for (const secret of [
+      "private coordinator rules",
+      "session-secret-id",
+      "private tool description",
+      "private section patch",
+      "private operator prompt",
+    ]) {
+      assert.equal(serialized.includes(secret), false, `leaked ${secret}`);
+    }
+  });
+
+  it("names where the request prefix diverged, and stays quiet when it did not", () => {
+    const base = {
+      instructions: "rules",
+      tools: [{ name: "bash" }],
+      prompt_cache_key: "s",
+      input: [
+        { role: "developer", content: "patch" },
+        { role: "user", content: "question" },
+      ],
+    };
+    const before = snapshotCachePayload(base);
+    assert.ok(before);
+
+    assert.deepEqual(changedPayloadSegments(before, snapshotCachePayload(base)), []);
+    assert.equal(changedPayloadSegments(undefined, before), null);
+
+    const newSession = snapshotCachePayload({ ...base, prompt_cache_key: "other" });
+    assert.deepEqual(changedPayloadSegments(before, newSession), [
+      "provider cache key (session identity changed)",
+    ]);
+
+    const changedTail = snapshotCachePayload({
+      ...base,
+      input: [
+        { role: "developer", content: "patch" },
+        { role: "user", content: "different question" },
+      ],
+    });
+    assert.deepEqual(changedPayloadSegments(before, changedTail), [
+      "request message 1 (user)—the cached prefix ends here",
+    ]);
+
+    const changedHead = snapshotCachePayload({
+      ...base,
+      input: [
+        { role: "developer", content: "different patch" },
+        { role: "user", content: "question" },
+      ],
+    });
+    assert.deepEqual(changedPayloadSegments(before, changedHead), [
+      "request message 0 (developer)—the cached prefix ends here",
+    ]);
   });
 
   it("persists only fingerprints and recovers the previous response fingerprint", () => {
@@ -202,6 +366,7 @@ describe("cache diagnostics", () => {
       previousRequest: null,
       assessment: { status: "no-baseline" },
       promptChanges: null,
+      payloadChanges: null,
       snapshot,
     });
     const content = readFileSync(tracePath, "utf8");
