@@ -178,17 +178,17 @@ Three record kinds, one per line:
 
 **`kind: "prompt"`** — written from `before_agent_start`, one per prompt-driven run.
 
-| Field                               | Meaning                                                                                                                                                                                                    |
-| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sessionHash`                       | SHA-256 of the Pi session id. The raw session id is never stored.                                                                                                                                          |
-| `role`                              | `coordinator`, `builder`, …                                                                                                                                                                                |
-| `snapshot.fullPromptHash`           | Base prompt + Picode's rendered contribution, in Pi's render order. A synthetic reconstruction for change detection, **not** the literal request payload (extensions loaded after Picode may append more). |
-| `snapshot.basePromptHash`           | Everything Pi rendered before Picode's contribution — file context, skills, cwd, every preceding extension.                                                                                                |
-| `snapshot.picodePromptHash`         | Picode's own rules, including the worker digest.                                                                                                                                                           |
-| `snapshot.picodeWithoutWorkersHash` | Same, with the roster digest suffix stripped.                                                                                                                                                              |
-| `snapshot.workerDigestHash`         | The roster digest alone.                                                                                                                                                                                   |
-| `snapshot.fullPromptChars`          | Length of the reconstructed full prompt, a proxy for cacheable prefix size.                                                                                                                                |
-| `snapshot.workerCount`              | Rows in the roster digest.                                                                                                                                                                                 |
+| Field                               | Meaning                                                                                                                                                                                                                                                                                                                                                                        |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `sessionHash`                       | SHA-256 of the Pi session id. The raw session id is never stored.                                                                                                                                                                                                                                                                                                              |
+| `role`                              | `coordinator`, `builder`, …                                                                                                                                                                                                                                                                                                                                                    |
+| `snapshot.fullPromptHash`           | The leading system prompt as Pi will send it: base prompt + Picode's contribution, reconstructed by `renderLeadingPrompt` including Pi's `<picode>` / `<picode-workers>` section tags. Exact for the leading prompt, **not** the whole request payload — extensions loaded after Picode may append, and the tool definitions that follow are covered by `payloadHash` instead. |
+| `snapshot.basePromptHash`           | Everything Pi rendered before Picode's contribution — file context, skills, cwd, every preceding extension.                                                                                                                                                                                                                                                                    |
+| `snapshot.picodePromptHash`         | Picode's own rules, including the worker digest.                                                                                                                                                                                                                                                                                                                               |
+| `snapshot.picodeWithoutWorkersHash` | Same, with the roster digest suffix stripped.                                                                                                                                                                                                                                                                                                                                  |
+| `snapshot.workerDigestHash`         | The roster digest alone.                                                                                                                                                                                                                                                                                                                                                       |
+| `snapshot.fullPromptChars`          | Length of that reconstructed leading prompt, a proxy for cacheable prefix size.                                                                                                                                                                                                                                                                                                |
+| `snapshot.workerCount`              | Rows in the roster digest.                                                                                                                                                                                                                                                                                                                                                     |
 
 **`kind: "payload"`** — written from `before_provider_request`, one per real provider
 request. Pi's cache warmer calls the model runtime directly and is not observed
@@ -350,10 +350,15 @@ is TTL expiry, which is normal and expected.
 - **It sees only what Picode renders.** Extensions loaded after Picode can still
   change the final request. An unchanged `basePromptHash` does not prove the
   payload was byte-identical.
-- **Hashes are not the payload.** `fullPromptHash` is a reconstruction of
-  base + Picode's contribution. `payloadHash` is the real body, but reduced to
-  hashes and lengths. Pair `payloadChanges: []` with the matching
-  `kind: "payload"` lines before concluding two requests were identical.
+- **Hashes are not the payload.** `fullPromptHash` reconstructs the leading
+  system prompt exactly as Pi renders it (section tags included), but only that
+  prompt. `payloadHash` is the real body, reduced to hashes and lengths. Pair
+  `payloadChanges: []` with the matching `kind: "payload"` lines before concluding
+  two requests were identical.
+- **`fullPromptHash` also depends on the transport.** Structured `sections` text is
+  tagged; the legacy `override` fallback is bare. It is unchanged per request and
+  stable within a Pi version, so it still detects change — but do not compare a hash
+  across a Pi upgrade that adds or removes section support.
 - **`payloadChanges` is in-memory only.** On the first miss after a Pi resume or
   restart the process has no earlier payload, so the field is `null` even though
   a payload line for it exists on disk.
@@ -422,15 +427,19 @@ was larger than the first.
 The fix splits the roster into its own section (`splitPicodeRoster`,
 `src/core/system-prompt.ts`). The cut is at the same boundary `threadModelPrompt`
 joins on, with the same separator, so the leading prompt is byte-identical: Pi
-renders sections by joining their values with a blank line in insertion order,
-with **no names and no wrappers**. A roster move now costs 222 characters instead
-of 36,944.
+wraps every section as `<name>...</name>` and joins the values with a blank line
+in insertion order. A roster move now costs 222 characters instead of 36,944.
 
 Two consequences for anyone reading an older trace:
 
-- **`fullPromptHash` before `e272dc5` was not the wire text.** It was built from a
-  `<picode>...</picode>` wrapper that Pi does not emit. Hashes still compare among
-  themselves within an era; they do not compare across that commit.
+- **`fullPromptHash` changed meaning twice, so treat it as an era-relative signal.**
+  Commits `e272dc5`/`37c9303` briefly reconstructed the leading prompt _without_
+  Pi's section tags, on the mistaken reading that `getSystemMessageText` adds none.
+  It doesn't add them — `buildSystemPromptSections` does, one level up
+  (`dist/core/system-prompt.js:110-115`), so Picode's text reaches the model inside
+  a `<picode>` tag. `renderLeadingPrompt` now renders both transports exactly, and
+  keys on the transport because the legacy override path is genuinely untagged.
+  Hashes still compare among themselves within an era; not across these commits.
 - **Expect a one-time bump on upgrade.** The section layout changed, so the first
   request after upgrading re-reads the leading prompt once. That is the fix, not a
   regression.

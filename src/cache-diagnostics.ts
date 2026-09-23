@@ -12,6 +12,7 @@ import {
   snapshotCachePrompt,
   type CachePromptSnapshot,
   type PayloadSnapshot,
+  type PicodePromptTransport,
 } from "./core/cache-diagnostics";
 
 /** Explain a miss from what Picode can actually see, preferring request facts
@@ -64,6 +65,7 @@ export function registerCacheDiagnostics(
     picodePrompt: string,
     workerDigest: string,
     workerCount: number,
+    transport: PicodePromptTransport,
   ): void;
 } {
   let currentPrompt: CachePromptSnapshot | undefined;
@@ -165,8 +167,14 @@ export function registerCacheDiagnostics(
       currentPayload = undefined;
       previousResponsePayload = undefined;
     },
-    recordPrompt(ctx, basePrompt, picodePrompt, workerDigest, workerCount) {
-      currentPrompt = snapshotCachePrompt(basePrompt, picodePrompt, workerDigest, workerCount);
+    recordPrompt(ctx, basePrompt, picodePrompt, workerDigest, workerCount, transport) {
+      currentPrompt = snapshotCachePrompt(
+        basePrompt,
+        picodePrompt,
+        workerDigest,
+        workerCount,
+        transport,
+      );
       appendCacheDiagnostic(ctx.cwd, store.picodeId, {
         kind: "prompt",
         timestamp: new Date().toISOString(),

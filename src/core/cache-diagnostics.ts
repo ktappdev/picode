@@ -135,25 +135,63 @@ export function hashCacheSessionId(sessionId: string): string {
   return fingerprint(sessionId);
 }
 
+/** How Picode's prompt reaches the request. The two are not interchangeable text:
+ *  a structured section is wrapped and re-joined by Pi, an override is passed through.
+ *  `override` is the legacy path for Pi versions without `sections` support. */
+export type PicodePromptTransport = "sections" | "override";
+
+/** Wrap a structured section exactly as Pi's `buildSystemPromptSections` does. */
+function wrapSection(name: string, text: string): string {
+  return `<${name}>\n${text}\n</${name}>`;
+}
+
+/** Reconstruct the leading system prompt as Pi will actually send it.
+ *
+ *  Verified against pi 0.87.1 `dist/core/system-prompt.js:110-124`: every section is
+ *  wrapped as `<name>\n<content>\n</name>` — `preamble` excepted — and
+ *  `getSystemMessageText` then joins the *values* with a blank line in insertion
+ *  order. So Picode's text reaches the model inside a `<picode>` tag, not as bare
+ *  text, and the roster inside `<picode-workers>`. `splitPicodeRoster` splits on the
+ *  same boundary `threadModelPrompt` joins on, so the reconstruction is exact on the
+ *  sections path. An earlier revision of this function omitted the tags and cited
+ *  `getSystemMessageText` as evidence that Pi adds none; that was wrong — the
+ *  wrapper is added upstream in `buildSystemPromptSections`.
+ *
+ *  The `override` path returns a whole leading prompt verbatim, so its text is bare.
+ */
+export function renderLeadingPrompt(
+  basePrompt: string,
+  picodePrompt: string,
+  workerDigest: string,
+  transport: PicodePromptTransport,
+): string {
+  if (transport === "override") return `${basePrompt}\n\n${picodePrompt}`;
+  const { rules, roster } = splitPicodeRoster(picodePrompt, workerDigest);
+  // Pi only emits a section when it has content (`if (content)`, same file), so an
+  // empty rules or roster block contributes no tag at all.
+  const sections: string[] = [];
+  if (rules) sections.push(wrapSection("picode", rules));
+  if (roster) sections.push(wrapSection("picode-workers", roster));
+  return [basePrompt, ...sections].join("\n\n");
+}
+
 /** Hash prompt components only; never persist prompt text or worker notes.
  *
- * `picodePrompt` is what Picode appends after Pi's own prompt. Pi renders
- * structured sections by joining their values with a blank line, in insertion
- * order, with no names or wrappers (`getSystemMessageText`,
- * `pi-ai/dist/utils/text.js`) — and `splitPicodeRoster` splits the same text at
- * the same boundary with the same separator. So `${basePrompt}\n\n${picodePrompt}`
- * is the leading system prompt as the model sees it, which makes `fullPromptHash`
- * a real change detector rather than a reconstruction. It is still the leading
- * prompt only: extensions loaded after Picode may append.
+ * `fullPromptHash` covers the leading system prompt as reconstructed by
+ * `renderLeadingPrompt`, which makes it a change detector for what the model sees
+ * first. It is still the leading prompt only: extensions loaded after Picode may
+ * append, and the tool definitions that follow it are fingerprinted separately by
+ * `snapshotCachePayload`.
  */
 export function snapshotCachePrompt(
   basePrompt: string,
   picodePrompt: string,
   workerDigest: string,
   workerCount: number,
+  transport: PicodePromptTransport,
 ): CachePromptSnapshot {
   const { rules } = splitPicodeRoster(picodePrompt, workerDigest);
-  const rendered = `${basePrompt}\n\n${picodePrompt}`;
+  const rendered = renderLeadingPrompt(basePrompt, picodePrompt, workerDigest, transport);
   return {
     fullPromptHash: fingerprint(rendered),
     basePromptHash: fingerprint(basePrompt),

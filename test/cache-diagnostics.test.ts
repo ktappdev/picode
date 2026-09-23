@@ -11,6 +11,7 @@ import {
   findPreviousCacheRequest,
   findPreviousPromptSnapshot,
   hashCacheSessionId,
+  renderLeadingPrompt,
   snapshotCachePayload,
   snapshotCachePrompt,
 } from "../src/core/cache-diagnostics";
@@ -52,8 +53,20 @@ function assistantEntry(options: {
 
 describe("cache diagnostics", () => {
   it("fingerprints prompts without retaining their text and identifies changed components", () => {
-    const previous = snapshotCachePrompt("system secret", "rules\n\nworkers A", "workers A", 1);
-    const current = snapshotCachePrompt("system secret", "rules\n\nworkers B", "workers B", 1);
+    const previous = snapshotCachePrompt(
+      "system secret",
+      "rules\n\nworkers A",
+      "workers A",
+      1,
+      "sections",
+    );
+    const current = snapshotCachePrompt(
+      "system secret",
+      "rules\n\nworkers B",
+      "workers B",
+      1,
+      "sections",
+    );
 
     assert.notEqual(previous.fullPromptHash, current.fullPromptHash);
     assert.deepEqual(changedPromptComponents(previous, current), ["Picode worker digest"]);
@@ -61,21 +74,62 @@ describe("cache diagnostics", () => {
     assert.equal(JSON.stringify(previous).includes("workers A"), false);
   });
 
-  it("measures the full prompt as the base plus Picode's contribution, and isolates the rules", () => {
+  it("reconstructs the leading prompt with Pi's section tags, so the hash tracks the real text", () => {
     const base = "base prompt";
     const picode = "thread rules\n\nworkers A";
-    const snapshot = snapshotCachePrompt(base, picode, "workers A", 1);
+    const snapshot = snapshotCachePrompt(base, picode, "workers A", 1, "sections");
 
-    // Pi renders structured sections by joining their values with a blank line
-    // and no names or wrappers (getSystemMessageText), which is exactly how
-    // splitPicodeRoster re-joins them — so this is the leading prompt itself.
-    assert.equal(snapshot.fullPromptChars, `${base}\n\n${picode}`.length);
-    assert.equal(snapshot.workerCount, 1);
+    // Pi wraps every section as `<name>\n<content>\n</name>` and joins the values
+    // with a blank line in insertion order (buildSystemPromptSections, then
+    // getSystemMessageText). This literal was reproduced against pi 0.87.1 by
+    // calling buildSystemPrompt() twice — once with the base options, once with
+    // `sections: { picode, "picode-workers" }` — and asserting the concatenation
+    // equals its output. All three cases matched byte-for-byte: both sections,
+    // an empty roster (Pi drops the section), and the untagged override path.
+    //
+    // It stays a literal because it cannot be automated here: Pi's exports map
+    // exposes only "." and "./rpc-entry", so a deep import of dist/core/
+    // system-prompt.js fails with ERR_PACKAGE_PATH_NOT_EXPORTED — and the version
+    // this repo depends on (0.80.9) has no structured sections at all.
+    assert.equal(
+      snapshot.fullPromptChars,
+      `${base}\n\n<picode>\nthread rules\n</picode>\n\n<picode-workers>\nworkers A\n</picode-workers>`
+        .length,
+    );
 
-    // The rules half must be independent of the roster, so a roster move can be
-    // detected without the rules appearing to change.
-    const rosterMoved = snapshotCachePrompt(base, "thread rules\n\nworkers B", "workers B", 1);
+    // A roster move must leave the rules section byte-identical: Pi re-sends the
+    // whole value of any changed section, so sharing one section re-sent the rules.
+    const rosterMoved = snapshotCachePrompt(
+      base,
+      "thread rules\n\nworkers B",
+      "workers B",
+      1,
+      "sections",
+    );
     assert.deepEqual(changedPromptComponents(snapshot, rosterMoved), ["Picode worker digest"]);
+    assert.equal(snapshot.workerCount, 1);
+  });
+
+  it("keys the leading prompt hash on the transport, because only sections get tags", () => {
+    const base = "base prompt";
+    const picode = "rules\n\nworkers A";
+
+    // The legacy override path returns a whole leading prompt verbatim, so its text
+    // is bare. Hashing it as if it were a section would report a change on upgrade
+    // even though the model saw the same words.
+    const viaSections = renderLeadingPrompt(base, picode, "workers A", "sections");
+    const viaOverride = renderLeadingPrompt(base, picode, "workers A", "override");
+
+    assert.equal(viaOverride, `${base}\n\n${picode}`);
+    assert.equal(viaSections.includes("<picode>\n"), true);
+    assert.notEqual(viaSections, viaOverride);
+  });
+
+  it("emits no roster section when the roster is empty, matching Pi's content guard", () => {
+    const rendered = renderLeadingPrompt("base", "rules", "", "sections");
+
+    assert.equal(rendered, `base\n\n<picode>\nrules\n</picode>`);
+    assert.equal(rendered.includes("picode-workers"), false);
   });
 
   it("splits the worker roster off the rules at the boundary threadModelPrompt uses", () => {
@@ -351,7 +405,13 @@ describe("cache diagnostics", () => {
 
   it("persists only fingerprints and recovers the previous response fingerprint", () => {
     const cwd = tempDir();
-    const snapshot = snapshotCachePrompt("private system prompt", "private Picode prompt", "", 0);
+    const snapshot = snapshotCachePrompt(
+      "private system prompt",
+      "private Picode prompt",
+      "",
+      0,
+      "sections",
+    );
     const tracePath = appendCacheDiagnostic(cwd, "../../unsafe-id", {
       kind: "response",
       timestamp: new Date(2_000).toISOString(),
