@@ -102,7 +102,7 @@ rewrites the leading prompt, and it is pinned by a test
 (`test/unit.test.ts`, "keeps the forced-prompt fallback only for Pi without
 structured sections").
 
-### Candidate B — the provider cache key
+### Candidate B — the provider cache key (revive does **not** change it)
 
 For the Codex Responses adapter the cache key is derived from the Pi session ID:
 
@@ -117,19 +117,42 @@ prompt_cache_key: cacheSessionId,
 Paths in this file are relative to the Picode repo unless they start with `dist/`,
 which is the installed `pi` package root.
 
-Any new session starts with a cold cache regardless of prompt content: reviving a
-worker, `/new`, a fork, or a restart. Commit `574bcd5` (2026-09-16, "revive a
-stopped worker with its session intact") added `revive_closed_session`, which
-deliberately starts a _new_ Pi session for a stopped worker.
+The open question was whether `revive_closed_session` moves that key. **It does
+not.** Revive launches `pi --session <state.sessionFile>` (`src/tools/spawn.ts:137`),
+and Pi's `SessionManager._loadEntries` restores the identity from the file itself:
 
-This is a real cost, but note what it cannot explain: a genuinely cold session has
-no previous request, so it is assessed `no-baseline` and Pi raises **no miss
-notice** at all. Cold starts are invisible to the notice channel. Every notice the
-operator sees is therefore a _within-session_ re-bill — which is Candidate A's
-territory, not B's. B is the reason a revived worker's first request costs full
-price; A was the reason a live session kept re-billing its whole history.
+```js
+const header = entries.find((e) => e.type === "session");
+if (header) {
+    this.fileEntries = entries;
+    this.sessionId = header.id;
+```
 
-**Candidate A is fixed. Candidate B is inherent and still unmeasured.**
+`dist/core/session-manager.js:718-722`
+
+The session id changes only when Pi mints a new session: a fresh session, or a
+fork/branch that writes a new header (`:1273`, `:1307`). Resume is not that path.
+So a revived worker keeps its `prompt_cache_key`, and `revive_closed_session` —
+whose commit message says "with its session intact" — means it literally.
+
+Two consequences, in opposite directions:
+
+- **A revived worker's first request is cold because of time, not identity.** If
+  the cache entry expired or was evicted while the pane was stopped, the request
+  re-reads everything under the _same_ key. That is a TTL story, and the fix is
+  retention, not prompt hygiene. Budget for it: revive exists precisely for workers
+  that have been stopped a while, which is exactly when the entry is gone.
+- **The trace stays comparable across a revive.** `sessionHash` is continuous, so
+  `payloadChanges` and `findPreviousPromptSnapshot` still match the pre-revive
+  request. A revived worker's first response can be compared directly against what
+  it sent before it stopped, which is not true of a genuinely new session.
+
+What B still cannot explain: a genuinely cold session has no previous request in
+its branch, so it is assessed `no-baseline` and Pi raises **no miss notice** at all.
+Cold starts are invisible to the notice channel. Every notice the operator sees is
+a _within-session_ re-bill — Candidate A's territory, not B's.
+
+**Candidate A is fixed. Candidate B is a TTL cost, inherent, and still unmeasured.**
 
 ## What the tracker records
 
@@ -399,6 +422,7 @@ So the honest ledger is:
 | The roster digest is what moved inside that forced prompt | **Read from the code** (`sections.picode` carries the digest)  |
 | That is why the incident re-billed the whole prompt       | **Inferred from the symptom shape, not traced**                |
 | The section path preserves the prefix under roster churn  | **Inferred from Pi's diff + append path, not measured**        |
+| Revive preserves the provider cache key                   | **Read from the code** (`--session` restores the header id)    |
 | The 2026-09-23 sample proves the fix works                | **No — it cannot, `workerCount: 0`**                           |
 
 A session that never spawned a worker before this fix would also have shown
@@ -472,11 +496,14 @@ Run this when you have a spare session and want to settle A vs B.
      `request message 0` → **the fix does not hold.** The digest is still reaching
      the leading prompt. Re-read `src/lifecycle.ts:831-840` and Pi's
      `diffSystemPromptSections` before touching anything else.
-   - Misses in the **revived worker's** trace only, with a new `sessionHash` in
-     its `prompt` records → Candidate B, working as designed.
-     `revive_closed_session` starts a new Pi session, so the provider cache key
-     changes and the first request is legitimately cold. Note that Pi raises no
-     notice for it (`no-baseline`) — it is visible in the trace, not in the TUI.
+   - Misses in the **revived worker's** trace, with `promptChanges: []` and the
+     _same_ `sessionHash` on both sides of the revive → TTL. The key survived
+     (`--session` restores the header id), the entry did not. Expected after a
+     long stop, and not something Picode can fix.
+   - Misses in the **revived worker's** trace where `sessionHash` itself changes →
+     the revive did not restore the session file. That contradicts the code path
+     (`src/tools/spawn.ts:137` → `dist/core/session-manager.js:718-722`); treat it
+     as a bug in revive, not in caching.
    - Misses in the **coordinator's** trace with `promptChanges: []` and no session
      change → neither candidate explains them. Check retention tier, other
      extensions, and whether the misses track wall-clock time.
