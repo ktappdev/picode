@@ -293,10 +293,33 @@ describe("worker ledger: digest", () => {
     ]);
     assert.match(digest, /▶ reviewer/);
     assert.match(digest, /· builder/);
-    assert.match(digest, /stopped 42m/);
+    assert.match(digest, /stopped <1h/);
     assert.match(digest, /HEAD moved since/);
     // The warning must not appear for the live worker.
     assert.doesNotMatch(digest.split("\n").find(l => l.includes("reviewer")) ?? "", /HEAD moved/);
+  });
+
+  const ageBuckets = [
+    [0, "<1m"],
+    [1, "<5m"],
+    [5, "<15m"],
+    [15, "<1h"],
+    [60, "<6h"],
+    [360, "<1d"],
+    [1440, "1d+"],
+  ] as const;
+
+  for (const [minutes, label] of ageBuckets) {
+    it(`uses the ${label} age bucket at ${minutes} minutes`, () => {
+      const digest = formatWorkerDigest([row({ contextAgeMinutes: minutes })]);
+      assert.ok(digest.includes(`stopped ${label}`));
+    });
+  }
+
+  it("keeps the digest stable across one-minute snapshots with no other changes", () => {
+    const atSixMinutes = formatWorkerDigest([row({ contextAgeMinutes: 6 })]);
+    const oneMinuteLater = formatWorkerDigest([row({ contextAgeMinutes: 7 })]);
+    assert.strictEqual(oneMinuteLater, atSixMinutes);
   });
 
   it("includes what the worker left unverified", () => {
