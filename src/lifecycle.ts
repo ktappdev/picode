@@ -6,7 +6,7 @@ import type {
 import type { PicodeStore, PicodeState } from "./core/types";
 import type { Inbox, Injection } from "./inbox";
 import { splitPicodeRoster, threadModelPrompt } from "./core/system-prompt";
-import { formatWorkerStub, recentWorkers } from "./core/worker-ledger";
+import { formatWorkerStub, workerStubRows } from "./core/worker-ledger";
 import { registerCacheDiagnostics } from "./cache-diagnostics";
 import {
   journalMode,
@@ -800,10 +800,10 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
     // runs inherit them from the transcript; a forced systemPrompt override
     // applies only to this run and is not persisted.
 
-    // Roster digest — coordinator only, and cheap by construction: bounded
-    // to the most recent workers, with session scans memoised by mtime.
+    // Stable roster stub — coordinator only, from all worker directories.
+    // Status and candidate details are pulled on demand from picode_list/revive.
     const isCoordinator = store.role === "coordinator" && !isRoundTable;
-    const workerRows = isCoordinator ? recentWorkers(ctx.cwd) : [];
+    const workerRows = isCoordinator ? workerStubRows(ctx.cwd) : [];
     const workers = isCoordinator ? formatWorkerStub(workerRows) : "";
 
     // Stamped by revive_closed_session at launch with the timestamp of this

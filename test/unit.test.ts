@@ -2141,6 +2141,17 @@ describe("lifecycle: opt-in gate (§2.3)", () => {
       const ctx = h.makeCtx();
       await h.fire("session_start", ctx);
 
+      const empty: Record<string, string> = {};
+      await h.fire("before_agent_start", ctx, {
+        systemPrompt: "base",
+        systemPromptOptions: { sections: empty },
+      });
+      assert.equal(
+        empty["picode-workers"],
+        "### Workers\n\n(none)\n\nFull state on demand: picode_list(). Before reviving a candidate: revive_closed_session(id, dry_run=true) — area, handoff, context age, HEAD freshness.",
+        "the roster section remains present when the workspace has no workers",
+      );
+
       // Seed one worker and let its liveness/age move between runs. Those
       // volatile facts belong to on-demand picode_list(), not the prompt stub.
       const seedWorker = (minutesAgo: number) => {
@@ -2171,7 +2182,11 @@ describe("lifecycle: opt-in gate (§2.3)", () => {
         systemPromptOptions: { sections: second },
       });
 
-      assert.ok(first["picode-workers"], "the roster travels in a section of its own");
+      assert.equal(
+        first["picode-workers"],
+        "### Workers\n\nbuilder-a1 (builder)\n\nFull state on demand: picode_list(). Before reviving a candidate: revive_closed_session(id, dry_run=true) — area, handoff, context age, HEAD freshness.",
+        "the exact stable stub travels in its own section",
+      );
       assert.equal(
         first["picode-workers"],
         second["picode-workers"],
@@ -2295,6 +2310,7 @@ describe("lifecycle: bounded sit-reps", () => {
     try {
       const tick = () => mock.timers.tick(1000);
       tick(); // baseline
+      assert.match(h.userMessages[0] ?? "", /picode_list\(\)/);
       tick(); // unchanged #1
       tick(); // unchanged #2
       assert.strictEqual(h.userMessages.length, 3, "each check wakes the coordinator");

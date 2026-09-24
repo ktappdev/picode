@@ -258,6 +258,34 @@ function buildRow(picodesRootDir: string, id: string, cwd: string, now: number):
   };
 }
 
+/** Every worker directory in this workspace, independent of ledger eligibility
+ *  and recency. This is membership for the prompt stub, not a status source. */
+export function workerStubRows(cwd: string): Array<Pick<LedgerRow, "id" | "role">> {
+  const picodesRootDir = join(cwd, ".picode", "picodes");
+  let ids: string[];
+  try {
+    ids = readdirSync(picodesRootDir);
+  } catch {
+    return [];
+  }
+
+  const rows: Array<Pick<LedgerRow, "id" | "role">> = [];
+  for (const id of ids) {
+    if (id === "coordinator") continue;
+    const picodeDir = join(picodesRootDir, id);
+    try {
+      if (!statSync(picodeDir).isDirectory()) continue;
+    } catch {
+      continue;
+    }
+    const state = readStateFile(join(picodeDir, "state.json"));
+    const role = str(state?.role) ?? "worker";
+    if (role === "coordinator") continue;
+    rows.push({ id, role });
+  }
+  return rows;
+}
+
 /** The most recent workers in this workspace, newest heartbeat first. */
 export function recentWorkers(cwd: string, limit: number = DEFAULT_LEDGER_LIMIT): LedgerRow[] {
   const picodesRootDir = join(cwd, ".picode", "picodes");
@@ -299,14 +327,21 @@ function clamp(text: string, max = 120): string {
   return flat.length <= max ? flat : `${flat.slice(0, max - 1)}…`;
 }
 
-/** Stable roster stub for on-demand lookup. Liveness, age, area, handoff,
- *  and HEAD changes must not churn the coordinator's prompt prefix. */
-export function formatWorkerStub(rows: readonly LedgerRow[]): string {
-  if (rows.length === 0) return "(none)";
-  return [...rows]
-    .sort((a, b) => a.id.localeCompare(b.id))
-    .map(row => `${row.id} (${row.role})`)
-    .join("\n");
+/** Stable roster stub for on-demand lookup. Membership comes from directories,
+ *  not ledger eligibility; volatile state must not churn the prompt prefix. */
+export function formatWorkerStub(rows: readonly Pick<LedgerRow, "id" | "role">[]): string {
+  const roster =
+    [...rows]
+      .sort((a, b) => a.id.localeCompare(b.id))
+      .map(row => `${row.id} (${row.role})`)
+      .join(", ") || "(none)";
+  return [
+    "### Workers",
+    "",
+    roster,
+    "",
+    "Full state on demand: picode_list(). Before reviving a candidate: revive_closed_session(id, dry_run=true) — area, handoff, context age, HEAD freshness.",
+  ].join("\n");
 }
 
 /** One line per worker: who, where they've worked, whether they're still

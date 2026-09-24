@@ -12,6 +12,7 @@ import {
   formatWorkerDigest,
   formatWorkerStub,
   headMovedSince,
+  workerStubRows,
   recentWorkers,
   type LedgerRow,
 } from "../src/core/worker-ledger";
@@ -268,6 +269,25 @@ describe("worker ledger: rows", () => {
 });
 
 describe("worker ledger: stable stub", () => {
+  it("includes every worker directory, independent of recency and ledger eligibility", () => {
+    const cwd = tempDir();
+    for (let i = 0; i < 10; i++) writeState(cwd, `worker-${String(i).padStart(2, "0")}`);
+    mkdirSync(join(cwd, ".picode", "picodes", "incomplete"), { recursive: true });
+    writeFileSync(join(cwd, ".picode", "picodes", "incomplete", "state.json"), "invalid");
+    writeState(cwd, "coordinator", { role: "coordinator" });
+
+    const rows = workerStubRows(cwd);
+    assert.equal(
+      rows.length,
+      11,
+      "all worker directories are included without a recent-worker cap",
+    );
+    assert.ok(rows.some(row => row.id === "incomplete" && row.role === "worker"));
+    assert.equal(
+      rows.some(row => row.id === "coordinator"),
+      false,
+    );
+  });
   function row(overrides: Partial<LedgerRow>): LedgerRow {
     return {
       id: "builder",
@@ -284,13 +304,16 @@ describe("worker ledger: stable stub", () => {
   }
 
   it("shows (none) for an empty roster", () => {
-    assert.strictEqual(formatWorkerStub([]), "(none)");
+    assert.strictEqual(
+      formatWorkerStub([]),
+      "### Workers\n\n(none)\n\nFull state on demand: picode_list(). Before reviving a candidate: revive_closed_session(id, dry_run=true) — area, handoff, context age, HEAD freshness.",
+    );
   });
 
   it("sorts by id and includes only id and role", () => {
     assert.strictEqual(
       formatWorkerStub([row({ id: "z-worker" }), row({ id: "a-worker", role: "scout" })]),
-      "a-worker (scout)\nz-worker (builder)",
+      "### Workers\n\na-worker (scout), z-worker (builder)\n\nFull state on demand: picode_list(). Before reviving a candidate: revive_closed_session(id, dry_run=true) — area, handoff, context age, HEAD freshness.",
     );
   });
 
@@ -317,9 +340,16 @@ describe("worker ledger: stable stub", () => {
       row({ id: "z-worker", live: true, closedAt: "2026-02-01T00:00:00.000Z" }),
     ];
     assert.strictEqual(formatWorkerStub(changed), formatWorkerStub(original));
+    const stub = formatWorkerStub(changed);
     assert.notStrictEqual(
       formatWorkerStub([...changed, row({ id: "new-worker" })]),
-      formatWorkerStub(changed),
+      stub,
+      "adding an id changes the stub",
+    );
+    assert.notStrictEqual(
+      formatWorkerStub(changed.filter(item => item.id !== "z-worker")),
+      stub,
+      "removing an id changes the stub",
     );
   });
 });
