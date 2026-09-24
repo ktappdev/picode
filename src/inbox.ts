@@ -31,6 +31,20 @@ export interface Injection {
   urgency: Urgency;
 }
 
+/** A coalesced heartbeat batch: parts gathered from the drain and deadline
+ *  sources, plus the commit callbacks that must run only after the batch
+ *  actually reaches sendUserMessage. Carries commits so a gate flip that
+ *  buffers the batch also defers its finalize/persist side effects. */
+export interface InjectBatch {
+  parts: Injection[];
+  onDelivered: (() => Promise<void>)[];
+}
+
+/** Create an empty coalescing batch for one heartbeat tick. */
+export function createInjectBatch(): InjectBatch {
+  return { parts: [], onDelivered: [] };
+}
+
 export interface SendResult {
   id: string;
   delivered: "queued" | "live";
@@ -68,24 +82,28 @@ export interface Inbox {
   /** Bookkeeping for one envelope (debts, barriers) — returns the
    *  injection parts; the caller batches them into one inject(). */
   deliver(msg: Envelope, ctx: ExtensionContext): Promise<Injection[]>;
-  /** Drain queued envelopes. Standalone (no `collect`) it injects its own
-   *  batch; when the heartbeat passes a shared `collect` array it pushes its
-   *  parts there instead, so both heartbeat sources ship in one inject(). */
-  drainInbox(ctx: ExtensionContext, collect?: Injection[]): Promise<void>;
+  /** Drain queued envelopes. Standalone (no `batch`) it injects its own
+   *  batch and commits its claimed envelopes only after that send. When the
+   *  heartbeat passes a shared `batch`, it pushes parts and its commit into
+   *  it instead, so both heartbeat sources ship in one inject(). */
+  drainInbox(ctx: ExtensionContext, batch?: InjectBatch): Promise<void>;
   isTargetLive(to: string): Promise<boolean>;
   /** Called from the heartbeat: a one-time reminder per overdue obligation
-   *  or barrier. With `collect`, pushes parts into the shared batch. */
-  checkDeadlines(ctx: ExtensionContext, collect?: Injection[]): Promise<void>;
+   *  or barrier. With `batch`, pushes parts and their persist commit into the
+   *  shared coalescing batch instead of injecting. */
+  checkDeadlines(ctx: ExtensionContext, batch?: InjectBatch): Promise<void>;
   /** Push parts into this session as ONE user message (steer if any part is
-   *  urgency=high). */
-  inject(parts: Injection[], ctx: ExtensionContext): void;
-  /** Commit staged messages from claimed/ to processed/ — call after the
+   *  urgency=high). Returns true only after sendUserMessage queues the batch;
+   *  a held batch stays in memory until the gate opens and is not durable.
+   *  `onDelivered` runs at most once, only after an actual send. */
+  inject(parts: Injection[], ctx: ExtensionContext, onDelivered?: () => Promise<void>): boolean;
+  /** Commit staged messages from claimed/ to processed/ only after the
    *  caller's inject() has safely queued the drained messages. */
   finalizeDrain(): Promise<void>;
   /** False while an idle-time injection is in preflight or a compaction is
-   *  running — drains and nudges wait (messages stay durable on disk). This
-   *  is the §7.7 declare-and-shrink gate: we only claim envelopes when we
-   *  can deliver them in the same tick. */
+   *  running. Envelope drains check this before claiming; if an async gate
+   *  flip holds an already-claimed batch, it stays claimed until send. Other
+   *  injected parts held by the gate are memory-buffered, not disk-durable. */
   canInject(): boolean;
   noteCompactionStart(): void;
   noteCompactionEnd(): void;
@@ -115,6 +133,7 @@ export function createInbox(store: PicodeStore, pi: ExtensionAPI): Inbox {
   let pendingParts: Injection[] = [];
   let pendingCtx: ExtensionContext | undefined;
   let pendingRetry: NodeJS.Timeout | undefined;
+  let pendingDelivered: (() => Promise<void>)[] = [];
 
   function canInject(): boolean {
     const now = Date.now();
@@ -128,51 +147,75 @@ export function createInbox(store: PicodeStore, pi: ExtensionAPI): Inbox {
     pendingRetry = setTimeout(() => {
       pendingRetry = undefined;
       if (pendingParts.length === 0 || !pendingCtx) return;
-      if (!canInject()) {
-        schedulePendingRetry();
-        return;
-      }
-      const parts = pendingParts;
-      const ctx = pendingCtx;
-      pendingParts = [];
-      pendingCtx = undefined;
-      inject(parts, ctx);
+      inject([], pendingCtx);
     }, INJECTION_GRACE_MS);
     pendingRetry.unref();
   }
 
-  function inject(parts: Injection[], ctx: ExtensionContext): void {
-    if (parts.length === 0 && pendingParts.length === 0) return;
+  function inject(
+    parts: Injection[],
+    ctx: ExtensionContext,
+    onDelivered?: () => Promise<void>,
+  ): boolean {
+    if (parts.length === 0 && pendingParts.length === 0) {
+      if (onDelivered) void onDelivered();
+      return true;
+    }
     if (!canInject()) {
       pendingParts.push(...parts);
-      pendingCtx = ctx;
+      pendingCtx ??= ctx;
+      if (onDelivered) pendingDelivered.push(onDelivered);
       schedulePendingRetry();
-      return;
+      return false;
     }
-    if (pendingParts.length > 0) {
-      pendingParts.push(...parts);
-      parts = pendingParts;
-      ctx = pendingCtx ?? ctx;
-      pendingParts = [];
-      pendingCtx = undefined;
-      if (pendingRetry) clearTimeout(pendingRetry);
-      pendingRetry = undefined;
-    }
+
+    const batch = pendingParts.length > 0 ? [...pendingParts, ...parts] : parts;
+    const batchCtx = pendingCtx ?? ctx;
+    const delivered = onDelivered ? [...pendingDelivered, onDelivered] : pendingDelivered;
     // One coalesced message per batch (§7.5): a high-urgency part anywhere
     // makes the whole batch steer; low parts just arrive a little earlier
     // than they had to, which is harmless.
-    const steer = parts.some(p => p.urgency === "high");
-    if (ctx.isIdle?.() ?? false) inFlightSince = Date.now();
-    const body = parts.map(p => p.text).join("\n\n");
+    const steer = batch.some(p => p.urgency === "high");
+    if (batchCtx.isIdle?.() ?? false) inFlightSince = Date.now();
+    const body = batch.map(p => p.text).join("\n\n");
     // Always use sendUserMessage so idle injections go through prompt() and
     // re-apply Picode's system-prompt sections. sendMessage-triggered
     // continuation runs skip before_agent_start, so they can inherit a stale
     // prompt head after other extensions append or reorder content.
-    pi.sendUserMessage(body, {
-      deliverAs: steer ? "steer" : "followUp",
-    });
-    _onInjected?.(parts);
-    _onInject?.(parts, ctx);
+    try {
+      pi.sendUserMessage(body, {
+        deliverAs: steer ? "steer" : "followUp",
+      });
+    } catch (error) {
+      // Retain the whole batch plus its finalizers: a sendUserMessage throw
+      // (e.g. "Agent is already processing") drops nothing on the floor.
+      pendingParts = [...batch];
+      pendingCtx = batchCtx;
+      pendingDelivered = delivered;
+      if (process.env.NODE_ENV !== "production") {
+        console.error("[pdbg] inbox.ts: sendUserMessage failed; retaining buffered batch", error);
+      }
+      schedulePendingRetry();
+      return false;
+    }
+
+    // Cleared only after a successful send, so a throw above cannot lose the
+    // accumulated batch.
+    pendingParts = [];
+    pendingCtx = undefined;
+    pendingDelivered = [];
+    if (pendingRetry) clearTimeout(pendingRetry);
+    pendingRetry = undefined;
+    _onInjected?.(batch);
+    _onInject?.(batch, batchCtx);
+    for (const commit of delivered) {
+      void commit().catch(error => {
+        if (process.env.NODE_ENV !== "production") {
+          console.error("[pdbg] inbox.ts: post-injection commit failed", error);
+        }
+      });
+    }
+    return true;
   }
 
   function noteCompactionStart(): void {
@@ -375,12 +418,21 @@ export function createInbox(store: PicodeStore, pi: ExtensionAPI): Inbox {
   /** Ship a gathered batch: push into the heartbeat's shared array when one is
    *  given (so all sources coalesce into a single inject() per tick, §7.5),
    *  otherwise inject it now (the standalone watcher/turn/command call sites). */
-  function emit(parts: Injection[], ctx: ExtensionContext, collect?: Injection[]): void {
-    if (collect) collect.push(...parts);
-    else inject(parts, ctx);
+  function emit(
+    parts: Injection[],
+    ctx: ExtensionContext,
+    batch?: InjectBatch,
+    onDelivered?: () => Promise<void>,
+  ): void {
+    if (batch) {
+      batch.parts.push(...parts);
+      if (onDelivered) batch.onDelivered.push(onDelivered);
+    } else {
+      inject(parts, ctx, onDelivered);
+    }
   }
 
-  async function drainInbox(ctx: ExtensionContext, collect?: Injection[]): Promise<void> {
+  async function drainInbox(ctx: ExtensionContext, batch?: InjectBatch): Promise<void> {
     // On Hold means "don't wake me": messages stay queued until resume.
     if (store.state === "on-hold") return;
     // §7.7 declare-and-shrink: never claim an envelope we can't deliver in
@@ -393,15 +445,14 @@ export function createInbox(store: PicodeStore, pi: ExtensionAPI): Inbox {
     for (const msg of messages) {
       parts.push(...(await deliver(msg, ctx)));
     }
-    emit(parts, ctx, collect);
-    // Standalone path: inject() is synchronous (pi.sendUserMessage is queued
-    // before this returns), so finalize here. Collect path: the heartbeat
-    // caller finalizes after its own inject() — committing now would
-    // archive messages that haven't been injected yet.
-    if (!collect) await store.adapter.finalizeDrain(store.picodeId);
+    // Committing claimed/ → processed/ is deferred to the actual send: if the
+    // gate buffers this batch, the envelopes stay claimed (durable) and a
+    // crash recovers them from claimed/ rather than losing them. Finalizing
+    // here would mark delivered a batch still sitting in RAM.
+    emit(parts, ctx, batch, () => store.adapter.finalizeDrain(store.picodeId));
   }
 
-  async function checkDeadlines(ctx: ExtensionContext, collect?: Injection[]): Promise<void> {
+  async function checkDeadlines(ctx: ExtensionContext, batch?: InjectBatch): Promise<void> {
     if (!canInject()) return; // nudges re-arm on a later heartbeat tick
     const now = Date.now();
     const parts: Injection[] = [];
@@ -479,8 +530,11 @@ export function createInbox(store: PicodeStore, pi: ExtensionAPI): Inbox {
     if (liveBarriers.length !== store.barriers.length) store.barriers = liveBarriers;
 
     if (parts.length === 0) return;
-    if (mutated) await store.persist();
-    emit(parts, ctx, collect);
+    // Persisting nudged=true is deferred to the actual send for the same
+    // reason as the drain commit: a gate flip that buffers the nudge text
+    // must not persist the flag, or a crash before flush loses the nudge
+    // permanently (flag set, never re-armed).
+    emit(parts, ctx, batch, mutated ? () => store.persist() : undefined);
   }
 
   return {
@@ -492,8 +546,9 @@ export function createInbox(store: PicodeStore, pi: ExtensionAPI): Inbox {
     drainInbox,
     isTargetLive,
     checkDeadlines,
-    /** Commit staged messages to processed/ — call after the heartbeat's
-     *  inject() or any path that used a collect array. */
+    /** Commit staged messages to processed/ — safe to call directly for a
+     *  batch the caller sent outside inject(); inject()'s onDelivered already
+     *  finalizes its own batch. */
     finalizeDrain: () => store.adapter.finalizeDrain(store.picodeId),
     inject,
     canInject,
