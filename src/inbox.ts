@@ -119,13 +119,26 @@ export function createInbox(store: PicodeStore, pi: ExtensionAPI): Inbox {
   // --- injection gate ----------------------------------------------------
   // pi.sendUserMessage during a run queues safely (pi drains its queues at
   // turn boundaries and after agent_end handlers). While idle it starts a
-  // new run after an async preflight, and two of those in flight race — the
-  // loser throws "Agent is already processing" and its message is dropped.
-  // Worse, during auto-compaction the agent *looks* idle, so an injection
-  // starts a run that races the compaction's context rewrite. The gate
-  // serializes idle injections and holds the drain shut during compaction;
-  // gated messages stay durable on disk and are retried from the watcher,
-  // turn boundaries, and the heartbeat.
+  // new run after an async preflight, and two of those in flight race; worse,
+  // during auto-compaction the agent *looks* idle, so an injection starts a
+  // run that races the compaction's context rewrite. The gate serializes idle
+  // injections and holds new ones shut during compaction.
+  //
+  // Durability depends on which side of the gate a batch landed. A batch that
+  // reaches sendUserMessage is durable — pi owns it from there. A batch the
+  // gate held is buffered in memory (pendingParts/pendingDelivered) and
+  // retried from the retry timer, turn boundaries, and the heartbeat. That
+  // buffer is crash-durable only when it came from claimable envelopes still
+  // sitting in claimed/, which configure() recovers back to the inbox;
+  // injected parts with no envelope behind them (a pane-death notice, a
+  // deadline nudge) are lost if the process dies before the flush.
+  //
+  // Known residual, pre-existing and not introduced by the inbox funnel:
+  // sendUserMessage is a void API whose runtime wrapper swallows rejections
+  // into the runner's error channel. A genuine send failure is therefore an
+  // async rejection picode never sees — inject() has already returned true
+  // and the delivery commits have run. There is no rejection seam to hook
+  // here; the only lever would be not calling sendUserMessage at all.
   let inFlightSince: number | null = null;
   let compactingSince: number | null = null;
   let _onInjected: ((parts: Injection[]) => void) | undefined;

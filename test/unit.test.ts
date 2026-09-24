@@ -35,7 +35,12 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { createPicodeStore } from "../src/state";
 import type { PicodeStore } from "../src/core/types";
-import { createInbox, createInjectBatch, INJECTION_GRACE_MS } from "../src/inbox";
+import {
+  createInbox,
+  createInjectBatch,
+  INJECTION_GRACE_MS,
+  COMPACTION_HOLD_MAX_MS,
+} from "../src/inbox";
 import { DEADLINE_EXPIRY_GRACE_MS } from "../src/inbox";
 import {
   belongsToWorkspace,
@@ -605,23 +610,62 @@ describe("Herdr listener injection funnel", () => {
     }
   });
 
-  it("retains the whole accumulated batch when sendUserMessage throws", () => {
+  it("retains the merged batch and its commits when a send throws", () => {
     const h = makeHarness(tmpDir);
-    let throwOnce = true;
+    let commits = 0;
+    let throwAt = 1;
     const original = h.pi.sendUserMessage;
     h.pi.sendUserMessage = (content: string, options?: { deliverAs?: "steer" | "followUp" }) => {
-      if (throwOnce) {
-        throwOnce = false;
-        throw new Error("Agent is already processing");
-      }
+      if (throwAt-- > 0) throw new Error("Agent is already processing");
       original(content, options);
     };
-    assert.strictEqual(h.inbox.inject([{ text: "one", urgency: "low" }], h.ctx), false);
-    assert.strictEqual(h.calls.length, 0, "a throw sends nothing");
-    // Nothing was cleared, so the next flush delivers the full batch once.
+    const realNow = Date.now;
+    try {
+      // Part one buffers behind the compaction gate; its commit must not run.
+      h.inbox.noteCompactionStart();
+      assert.strictEqual(
+        h.inbox.inject([{ text: "one", urgency: "low" }], h.ctx, async () => {
+          commits++;
+        }),
+        false,
+      );
+      // Age the gate open without flushing, so the second inject merges with
+      // the buffered part and the throw lands on the merged batch.
+      Date.now = () => realNow() + COMPACTION_HOLD_MAX_MS + 1;
+      assert.strictEqual(
+        h.inbox.inject([{ text: "two", urgency: "low" }], h.ctx, async () => {
+          commits++;
+        }),
+        false,
+      );
+      assert.strictEqual(h.calls.length, 0, "a throw sends nothing");
+      assert.strictEqual(commits, 0, "a throw runs no commits");
+    } finally {
+      Date.now = realNow;
+    }
+    // Nothing was cleared: the next flush ships the merged batch once and both
+    // retained commits run exactly once.
     h.inbox.noteRunStarted();
     assert.strictEqual(h.calls.length, 1);
-    assert.match(h.calls[0].content, /one/);
+    assert.match(h.calls[0].content, /one\n\ntwo/);
+    assert.strictEqual(commits, 2, "both retained commits ran");
+    h.inbox.noteRunStarted();
+    assert.strictEqual(commits, 2, "a later flush does not re-run them");
+  });
+
+  it("invokes onDelivered exactly once, and only after a successful send", () => {
+    const h = makeHarness(tmpDir);
+    let commits = 0;
+    assert.strictEqual(
+      h.inbox.inject([{ text: "note", urgency: "low" }], h.ctx, async () => {
+        commits++;
+      }),
+      true,
+    );
+    assert.strictEqual(h.calls.length, 1);
+    assert.strictEqual(commits, 1, "commit ran with the send");
+    h.inbox.noteRunStarted();
+    assert.strictEqual(commits, 1, "a later flush does not re-run it");
   });
 
   it("keeps claimed envelopes claimed until the buffered batch actually sends", async () => {
