@@ -1895,6 +1895,59 @@ describe("Errata 3: heartbeat coalesces its sources into one inject (§7.5)", ()
     assert.match(h.calls[0].content, /obligation overdue #t1\/late/);
   });
 
+  it("runs each source's commit exactly once for the batch, and not again on a later flush", async () => {
+    const h = makeHarness(tmpDir);
+    seedEnvelope(h, "t1", { from: "alice", body: "queued envelope" }, "agg.json");
+    h.store.obligations.push({
+      id: "t1/late",
+      to: "bob",
+      summary: "overdue thing",
+      sentAt: new Date().toISOString(),
+      deadline: new Date(Date.now() - 1000).toISOString(),
+    });
+    let finalizes = 0;
+    let persists = 0;
+    const realFinalize = h.store.adapter.finalizeDrain.bind(h.store.adapter);
+    h.store.adapter.finalizeDrain = async (id: string) => {
+      finalizes++;
+      return realFinalize(id);
+    };
+    const realPersist = h.store.persist.bind(h.store);
+    h.store.persist = async () => {
+      persists++;
+      return realPersist();
+    };
+
+    // The heartbeat's aggregate shape: one batch, each source attaching its
+    // own commit, all of them handed to the single inject().
+    const batch = createInjectBatch();
+    await h.inbox.drainInbox(h.ctx, batch);
+    await h.inbox.checkDeadlines(h.ctx, batch);
+    assert.strictEqual(batch.onDelivered.length, 2, "drain + deadline commits attached");
+    // deliver() persists each drained envelope itself; the deadline persist is
+    // the deferred one, so count from after the sources have gathered.
+    const persistsBeforeSend = persists;
+    h.inbox.inject(batch.parts, h.ctx, async () => {
+      for (const commit of batch.onDelivered) await commit();
+    });
+    await new Promise<void>(resolve => setImmediate(resolve));
+    assert.strictEqual(h.calls.length, 1, "one coalesced message");
+    assert.strictEqual(finalizes, 1, "drain commit ran exactly once");
+    assert.strictEqual(persists - persistsBeforeSend, 1, "deadline commit ran exactly once");
+
+    // A later tick with nothing new must not re-run either commit.
+    const empty = createInjectBatch();
+    await h.inbox.drainInbox(h.ctx, empty);
+    await h.inbox.checkDeadlines(h.ctx, empty);
+    h.inbox.inject(empty.parts, h.ctx, async () => {
+      for (const commit of empty.onDelivered) await commit();
+    });
+    await new Promise<void>(resolve => setImmediate(resolve));
+    assert.strictEqual(h.calls.length, 1, "nothing new to send");
+    assert.strictEqual(finalizes, 1, "the drain commit did not re-run");
+    assert.strictEqual(persists - persistsBeforeSend, 1, "the deadline commit did not re-run");
+  });
+
   it("standalone idle calls still self-serialize — the tax the batch avoids", async () => {
     const h = makeHarness(tmpDir);
     h.idle = true;

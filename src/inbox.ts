@@ -124,14 +124,15 @@ export function createInbox(store: PicodeStore, pi: ExtensionAPI): Inbox {
   // run that races the compaction's context rewrite. The gate serializes idle
   // injections and holds new ones shut during compaction.
   //
-  // Durability depends on which side of the gate a batch landed. A batch that
-  // reaches sendUserMessage is durable — pi owns it from there. A batch the
-  // gate held is buffered in memory (pendingParts/pendingDelivered) and
-  // retried from the retry timer, turn boundaries, and the heartbeat. That
-  // buffer is crash-durable only when it came from claimable envelopes still
-  // sitting in claimed/, which configure() recovers back to the inbox;
-  // injected parts with no envelope behind them (a pane-death notice, a
-  // deadline nudge) are lost if the process dies before the flush.
+  // What happens to a batch depends on which side of the gate it landed. A
+  // batch that reaches sendUserMessage is out of picode's hands — picode's
+  // responsibility ends there, and pi owns it from there. A batch the gate
+  // held is buffered in memory (pendingParts/pendingDelivered) and retried
+  // from the retry timer, turn boundaries, and the heartbeat. That buffer is
+  // crash-durable only when it came from claimable envelopes still sitting in
+  // claimed/, which configure() recovers back to the inbox; injected parts
+  // with no envelope behind them (a pane-death notice, a deadline nudge) are
+  // lost if the process dies before the flush.
   //
   // Known residual, pre-existing and not introduced by the inbox funnel:
   // sendUserMessage is a void API whose runtime wrapper swallows rejections
