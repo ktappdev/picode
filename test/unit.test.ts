@@ -25,6 +25,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { execFileSync } from "node:child_process";
+import { createServer } from "node:net";
 import type {
   AgentToolResult,
   ExtensionAPI,
@@ -34,8 +35,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { createPicodeStore } from "../src/state";
 import type { PicodeStore } from "../src/core/types";
-import { createInbox } from "../src/inbox";
-import type { Injection } from "../src/inbox";
+import { createInbox, createInjectBatch, INJECTION_GRACE_MS } from "../src/inbox";
 import { DEADLINE_EXPIRY_GRACE_MS } from "../src/inbox";
 import {
   belongsToWorkspace,
@@ -51,7 +51,7 @@ import { isQuietTui, resolveQuietTui, setQuietTui } from "../src/core/quiet-tui"
 import { countPanesInTab, solePaneInTab, resolveThinking } from "../src/tools/spawn";
 import { validateLabel } from "../src/tools/tab-create";
 import { registerLifecycle, extractFirstLine } from "../src/lifecycle";
-import { getListenerHandle, setListenerHandle } from "../src/herdr/listener";
+import { getListenerHandle, setListenerHandle, startHerdrListener } from "../src/herdr/listener";
 import { deadlineFromSeconds } from "../src/core/time";
 import { checkBodySize, MAX_BODY_BYTES } from "../src/tools/messaging";
 import { registerTools } from "../src/tools/index";
@@ -205,6 +205,7 @@ function makeHarness(dir: string, id = "t1") {
     tools,
     commands,
     ctx,
+    pi: stubPi,
     calls,
     sentCustom,
     notifications,
@@ -497,6 +498,158 @@ afterEach(() => {
 });
 
 // --- tests ---------------------------------------------------------------
+
+describe("Herdr listener injection funnel", () => {
+  it("routes one tracked pane close through inbox as urgent; ignores inert events", async () => {
+    const h = makeHarness(tmpDir);
+    const configDir = join(tmpDir, "herdr-config");
+    mkdirSync(configDir, { recursive: true });
+    const socketPath = join(configDir, "herdr.sock");
+    const previousConfig = process.env.HERDR_CONFIG_PATH;
+    process.env.HERDR_ENV = "1";
+    process.env.HERDR_WORKSPACE_ID = "workspace-1";
+    process.env.HERDR_CONFIG_PATH = configDir;
+    const server = createServer(connection => {
+      connection.on("data", () => {
+        connection.write(
+          [
+            JSON.stringify({
+              event: "pane_status_changed",
+              data: { workspace_id: "workspace-1", pane_id: "pane-inert" },
+            }),
+            JSON.stringify({
+              event: "pane_closed",
+              data: { workspace_id: "workspace-1", pane_id: "pane-dead" },
+            }),
+            "",
+          ].join("\n"),
+        );
+      });
+    });
+    await new Promise<void>(resolve => server.listen(socketPath, resolve));
+    const realNow = Date.now;
+    let timeOffset = 0;
+    let stopListener: (() => void) | undefined;
+    try {
+      // The listener deliberately ignores events during its initial 5-second grace.
+      Date.now = () => realNow() + timeOffset;
+      const listener = startHerdrListener(h.inbox, h.ctx, "workspace-1");
+      stopListener = listener.stop;
+      timeOffset = 6_000;
+      listener.trackPane("pane-inert");
+      listener.trackPane("pane-dead");
+      const deadline = realNow() + 2_000;
+      while (h.calls.length === 0 && realNow() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+      assert.strictEqual(h.calls.length, 1);
+      assert.match(h.calls[0].content, /Pane pane-dead .* was closed/);
+      assert.strictEqual(h.calls[0].options?.deliverAs, "steer");
+    } finally {
+      stopListener?.();
+      Date.now = realNow;
+      await new Promise<void>(resolve => server.close(() => resolve()));
+      if (previousConfig === undefined) delete process.env.HERDR_CONFIG_PATH;
+      else process.env.HERDR_CONFIG_PATH = previousConfig;
+    }
+  });
+
+  it("holds and coalesces injections while compaction closes the gate", () => {
+    const h = makeHarness(tmpDir);
+    h.inbox.noteCompactionStart();
+    h.inbox.inject([{ text: "pane closed", urgency: "high" }], h.ctx);
+    h.inbox.inject([{ text: "second notice", urgency: "low" }], h.ctx);
+    assert.strictEqual(h.calls.length, 0);
+    h.inbox.noteCompactionEnd();
+    assert.strictEqual(h.calls.length, 1);
+    assert.match(h.calls[0].content, /pane closed\n\nsecond notice/);
+    assert.strictEqual(h.calls[0].options?.deliverAs, "steer");
+  });
+
+  it("coalesces two gated pane closes into one batch; two open closes inject twice", () => {
+    const gated = makeHarness(tmpDir, "gated");
+    gated.inbox.noteCompactionStart();
+    gated.inbox.inject([{ text: "pane p1 closed", urgency: "high" }], gated.ctx);
+    gated.inbox.inject([{ text: "pane p2 closed", urgency: "high" }], gated.ctx);
+    assert.strictEqual(gated.calls.length, 0, "both held while gated");
+    gated.inbox.noteCompactionEnd();
+    assert.strictEqual(gated.calls.length, 1, "one coalesced batch, not two");
+    assert.match(gated.calls[0].content, /pane p1 closed\n\npane p2 closed/);
+
+    const open = makeHarness(tmpDir, "open");
+    open.inbox.inject([{ text: "pane q1 closed", urgency: "high" }], open.ctx);
+    open.inbox.inject([{ text: "pane q2 closed", urgency: "high" }], open.ctx);
+    assert.strictEqual(open.calls.length, 2, "an open gate coalesces nothing");
+    assert.match(open.calls[0].content, /pane q1 closed/);
+    assert.match(open.calls[1].content, /pane q2 closed/);
+  });
+
+  it("buffers an injection held by the idle-preflight hold and ships it on the retry timer", () => {
+    const h = makeHarness(tmpDir);
+    h.idle = true;
+    mock.timers.enable({ apis: ["setTimeout", "Date"] });
+    try {
+      // First inject sends and arms inFlightSince for the grace window.
+      assert.strictEqual(h.inbox.inject([{ text: "first", urgency: "low" }], h.ctx), true);
+      assert.strictEqual(h.calls.length, 1);
+      // Second inject lands inside the hold: buffered, not sent, reported as such.
+      assert.strictEqual(h.inbox.inject([{ text: "second", urgency: "high" }], h.ctx), false);
+      assert.strictEqual(h.calls.length, 1, "held, not sent");
+      // The retry timer fires once the grace window passes and ships the buffer.
+      mock.timers.tick(INJECTION_GRACE_MS);
+      assert.strictEqual(h.calls.length, 2, "retry timer delivered the held batch");
+      assert.match(h.calls[1].content, /second/);
+      assert.strictEqual(h.calls[1].options?.deliverAs, "steer");
+    } finally {
+      mock.timers.reset();
+    }
+  });
+
+  it("retains the whole accumulated batch when sendUserMessage throws", () => {
+    const h = makeHarness(tmpDir);
+    let throwOnce = true;
+    const original = h.pi.sendUserMessage;
+    h.pi.sendUserMessage = (content: string, options?: { deliverAs?: "steer" | "followUp" }) => {
+      if (throwOnce) {
+        throwOnce = false;
+        throw new Error("Agent is already processing");
+      }
+      original(content, options);
+    };
+    assert.strictEqual(h.inbox.inject([{ text: "one", urgency: "low" }], h.ctx), false);
+    assert.strictEqual(h.calls.length, 0, "a throw sends nothing");
+    // Nothing was cleared, so the next flush delivers the full batch once.
+    h.inbox.noteRunStarted();
+    assert.strictEqual(h.calls.length, 1);
+    assert.match(h.calls[0].content, /one/);
+  });
+
+  it("keeps claimed envelopes claimed until the buffered batch actually sends", async () => {
+    const h = makeHarness(tmpDir);
+    const claimDir = join(h.store.picodeDir, "inbox", "claimed");
+    const processedDir = join(h.store.picodeDir, "inbox", "processed");
+    seedEnvelope(h, "t1", { from: "alice", body: "held envelope" }, "held.json");
+    // Flip the gate shut *during* the drain, after the envelope is claimed —
+    // the race the §7.7 gate cannot pre-empt because claiming already happened.
+    const realDrain = h.store.adapter.drainInbox.bind(h.store.adapter);
+    h.store.adapter.drainInbox = async (id: string) => {
+      const claimed = await realDrain(id);
+      h.inbox.noteCompactionStart();
+      return claimed;
+    };
+    await h.inbox.drainInbox(h.ctx);
+    assert.strictEqual(h.calls.length, 0, "held, not sent");
+    assert.deepStrictEqual(readdirSync(claimDir), ["held.json"], "still claimed on disk");
+    assert.deepStrictEqual(readdirSync(processedDir), [], "not committed before send");
+    // Gate opens: the flush sends, and only then does the commit move the file.
+    h.inbox.noteCompactionEnd();
+    await new Promise<void>(resolve => setImmediate(resolve));
+    assert.strictEqual(h.calls.length, 1);
+    assert.match(h.calls[0].content, /held envelope/);
+    assert.deepStrictEqual(readdirSync(claimDir), [], "commit ran after send");
+    assert.deepStrictEqual(readdirSync(processedDir), ["held.json"]);
+  });
+});
 
 describe("tools: picode_send", () => {
   it("targets a single explicit id", async () => {
@@ -1687,10 +1840,12 @@ describe("Errata 3: heartbeat coalesces its sources into one inject (§7.5)", ()
       sentAt: new Date().toISOString(),
       deadline: new Date(Date.now() - 1000).toISOString(),
     });
-    const parts: Injection[] = [];
-    await h.inbox.drainInbox(h.ctx, parts);
-    await h.inbox.checkDeadlines(h.ctx, parts);
-    h.inbox.inject(parts, h.ctx);
+    const batch = createInjectBatch();
+    await h.inbox.drainInbox(h.ctx, batch);
+    await h.inbox.checkDeadlines(h.ctx, batch);
+    h.inbox.inject(batch.parts, h.ctx, async () => {
+      for (const commit of batch.onDelivered) await commit();
+    });
     assert.strictEqual(h.calls.length, 1, "one coalesced message");
     assert.match(h.calls[0].content, /queued envelope/);
     assert.match(h.calls[0].content, /obligation overdue #t1\/late/);

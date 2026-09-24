@@ -1,4 +1,5 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { Inbox } from "../inbox";
 import { connect, type Socket } from "node:net";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
@@ -45,12 +46,6 @@ function formatEvent(event: HerdrEvent, workspaceId: string): string | null {
     default:
       return null;
   }
-}
-
-/** Steer (interrupt) on closed/exited panes — the worker is gone, so
- *  waiting for the next turn boundary wastes time. */
-function deliverAsUrgent(eventName: string): boolean {
-  return eventName === "pane_closed" || eventName === "pane_exited";
 }
 
 const MAX_RECONNECT_ATTEMPTS = 10;
@@ -122,7 +117,11 @@ export function getTrackedPaneCount(): number {
  *  - Heartbeat: if no data received within HEARTBEAT_INTERVAL_MS, force reconnect
  *  - Socket destroyed on error before close handler
  *  - Debug logging via HERDR_LISTENER_DEBUG env var (off by default) */
-export function startHerdrListener(pi: ExtensionAPI, workspaceId: string): HerdrListenerHandle {
+export function startHerdrListener(
+  inbox: Inbox,
+  ctx: ExtensionContext,
+  workspaceId: string,
+): HerdrListenerHandle {
   const debug = process.env.HERDR_LISTENER_DEBUG === "1";
   const log = (msg: string) => {
     if (debug) console.log(`[picode] herdr-listener: ${msg}`);
@@ -264,13 +263,12 @@ export function startHerdrListener(pi: ExtensionAPI, workspaceId: string): Herdr
             log(`event=${msg.event} pane=${paneId}`);
             const text = formatEvent(msg, workspaceId);
             if (text) {
-              const steer = deliverAsUrgent(msg.event);
-              log(`injecting deliverAs=${steer ? "steer" : "followUp"}`);
+              log("injecting urgent pane-death notification through inbox");
               // Auto-untrack on close/exit — pane is gone
               if (msg.event === "pane_closed" || msg.event === "pane_exited") {
                 trackedPanes.delete(paneId);
               }
-              pi.sendUserMessage(text, { deliverAs: steer ? "steer" : "followUp" });
+              inbox.inject([{ text, urgency: "high" }], ctx);
             }
           } else if ("result" in msg) {
             reconnectAttempts = 0;

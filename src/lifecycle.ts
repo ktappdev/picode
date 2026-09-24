@@ -4,7 +4,7 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import type { PicodeStore, PicodeState } from "./core/types";
-import type { Inbox, Injection } from "./inbox";
+import { createInjectBatch, type Inbox, type Injection } from "./inbox";
 import { splitPicodeRoster, threadModelPrompt } from "./core/system-prompt";
 import { formatWorkerStub, workerStubRows } from "./core/worker-ledger";
 import { registerCacheDiagnostics } from "./cache-diagnostics";
@@ -438,7 +438,7 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
       process.env.HERDR_ENV === "1" &&
       process.env.HERDR_WORKSPACE_ID
     ) {
-      stopHerdrListener = startHerdrListener(pi, process.env.HERDR_WORKSPACE_ID);
+      stopHerdrListener = startHerdrListener(inbox, ctx, process.env.HERDR_WORKSPACE_ID);
       setListenerHandle(stopHerdrListener);
 
       // Start periodic sit-rep timer — wakes the coordinator to check worker
@@ -578,16 +578,16 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
       // Coalesce both heartbeat-driven sources into ONE inject() per tick
       // (§7.5, Errata 3): if drainInbox injected on its own here, its
       // idle-time inFlightSince write would gate out the deadline check for
-      // a full heartbeat interval.
-      const parts: Injection[] = [];
-      await inbox.drainInbox(ctx, parts);
-      await inbox.checkDeadlines(ctx, parts);
-      inbox.inject(parts, ctx);
-      // Commit the drain's claimed/ → processed/ now that inject() has
-      // safely queued the messages — if we crash after inject(), pi
-      // handles its own internal queue; the adapter-level concern is the
-      // file move from claimed/ to processed/.
-      await inbox.finalizeDrain();
+      // a full heartbeat interval. The batch carries each source's commit
+      // (drain finalize, deadline persist) so they run only once the batch
+      // actually reaches sendUserMessage — a gated batch stays durable on
+      // disk instead of being marked delivered while it sits in RAM.
+      const batch = createInjectBatch();
+      await inbox.drainInbox(ctx, batch);
+      await inbox.checkDeadlines(ctx, batch);
+      inbox.inject(batch.parts, ctx, async () => {
+        for (const commit of batch.onDelivered) await commit();
+      });
     });
   });
 
