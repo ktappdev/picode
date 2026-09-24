@@ -16,6 +16,7 @@ import {
   snapshotCachePrompt,
 } from "../src/core/cache-diagnostics";
 import { splitPicodeRoster } from "../src/core/system-prompt";
+import { formatWorkerStub } from "../src/core/worker-ledger";
 
 const tempDirs: string[] = [];
 
@@ -122,6 +123,10 @@ describe("cache diagnostics", () => {
 
     assert.equal(viaOverride, `${base}\n\n${picode}`);
     assert.equal(viaSections.includes("<picode>\n"), true);
+    const stub = formatWorkerStub([{ id: "builder-a1", role: "builder" }]);
+    const promptWithStub = `rules\n\n${stub}`;
+    const legacyPrompt = renderLeadingPrompt(base, promptWithStub, stub, "override");
+    assert.ok(legacyPrompt.endsWith(stub), "the legacy override keeps the roster stub last");
     assert.notEqual(viaSections, viaOverride);
   });
 

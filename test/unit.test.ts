@@ -2131,7 +2131,7 @@ describe("lifecycle: opt-in gate (§2.3)", () => {
     h.store.stopWatcher();
   });
 
-  it("keeps the worker roster in its own section, so a roster move never re-sends the rules", async () => {
+  it("keeps a stable worker roster stub in its own section", async () => {
     const prevHerdr = process.env.HERDR_ENV;
     process.env.HERDR_ENV = "1";
     try {
@@ -2141,8 +2141,19 @@ describe("lifecycle: opt-in gate (§2.3)", () => {
       const ctx = h.makeCtx();
       await h.fire("session_start", ctx);
 
-      // Seed one stopped worker so the digest is non-empty, and let its age move
-      // between the two runs the way wall-clock moves it in a live session.
+      const empty: Record<string, string> = {};
+      await h.fire("before_agent_start", ctx, {
+        systemPrompt: "base",
+        systemPromptOptions: { sections: empty },
+      });
+      assert.equal(
+        empty["picode-workers"],
+        "### Workers\n\n(none)\n\nFull state on demand: picode_list(). Before reviving a candidate: revive_closed_session(id, dry_run=true) — area, handoff, context age, HEAD freshness.",
+        "the roster section remains present when the workspace has no workers",
+      );
+
+      // Seed one worker and let its liveness/age move between runs. Those
+      // volatile facts belong to on-demand picode_list(), not the prompt stub.
       const seedWorker = (minutesAgo: number) => {
         const workerDir = join(tmpDir, ".picode", "picodes", "builder-a1");
         mkdirSync(workerDir, { recursive: true });
@@ -2171,21 +2182,26 @@ describe("lifecycle: opt-in gate (§2.3)", () => {
         systemPromptOptions: { sections: second },
       });
 
-      assert.ok(first["picode-workers"], "the roster travels in a section of its own");
-      assert.notEqual(
+      assert.equal(
+        first["picode-workers"],
+        "### Workers\n\nbuilder-a1 (builder)\n\nFull state on demand: picode_list(). Before reviving a candidate: revive_closed_session(id, dry_run=true) — area, handoff, context age, HEAD freshness.",
+        "the exact stable stub travels in its own section",
+      );
+      assert.equal(
         first["picode-workers"],
         second["picode-workers"],
-        "the roster moved between the two runs",
+        "volatile worker state must not churn the roster stub",
       );
+      assert.match(first["picode-workers"], /builder-a1 \(builder\)/);
       assert.equal(
         first.picode,
         second.picode,
-        "a roster move must leave the rules section byte-identical: Pi re-sends the whole value of any section that changed, so one shared section re-sent the coordinator's ~37k-character rule block to deliver a ~200-character digest",
+        "the stable roster stub is isolated from the rules section",
       );
       assert.equal(
         first.picode.includes("builder-a1"),
         false,
-        "the rules section must not carry the roster rows — the coordinator prompt documents the digest by name, so assert on the seeded worker's actual row instead",
+        "the rules section must not carry the roster rows",
       );
       h.store.stopHeartbeat();
       h.store.stopWatcher();
@@ -2294,6 +2310,7 @@ describe("lifecycle: bounded sit-reps", () => {
     try {
       const tick = () => mock.timers.tick(1000);
       tick(); // baseline
+      assert.match(h.userMessages[0] ?? "", /picode_list\(\)/);
       tick(); // unchanged #1
       tick(); // unchanged #2
       assert.strictEqual(h.userMessages.length, 3, "each check wakes the coordinator");
@@ -4357,7 +4374,8 @@ describe("system-prompt: picode_send contract is in every worker template", () =
     // The revivable-worker ladder is a decision rule, not a tool description:
     // without it in the prompt the coordinator never notices a worker worth
     // resuming and revive_closed_session is never called.
-    assert.match(coordinator, /revive_closed_session\(picode_id, task\)/);
+    assert.match(coordinator, /Call `picode_list\(\)` before every dispatch/);
+    assert.match(coordinator, /revive_closed_session\(picode_id, task, dry_run=true\)/);
     assert.match(coordinator, /spawn fresh instead/);
   });
 });

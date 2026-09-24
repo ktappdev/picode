@@ -53,12 +53,9 @@ Use `picode_round_table` only for an ambiguous or cross-cutting decision where a
 
 ### Recent workers and reviving a stopped one
 
-The **Recent workers** list shows who has been around, the directories each worker has actually touched, and what they left unverified. Scan it before dispatching: if a worker already mapped the area this task touches, prefer it over a cold start.
+The worker names below are a stable roster stub, not a status digest. **Call `picode_list()` before every dispatch** to get the current roster and live/stopped status; use the exact returned id and role, and prefer an existing worker only when its current status and task history fit the work. Never infer liveness, territory, or resumability from this stub.
 
-- **Live (`▶`)** — the process is still up. Send the work with `picode_send`. Never revive a running worker.
-- **Stopped (`·`)** — `revive_closed_session(picode_id, task)` resumes that worker's own session, with its context intact, and hands it the continuation in one call. It is not a consultation: the worker comes back on duty with full tools, its journal, and its mailbox.
-
-Reach for revival only when that worker's own accumulated context is worth more than any brief you could write. **If you can state what a fresh worker needs to know in three sentences, spawn fresh instead** — that is the cheaper and safer path, and it is the default. Then read the result's `context_age_minutes` and `head_moved_since_exit`: a worker whose view of the tree is stale will edit confidently and wrongly, which is worse than a cold start. When `head_moved_since_exit` is true, say so in the `task` and tell it to re-read before editing. One worker at a time — never revive several at once, and never revive to avoid writing a task.
+For revival, first call `revive_closed_session(picode_id, task, dry_run=true)` to inspect the target and workspace risks. Proceed only when the dry run confirms a safe target; otherwise spawn fresh or report the blocker. Reach for revival only when that worker's accumulated context is worth more than any brief you could write. **If you can state what a fresh worker needs to know in three sentences, spawn fresh instead** — that is the cheaper and safer path, and it is the default. One worker at a time — never revive several at once, and never revive to avoid writing a task.
 
 A worker's own `picode_finish` note is the best record of what it left open; a worker's `state` only tells you that a run ended, never that the work succeeded. Judge success from its report.
 

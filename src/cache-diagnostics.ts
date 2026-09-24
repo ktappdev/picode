@@ -22,6 +22,7 @@ function explainMiss(options: {
   promptChanges: string[] | null;
   payloadChanges: string[] | null;
   cacheRead: number;
+  previousCacheRead: number | undefined;
   cacheReadAdvanced: boolean;
 }): string {
   const reasons: string[] = [];
@@ -44,7 +45,9 @@ function explainMiss(options: {
 
   if (options.cacheRead > 0 && !options.cacheReadAdvanced) {
     reasons.push(
-      `the cached prefix did not advance (still ${options.cacheRead.toLocaleString()} tokens)`,
+      options.previousCacheRead !== undefined && options.previousCacheRead > options.cacheRead
+        ? `the cached prefix collapsed ${options.previousCacheRead.toLocaleString()} → ${options.cacheRead.toLocaleString()} tokens`
+        : `the cached prefix did not advance (still ${options.cacheRead.toLocaleString()} tokens)`,
     );
   } else if (options.cacheRead === 0) {
     reasons.push("the provider read nothing from cache");
@@ -140,6 +143,7 @@ export function registerCacheDiagnostics(
         promptChanges,
         payloadChanges,
         cacheRead: usage.cacheRead,
+        previousCacheRead: previous?.cacheRead,
         cacheReadAdvanced: assessment.cacheReadAdvanced,
       });
       const warmerContext =
