@@ -2079,23 +2079,17 @@ describe("lifecycle: opt-in gate (§2.3)", () => {
     }
   });
 
-  it("before_agent_start primes the session and session_start resets it", async () => {
+  it("before_agent_start persists rules in a section without forcing a prompt", async () => {
     const h = makeLifecycleHarness(tmpDir);
     h.setFlag("picode-id", "t8");
     const ctx = h.makeCtx();
-    // Pre-set to prove session_start resets it (a new session's agent starts
-    // from the base system prompt). Only one session_start fire: init's
-    // duplicate-ID guard rejects a second run against the same store.
-    h.store.promptDrivenTurnSeen = true;
     await h.fire("session_start", ctx);
-    assert.strictEqual(h.store.promptDrivenTurnSeen, false, "session_start resets the primer");
     const sections: Record<string, string> = {};
     const event = {
       systemPrompt: "base",
       systemPromptOptions: { sections },
     };
     const result = await h.fire("before_agent_start", ctx, event);
-    assert.strictEqual(h.store.promptDrivenTurnSeen, true, "before_agent_start primes");
     assert.equal(
       typeof sections.picode,
       "string",
@@ -4228,7 +4222,6 @@ describe("role and prompt contracts", () => {
       lastJournalSignature: null,
       lastJournalAt: 0,
       journalDebt: false,
-      promptDrivenTurnSeen: false,
     });
     assert.match(prompt, /Ken Taylor\.\n\n### Role: Worker/);
     assert.match(prompt, /work lost\.\n\n### Subtype: Planner/);
@@ -4253,7 +4246,6 @@ describe("role and prompt contracts", () => {
       lastJournalSignature: null,
       lastJournalAt: 0,
       journalDebt: false,
-      promptDrivenTurnSeen: false,
     });
     assert.match(prompt, /visual evidence specialist/);
     assert.match(prompt, /multimodal model/);
@@ -4280,7 +4272,6 @@ describe("role and prompt contracts", () => {
       lastJournalSignature: null,
       lastJournalAt: 0,
       journalDebt: false,
-      promptDrivenTurnSeen: false,
     });
     assert.match(worker, /Your journal is disabled/);
     assert.doesNotMatch(worker, /picode_journal\(id\)/);
@@ -4307,7 +4298,6 @@ describe("role and prompt contracts", () => {
       lastJournalSignature: null,
       lastJournalAt: 0,
       journalDebt: false,
-      promptDrivenTurnSeen: false,
     });
     assert.match(coord, /recover your identity, obligations, owed replies, and recent journal/);
     assert.match(coord, /picode_journal\(id\)/);
@@ -4928,28 +4918,21 @@ describe("shared: tabLabelMap", () => {
 });
 
 describe("operator screen: coordinator envelope injections", () => {
-  it("primed coordinator drains envelopes via collapsed sendMessage, followUp when all low urgency", async () => {
+  it("coordinator drains envelopes via prompt()-driven sendUserMessage even when primed", async () => {
     const h = makeHarness(tmpDir);
     h.store.role = "coordinator";
-    h.store.promptDrivenTurnSeen = true;
     seedEnvelope(h, "t1", { from: "builder", body: "lexer done" });
     await h.inbox.drainInbox(h.ctx);
-    assert.strictEqual(h.calls.length, 0, "no verbose user message for a primed coordinator");
-    assert.strictEqual(h.sentCustom.length, 1);
-    const { msg, options } = h.sentCustom[0];
-    assert.strictEqual(msg.customType, "picode-envelope");
-    assert.strictEqual(msg.display, true);
-    assert.match(msg.content, /\[note from builder #/);
-    assert.match(msg.content, /lexer done/);
-    assert.deepStrictEqual(msg.details, { count: 1, highUrgency: false });
-    assert.strictEqual(options?.triggerTurn, true);
-    assert.strictEqual(options?.deliverAs, "followUp");
+    assert.strictEqual(h.sentCustom.length, 0);
+    assert.strictEqual(h.calls.length, 1);
+    assert.match(h.calls[0].content, /\[note from builder #/);
+    assert.match(h.calls[0].content, /lexer done/);
+    assert.strictEqual(h.calls[0].options?.deliverAs, "followUp");
   });
 
-  it("one high-urgency part steers the whole batch and flags the marker", async () => {
+  it("one high-urgency part steers the whole batch", async () => {
     const h = makeHarness(tmpDir);
     h.store.role = "coordinator";
-    h.store.promptDrivenTurnSeen = true;
     seedEnvelope(
       h,
       "t1",
@@ -4958,16 +4941,16 @@ describe("operator screen: coordinator envelope injections", () => {
     );
     seedEnvelope(h, "t1", { from: "scout", body: "fyi" }, "1-low.json");
     await h.inbox.drainInbox(h.ctx);
-    assert.strictEqual(h.sentCustom.length, 1, "batch coalesces into one message");
-    const { msg, options } = h.sentCustom[0];
-    assert.deepStrictEqual(msg.details, { count: 2, highUrgency: true });
-    assert.strictEqual(options?.deliverAs, "steer");
+    assert.strictEqual(h.sentCustom.length, 0);
+    assert.strictEqual(h.calls.length, 1);
+    assert.match(h.calls[0].content, /urgent fix/);
+    assert.match(h.calls[0].content, /fyi/);
+    assert.strictEqual(h.calls[0].options?.deliverAs, "steer");
   });
 
   it("unprimed coordinator falls back to sendUserMessage so the first run gets the picode system prompt", async () => {
     const h = makeHarness(tmpDir);
     h.store.role = "coordinator";
-    assert.strictEqual(h.store.promptDrivenTurnSeen, false);
     seedEnvelope(h, "t1", { from: "builder", body: "hello" });
     await h.inbox.drainInbox(h.ctx);
     assert.strictEqual(h.sentCustom.length, 0);
@@ -4975,10 +4958,9 @@ describe("operator screen: coordinator envelope injections", () => {
     assert.match(h.calls[0].content, /hello/);
   });
 
-  it("worker keeps the verbose path even after a prompt()-driven turn", async () => {
+  it("worker keeps the verbose path for incoming task envelopes", async () => {
     const h = makeHarness(tmpDir);
     h.store.role = "worker";
-    h.store.promptDrivenTurnSeen = true;
     seedEnvelope(h, "t1", { from: "coordinator", body: "do the thing" });
     await h.inbox.drainInbox(h.ctx);
     assert.strictEqual(h.sentCustom.length, 0);

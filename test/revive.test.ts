@@ -55,7 +55,6 @@ function picodeData(role: string): PicodeData {
     lastJournalSignature: null,
     lastJournalAt: 0,
     journalDebt: false,
-    promptDrivenTurnSeen: false,
   };
 }
 
