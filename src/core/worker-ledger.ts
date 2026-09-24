@@ -283,12 +283,15 @@ export function recentWorkers(cwd: string, limit: number = DEFAULT_LEDGER_LIMIT)
 
 // ── Digest rendering ────────────────────────────────────────────────
 
+/** Preserve age signal while preventing the coordinator prompt from changing every minute. */
 function humanAge(minutes: number): string {
   if (minutes < 1) return "<1m";
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours}h`;
-  return `${Math.round(hours / 24)}d`;
+  if (minutes < 5) return "<5m";
+  if (minutes < 15) return "<15m";
+  if (minutes < 60) return "<1h";
+  if (minutes < 360) return "<6h";
+  if (minutes < 1_440) return "<1d";
+  return "1d+";
 }
 
 function clamp(text: string, max = 120): string {
