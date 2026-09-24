@@ -6,7 +6,7 @@ import type {
 import type { PicodeStore, PicodeState } from "./core/types";
 import type { Inbox, Injection } from "./inbox";
 import { splitPicodeRoster, threadModelPrompt } from "./core/system-prompt";
-import { formatWorkerDigest, recentWorkers } from "./core/worker-ledger";
+import { formatWorkerStub, recentWorkers } from "./core/worker-ledger";
 import { registerCacheDiagnostics } from "./cache-diagnostics";
 import {
   journalMode,
@@ -272,7 +272,7 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
       // turn). Use sendUserMessage so an idle run re-applies Picode's system
       // prompt sections rather than continuing with a stale prompt head.
       const sitrep =
-        "[picode-system] Periodic sit-rep: run picode_panes() and picode_status(tail=5). Check for: (1) zombie workers — working but no recent activity, (2) stale barriers — expired deadlines, (3) idle workers that could be reused or closed. Act on findings — close zombies, purge stale barriers, reassign idle workers. Don't just report.";
+        "[picode-system] Periodic sit-rep: run picode_panes(), picode_list(), and picode_status(tail=5). Check for: (1) zombie workers — working but no recent activity, (2) stale barriers — expired deadlines, (3) idle workers that could be reused or closed. Act on findings — close zombies, purge stale barriers, reassign idle workers. Don't just report.";
       pi.sendUserMessage(sitrep, { deliverAs: "followUp" });
     }, sitRepIntervalMs());
   }
@@ -802,8 +802,9 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
 
     // Roster digest — coordinator only, and cheap by construction: bounded
     // to the most recent workers, with session scans memoised by mtime.
-    const workerRows = store.role === "coordinator" && !isRoundTable ? recentWorkers(ctx.cwd) : [];
-    const workers = formatWorkerDigest(workerRows);
+    const isCoordinator = store.role === "coordinator" && !isRoundTable;
+    const workerRows = isCoordinator ? recentWorkers(ctx.cwd) : [];
+    const workers = isCoordinator ? formatWorkerStub(workerRows) : "";
 
     // Stamped by revive_closed_session at launch with the timestamp of this
     // worker's last heartbeat before it stopped, so a resumed session knows
@@ -819,10 +820,9 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
     });
     const basePrompt = event.systemPrompt;
     if (hasSystemPromptSections(event.systemPromptOptions)) {
-      // Two sections, not one. A roster change re-sends the whole value of
-      // whichever section changed, so keeping the roster in the same section as
-      // the rules meant re-sending ~37k characters of rules to deliver a ~200
-      // character digest. See splitPicodeRoster. Pi wraps every section as
+      // Two sections, not one. Keeping the stable roster stub separate from
+      // the rules preserves the suffix invariant without coupling roster edits
+      // to the rules section. See splitPicodeRoster. Pi wraps every section as
       // `<name>...</name>` and joins the values with a blank line in insertion
       // order, so this renders as the single-section form.
       const { rules, roster } = splitPicodeRoster(picodePrompt, workers);

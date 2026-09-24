@@ -299,6 +299,16 @@ function clamp(text: string, max = 120): string {
   return flat.length <= max ? flat : `${flat.slice(0, max - 1)}…`;
 }
 
+/** Stable roster stub for on-demand lookup. Liveness, age, area, handoff,
+ *  and HEAD changes must not churn the coordinator's prompt prefix. */
+export function formatWorkerStub(rows: readonly LedgerRow[]): string {
+  if (rows.length === 0) return "(none)";
+  return [...rows]
+    .sort((a, b) => a.id.localeCompare(b.id))
+    .map(row => `${row.id} (${row.role})`)
+    .join("\n");
+}
+
 /** One line per worker: who, where they've worked, whether they're still
  *  live, and what they left unverified. Deliberately terse — this block is
  *  prepended to the coordinator's context on every run. */

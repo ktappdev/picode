@@ -10,6 +10,7 @@ import {
   clearHeadCache,
   deriveArea,
   formatWorkerDigest,
+  formatWorkerStub,
   headMovedSince,
   recentWorkers,
   type LedgerRow,
@@ -263,6 +264,63 @@ describe("worker ledger: rows", () => {
     const [row] = recentWorkers(cwd);
     assert.strictEqual(row?.id, "scout");
     assert.strictEqual(row?.handoff, null);
+  });
+});
+
+describe("worker ledger: stable stub", () => {
+  function row(overrides: Partial<LedgerRow>): LedgerRow {
+    return {
+      id: "builder",
+      role: "builder",
+      live: false,
+      area: ["src/core"],
+      lastState: "stopped",
+      closedAt: new Date().toISOString(),
+      contextAgeMinutes: 42,
+      headMovedSinceExit: false,
+      handoff: null,
+      ...overrides,
+    };
+  }
+
+  it("shows (none) for an empty roster", () => {
+    assert.strictEqual(formatWorkerStub([]), "(none)");
+  });
+
+  it("sorts by id and includes only id and role", () => {
+    assert.strictEqual(
+      formatWorkerStub([row({ id: "z-worker" }), row({ id: "a-worker", role: "scout" })]),
+      "a-worker (scout)\nz-worker (builder)",
+    );
+  });
+
+  it("is unchanged by liveness, age, area, handoff, HEAD, close time, and input order", () => {
+    const original = [row({ id: "z-worker" }), row({ id: "a-worker", role: "scout" })];
+    const changed = [
+      row({
+        id: "a-worker",
+        role: "scout",
+        live: true,
+        contextAgeMinutes: 0,
+        area: ["test"],
+        handoff: {
+          id: "a-worker",
+          role: "scout",
+          outcome: "completed",
+          changed: "test",
+          leftUnverified: "unknown",
+          at: "2026-09-16T14:40:16.511Z",
+        },
+        headMovedSinceExit: true,
+        closedAt: "2026-01-01T00:00:00.000Z",
+      }),
+      row({ id: "z-worker", live: true, closedAt: "2026-02-01T00:00:00.000Z" }),
+    ];
+    assert.strictEqual(formatWorkerStub(changed), formatWorkerStub(original));
+    assert.notStrictEqual(
+      formatWorkerStub([...changed, row({ id: "new-worker" })]),
+      formatWorkerStub(changed),
+    );
   });
 });
 
