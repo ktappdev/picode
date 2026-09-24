@@ -355,6 +355,7 @@ is TTL expiry, which is normal and expected.
   prompt. `payloadHash` is the real body, reduced to hashes and lengths. Pair
   `payloadChanges: []` with the matching `kind: "payload"` lines before concluding
   two requests were identical.
+- **`fullPromptHash` cannot see forced-prompt appends.** Blocks appended outside Picode's reconstruction — the pi-subagents advertised block, pi-cache-optimizer's reorder — change the sent head by hundreds of tokens while the hash stays put. Identical `fullPromptHash` across a prompt-driven run and a continuation run does not mean identical heads.
 - **`fullPromptHash` also depends on the transport.** Structured `sections` text is
   tagged; the legacy `override` fallback is bare. It is unchanged per request and
   stable within a Pi version, so it still detects change — but do not compare a hash

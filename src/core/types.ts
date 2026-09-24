@@ -234,14 +234,4 @@ export interface PicodeData {
    *  the run owes one wrap-up entry at agent_end so the final state of the
    *  work is never lost to the rate limit. */
   journalDebt: boolean;
-  /** In-memory only: true once a prompt()-driven run has happened in this
-   *  session. Only prompt() emits before_agent_start, which is where picode
-   *  appends the thread-model block to the system prompt — a turn triggered
-   *  by sendMessage (collapsed coordinator injections) instead inherits the
-   *  previous run's system prompt, which is missing until the first
-   *  prompt()-driven run. Until then, injections fall back to the verbose
-   *  sendUserMessage path so no coordinator turn ever runs without its
-   *  thread-model rules. Reset at session_start: a new session's agent
-   *  starts from the base system prompt again. */
-  promptDrivenTurnSeen: boolean;
 }

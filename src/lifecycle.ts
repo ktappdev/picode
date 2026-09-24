@@ -269,19 +269,11 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
       sitRepRunSignature = signature;
 
       // Inject sit-rep as followUp (non-interrupting — waits for current
-      // turn). Collapsed picode-system message once a prompt()-driven run
-      // has assembled the picode system prompt; until then the verbose
-      // sendUserMessage fallback keeps that first run correct.
+      // turn). Use sendUserMessage so an idle run re-applies Picode's system
+      // prompt sections rather than continuing with a stale prompt head.
       const sitrep =
         "[picode-system] Periodic sit-rep: run picode_panes() and picode_status(tail=5). Check for: (1) zombie workers — working but no recent activity, (2) stale barriers — expired deadlines, (3) idle workers that could be reused or closed. Act on findings — close zombies, purge stale barriers, reassign idle workers. Don't just report.";
-      if (store.promptDrivenTurnSeen) {
-        pi.sendMessage(
-          { customType: "picode-system", content: sitrep, display: true, details: {} },
-          { triggerTurn: true, deliverAs: "followUp" },
-        );
-      } else {
-        pi.sendUserMessage(sitrep, { deliverAs: "followUp" });
-      }
+      pi.sendUserMessage(sitrep, { deliverAs: "followUp" });
     }, sitRepIntervalMs());
   }
 
@@ -387,11 +379,10 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
     }
 
     // A new session's agent starts from the base system prompt; the picode
-    // thread-model block is only assembled per prompt()-driven run (see the
+    // thread-model block is assembled per prompt()-driven run (see the
     // before_agent_start handler below). The journal slice marker resets too
     // — a fresh session's entries must not be skipped by the old session's
     // count.
-    store.promptDrivenTurnSeen = false;
     cacheDiagnostics.reset();
     journaledMessageCount = 0;
 
@@ -806,9 +797,8 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
     if (!active) return;
     // Only prompt()-driven runs assemble the system prompt through this
     // handler. Persist the Picode rules as a structured section so later
-    // sendMessage-triggered runs inherit them from the transcript; a forced
-    // systemPrompt override applies only to this run and is not persisted.
-    store.promptDrivenTurnSeen = true;
+    // runs inherit them from the transcript; a forced systemPrompt override
+    // applies only to this run and is not persisted.
 
     // Roster digest — coordinator only, and cheap by construction: bounded
     // to the most recent workers, with session scans memoised by mtime.

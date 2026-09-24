@@ -121,7 +121,6 @@ describe("Recall Round Table", () => {
         lastJournalSignature: null,
         lastJournalAt: 0,
         journalDebt: false,
-        promptDrivenTurnSeen: false,
       },
       { roundTable: true },
     );
