@@ -35,7 +35,12 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { createPicodeStore } from "../src/state";
 import type { PicodeStore } from "../src/core/types";
-import { createInbox, createInjectBatch, INJECTION_GRACE_MS } from "../src/inbox";
+import {
+  createInbox,
+  createInjectBatch,
+  INJECTION_GRACE_MS,
+  COMPACTION_HOLD_MAX_MS,
+} from "../src/inbox";
 import { DEADLINE_EXPIRY_GRACE_MS } from "../src/inbox";
 import {
   belongsToWorkspace,
@@ -605,23 +610,62 @@ describe("Herdr listener injection funnel", () => {
     }
   });
 
-  it("retains the whole accumulated batch when sendUserMessage throws", () => {
+  it("retains the merged batch and its commits when a send throws", () => {
     const h = makeHarness(tmpDir);
-    let throwOnce = true;
+    let commits = 0;
+    let throwAt = 1;
     const original = h.pi.sendUserMessage;
     h.pi.sendUserMessage = (content: string, options?: { deliverAs?: "steer" | "followUp" }) => {
-      if (throwOnce) {
-        throwOnce = false;
-        throw new Error("Agent is already processing");
-      }
+      if (throwAt-- > 0) throw new Error("Agent is already processing");
       original(content, options);
     };
-    assert.strictEqual(h.inbox.inject([{ text: "one", urgency: "low" }], h.ctx), false);
-    assert.strictEqual(h.calls.length, 0, "a throw sends nothing");
-    // Nothing was cleared, so the next flush delivers the full batch once.
+    const realNow = Date.now;
+    try {
+      // Part one buffers behind the compaction gate; its commit must not run.
+      h.inbox.noteCompactionStart();
+      assert.strictEqual(
+        h.inbox.inject([{ text: "one", urgency: "low" }], h.ctx, async () => {
+          commits++;
+        }),
+        false,
+      );
+      // Age the gate open without flushing, so the second inject merges with
+      // the buffered part and the throw lands on the merged batch.
+      Date.now = () => realNow() + COMPACTION_HOLD_MAX_MS + 1;
+      assert.strictEqual(
+        h.inbox.inject([{ text: "two", urgency: "low" }], h.ctx, async () => {
+          commits++;
+        }),
+        false,
+      );
+      assert.strictEqual(h.calls.length, 0, "a throw sends nothing");
+      assert.strictEqual(commits, 0, "a throw runs no commits");
+    } finally {
+      Date.now = realNow;
+    }
+    // Nothing was cleared: the next flush ships the merged batch once and both
+    // retained commits run exactly once.
     h.inbox.noteRunStarted();
     assert.strictEqual(h.calls.length, 1);
-    assert.match(h.calls[0].content, /one/);
+    assert.match(h.calls[0].content, /one\n\ntwo/);
+    assert.strictEqual(commits, 2, "both retained commits ran");
+    h.inbox.noteRunStarted();
+    assert.strictEqual(commits, 2, "a later flush does not re-run them");
+  });
+
+  it("invokes onDelivered exactly once, and only after a successful send", () => {
+    const h = makeHarness(tmpDir);
+    let commits = 0;
+    assert.strictEqual(
+      h.inbox.inject([{ text: "note", urgency: "low" }], h.ctx, async () => {
+        commits++;
+      }),
+      true,
+    );
+    assert.strictEqual(h.calls.length, 1);
+    assert.strictEqual(commits, 1, "commit ran with the send");
+    h.inbox.noteRunStarted();
+    assert.strictEqual(commits, 1, "a later flush does not re-run it");
   });
 
   it("keeps claimed envelopes claimed until the buffered batch actually sends", async () => {
@@ -1849,6 +1893,59 @@ describe("Errata 3: heartbeat coalesces its sources into one inject (§7.5)", ()
     assert.strictEqual(h.calls.length, 1, "one coalesced message");
     assert.match(h.calls[0].content, /queued envelope/);
     assert.match(h.calls[0].content, /obligation overdue #t1\/late/);
+  });
+
+  it("runs each source's commit exactly once for the batch, and not again on a later flush", async () => {
+    const h = makeHarness(tmpDir);
+    seedEnvelope(h, "t1", { from: "alice", body: "queued envelope" }, "agg.json");
+    h.store.obligations.push({
+      id: "t1/late",
+      to: "bob",
+      summary: "overdue thing",
+      sentAt: new Date().toISOString(),
+      deadline: new Date(Date.now() - 1000).toISOString(),
+    });
+    let finalizes = 0;
+    let persists = 0;
+    const realFinalize = h.store.adapter.finalizeDrain.bind(h.store.adapter);
+    h.store.adapter.finalizeDrain = async (id: string) => {
+      finalizes++;
+      return realFinalize(id);
+    };
+    const realPersist = h.store.persist.bind(h.store);
+    h.store.persist = async () => {
+      persists++;
+      return realPersist();
+    };
+
+    // The heartbeat's aggregate shape: one batch, each source attaching its
+    // own commit, all of them handed to the single inject().
+    const batch = createInjectBatch();
+    await h.inbox.drainInbox(h.ctx, batch);
+    await h.inbox.checkDeadlines(h.ctx, batch);
+    assert.strictEqual(batch.onDelivered.length, 2, "drain + deadline commits attached");
+    // deliver() persists each drained envelope itself; the deadline persist is
+    // the deferred one, so count from after the sources have gathered.
+    const persistsBeforeSend = persists;
+    h.inbox.inject(batch.parts, h.ctx, async () => {
+      for (const commit of batch.onDelivered) await commit();
+    });
+    await new Promise<void>(resolve => setImmediate(resolve));
+    assert.strictEqual(h.calls.length, 1, "one coalesced message");
+    assert.strictEqual(finalizes, 1, "drain commit ran exactly once");
+    assert.strictEqual(persists - persistsBeforeSend, 1, "deadline commit ran exactly once");
+
+    // A later tick with nothing new must not re-run either commit.
+    const empty = createInjectBatch();
+    await h.inbox.drainInbox(h.ctx, empty);
+    await h.inbox.checkDeadlines(h.ctx, empty);
+    h.inbox.inject(empty.parts, h.ctx, async () => {
+      for (const commit of empty.onDelivered) await commit();
+    });
+    await new Promise<void>(resolve => setImmediate(resolve));
+    assert.strictEqual(h.calls.length, 1, "nothing new to send");
+    assert.strictEqual(finalizes, 1, "the drain commit did not re-run");
+    assert.strictEqual(persists - persistsBeforeSend, 1, "the deadline commit did not re-run");
   });
 
   it("standalone idle calls still self-serialize — the tax the batch avoids", async () => {
