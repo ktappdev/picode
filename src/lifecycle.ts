@@ -438,7 +438,7 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
       process.env.HERDR_ENV === "1" &&
       process.env.HERDR_WORKSPACE_ID
     ) {
-      stopHerdrListener = startHerdrListener(pi, process.env.HERDR_WORKSPACE_ID);
+      stopHerdrListener = startHerdrListener(inbox, ctx, process.env.HERDR_WORKSPACE_ID);
       setListenerHandle(stopHerdrListener);
 
       // Start periodic sit-rep timer — wakes the coordinator to check worker

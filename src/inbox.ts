@@ -112,6 +112,9 @@ export function createInbox(store: PicodeStore, pi: ExtensionAPI): Inbox {
   let compactingSince: number | null = null;
   let _onInjected: ((parts: Injection[]) => void) | undefined;
   let _onInject: ((parts: Injection[], ctx: ExtensionContext) => void) | undefined;
+  let pendingParts: Injection[] = [];
+  let pendingCtx: ExtensionContext | undefined;
+  let pendingRetry: NodeJS.Timeout | undefined;
 
   function canInject(): boolean {
     const now = Date.now();
@@ -120,8 +123,41 @@ export function createInbox(store: PicodeStore, pi: ExtensionAPI): Inbox {
     return true;
   }
 
+  function schedulePendingRetry(): void {
+    if (pendingRetry) return;
+    pendingRetry = setTimeout(() => {
+      pendingRetry = undefined;
+      if (pendingParts.length === 0 || !pendingCtx) return;
+      if (!canInject()) {
+        schedulePendingRetry();
+        return;
+      }
+      const parts = pendingParts;
+      const ctx = pendingCtx;
+      pendingParts = [];
+      pendingCtx = undefined;
+      inject(parts, ctx);
+    }, INJECTION_GRACE_MS);
+    pendingRetry.unref();
+  }
+
   function inject(parts: Injection[], ctx: ExtensionContext): void {
-    if (parts.length === 0) return;
+    if (parts.length === 0 && pendingParts.length === 0) return;
+    if (!canInject()) {
+      pendingParts.push(...parts);
+      pendingCtx = ctx;
+      schedulePendingRetry();
+      return;
+    }
+    if (pendingParts.length > 0) {
+      pendingParts.push(...parts);
+      parts = pendingParts;
+      ctx = pendingCtx ?? ctx;
+      pendingParts = [];
+      pendingCtx = undefined;
+      if (pendingRetry) clearTimeout(pendingRetry);
+      pendingRetry = undefined;
+    }
     // One coalesced message per batch (§7.5): a high-urgency part anywhere
     // makes the whole batch steer; low parts just arrive a little earlier
     // than they had to, which is harmless.
@@ -145,11 +181,13 @@ export function createInbox(store: PicodeStore, pi: ExtensionAPI): Inbox {
 
   function noteCompactionEnd(): void {
     compactingSince = null;
+    if (pendingParts.length > 0 && pendingCtx) inject([], pendingCtx);
   }
 
   function noteRunStarted(): void {
     inFlightSince = null;
     compactingSince = null;
+    if (pendingParts.length > 0 && pendingCtx) inject([], pendingCtx);
   }
 
   async function isTargetLive(to: string): Promise<boolean> {

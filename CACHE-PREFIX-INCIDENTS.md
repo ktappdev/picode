@@ -39,6 +39,18 @@ Age was the chronic no-event churn. Handoffs, liveness, area, HEAD freshness, an
 
 Both fixes are covered by unit tests: transport behavior in `test/unit.test.ts`, and age boundaries, live/stopped markers, and one-minute digest stability in `test/revive.test.ts` (worker-ledger digest tests). The known unrelated `test/unit.test.ts:2371` journal-fork failure reproduces on base and was not changed by either fix.
 
+## Injection census (five sites)
+
+| Site                               | Call                                       | Origin                                                      | Turn?                                                                         | Class                                                           |
+| ---------------------------------- | ------------------------------------------ | ----------------------------------------------------------- | ----------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `src/inbox.ts` envelope delivery   | `inbox.inject()` → `sendUserMessage`       | Drained incoming envelopes                                  | Starts a prompt-driven turn while idle; queues a continuation while streaming | Urgency-coalesced; injection gate holds/retries blocked batches |
+| `src/lifecycle.ts` sit-rep         | `inbox.inject()` → `sendUserMessage`       | Periodic coordinator health check                           | Starts a prompt-driven turn while idle; queues a continuation while streaming | Urgency-coalesced through inbox funnel                          |
+| `src/lifecycle.ts` startup resume  | `sendMessage(..., { triggerTurn: false })` | Passive resume context                                      | No; waits for the next real prompt                                            | Passive custom message                                          |
+| `src/lifecycle.ts` owed reminder   | `sendMessage(..., { triggerTurn: false })` | Reminder after consecutive silent turns                     | No; waits for the next real prompt                                            | Passive custom message                                          |
+| `src/herdr/listener.ts` pane death | `inbox.inject()` → `sendUserMessage`       | Tracked pane close/exit socket event, outside startup grace | Starts a prompt-driven turn while idle; queues a continuation while streaming | High urgency (steer); gated and coalesced through inbox         |
+
+Residual upstream Pi limitation: when an event arrives while Pi is already streaming, `sendUserMessage` queues it as a continuation, so it necessarily remains a continuation run and does not invoke `before_agent_start`. Picode funnels the event through `inbox.inject()` to share gate/coalescing behavior, but cannot make that streaming continuation prompt-driven without an upstream Pi change.
+
 ## Recurrence runbook: first 10 minutes
 
 1. **Capture the exact warning and context.** Record its full text, timestamp, provider/model, Pi version, Picode commit, role, session, and the preceding worker/tool event. A warning that precedes a tool call is not caused by that later call merely because it is nearby in the transcript.

@@ -25,6 +25,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { execFileSync } from "node:child_process";
+import { createServer } from "node:net";
 import type {
   AgentToolResult,
   ExtensionAPI,
@@ -51,7 +52,7 @@ import { isQuietTui, resolveQuietTui, setQuietTui } from "../src/core/quiet-tui"
 import { countPanesInTab, solePaneInTab, resolveThinking } from "../src/tools/spawn";
 import { validateLabel } from "../src/tools/tab-create";
 import { registerLifecycle, extractFirstLine } from "../src/lifecycle";
-import { getListenerHandle, setListenerHandle } from "../src/herdr/listener";
+import { getListenerHandle, setListenerHandle, startHerdrListener } from "../src/herdr/listener";
 import { deadlineFromSeconds } from "../src/core/time";
 import { checkBodySize, MAX_BODY_BYTES } from "../src/tools/messaging";
 import { registerTools } from "../src/tools/index";
@@ -497,6 +498,74 @@ afterEach(() => {
 });
 
 // --- tests ---------------------------------------------------------------
+
+describe("Herdr listener injection funnel", () => {
+  it("routes one tracked pane close through inbox as urgent; ignores inert events", async () => {
+    const h = makeHarness(tmpDir);
+    const configDir = join(tmpDir, "herdr-config");
+    mkdirSync(configDir, { recursive: true });
+    const socketPath = join(configDir, "herdr.sock");
+    const previousConfig = process.env.HERDR_CONFIG_PATH;
+    process.env.HERDR_ENV = "1";
+    process.env.HERDR_WORKSPACE_ID = "workspace-1";
+    process.env.HERDR_CONFIG_PATH = configDir;
+    const server = createServer(connection => {
+      connection.on("data", () => {
+        connection.write(
+          [
+            JSON.stringify({
+              event: "pane_status_changed",
+              data: { workspace_id: "workspace-1", pane_id: "pane-inert" },
+            }),
+            JSON.stringify({
+              event: "pane_closed",
+              data: { workspace_id: "workspace-1", pane_id: "pane-dead" },
+            }),
+            "",
+          ].join("\n"),
+        );
+      });
+    });
+    await new Promise<void>(resolve => server.listen(socketPath, resolve));
+    const realNow = Date.now;
+    let timeOffset = 0;
+    let stopListener: (() => void) | undefined;
+    try {
+      // The listener deliberately ignores events during its initial 5-second grace.
+      Date.now = () => realNow() + timeOffset;
+      const listener = startHerdrListener(h.inbox, h.ctx, "workspace-1");
+      stopListener = listener.stop;
+      timeOffset = 6_000;
+      listener.trackPane("pane-inert");
+      listener.trackPane("pane-dead");
+      const deadline = realNow() + 2_000;
+      while (h.calls.length === 0 && realNow() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+      assert.strictEqual(h.calls.length, 1);
+      assert.match(h.calls[0].content, /Pane pane-dead .* was closed/);
+      assert.strictEqual(h.calls[0].options?.deliverAs, "steer");
+    } finally {
+      stopListener?.();
+      Date.now = realNow;
+      await new Promise<void>(resolve => server.close(() => resolve()));
+      if (previousConfig === undefined) delete process.env.HERDR_CONFIG_PATH;
+      else process.env.HERDR_CONFIG_PATH = previousConfig;
+    }
+  });
+
+  it("holds and coalesces injections while compaction closes the gate", () => {
+    const h = makeHarness(tmpDir);
+    h.inbox.noteCompactionStart();
+    h.inbox.inject([{ text: "pane closed", urgency: "high" }], h.ctx);
+    h.inbox.inject([{ text: "second notice", urgency: "low" }], h.ctx);
+    assert.strictEqual(h.calls.length, 0);
+    h.inbox.noteCompactionEnd();
+    assert.strictEqual(h.calls.length, 1);
+    assert.match(h.calls[0].content, /pane closed\n\nsecond notice/);
+    assert.strictEqual(h.calls[0].options?.deliverAs, "steer");
+  });
+});
 
 describe("tools: picode_send", () => {
   it("targets a single explicit id", async () => {
