@@ -130,7 +130,7 @@ npm run mcp                   # Start MCP server
 
 ### Test hermeticity — never inherit Herdr env
 
-**Tests must clear `HERDR_ENV`, `HERDR_WORKSPACE_ID`, `HERDR_PANE_ID`, and `HERDR_TAB_ID` before running and restore them after.** `test/unit.test.ts` does this in its top-level `beforeEach`/`afterEach`; any new test file that calls `registerLifecycle` or fires `session_start` must do the same.
+**Tests must clear and restore Herdr identity (`HERDR_ENV`, `HERDR_WORKSPACE_ID`, `HERDR_PANE_ID`, `HERDR_TAB_ID`, `HERDR_SOCKET_PATH`) and TUIOS selection/identity (`PICODE_RUNTIME`, `TUIOS_SOCKET`, `TUIOS_SESSION`, `TUIOS_PANE_ID`, `TUIOS_WINDOW_ID`, `TUIOS_PANE_TOKEN`) before running.** `test/unit.test.ts` does this in its top-level `beforeEach`/`afterEach`; any new test file that calls `registerLifecycle` or fires `session_start` must do the same.
 
 Why this is not optional: picode is normally developed _inside_ a Herdr pane, so those variables are already set in the developer's shell. A test that flips `HERDR_ENV=1` to get past the coordinator's must-run-in-herdr guard then also satisfies `startHerdrListener`'s guard, which additionally requires `HERDR_WORKSPACE_ID` — and opens a real `net.Socket` subscription to the live daemon. Nothing closes it, so libuv stays alive and `node --test` **never exits**, after having reported every test green. The failure is invisible in CI (no Herdr env) and reproducible only on the machine you develop on, which is the worst possible shape for a test bug.
 

@@ -452,6 +452,13 @@ const HERDR_ENV_KEYS = [
   "HERDR_WORKSPACE_ID",
   "HERDR_PANE_ID",
   "HERDR_TAB_ID",
+  "HERDR_SOCKET_PATH",
+  "PICODE_RUNTIME",
+  "TUIOS_SOCKET",
+  "TUIOS_SESSION",
+  "TUIOS_PANE_ID",
+  "TUIOS_WINDOW_ID",
+  "TUIOS_PANE_TOKEN",
 ] as const;
 let savedHerdrEnv: Record<string, string | undefined> = {};
 let savedQuietEnv: string | undefined;
@@ -2244,6 +2251,7 @@ describe("lifecycle: opt-in gate (§2.3)", () => {
   it("coordinator startup appends resume context without waking (journal + obligations)", async () => {
     const prev = process.env.HERDR_ENV;
     process.env.HERDR_ENV = "1";
+    process.env.HERDR_PANE_ID = "test-pane";
     try {
       const h = makeLifecycleHarness(tmpDir);
       h.setFlag("picode-id", "coordinator");
@@ -2306,6 +2314,7 @@ describe("lifecycle: opt-in gate (§2.3)", () => {
   it("startup resume context is a passive append — it never triggers or steers a turn", async () => {
     const prev = process.env.HERDR_ENV;
     process.env.HERDR_ENV = "1";
+    process.env.HERDR_PANE_ID = "test-pane";
     try {
       const h = makeLifecycleHarness(tmpDir);
       h.setFlag("picode-id", "coordinator");
@@ -2386,6 +2395,7 @@ describe("lifecycle: opt-in gate (§2.3)", () => {
   it("keeps the prompt free of any roster — worker lifecycle must never move the head", async () => {
     const prevHerdr = process.env.HERDR_ENV;
     process.env.HERDR_ENV = "1";
+    process.env.HERDR_PANE_ID = "test-pane";
     try {
       const h = makeLifecycleHarness(tmpDir);
       h.setFlag("picode-id", "coordinator");
@@ -2527,12 +2537,14 @@ describe("lifecycle: bounded sit-reps", () => {
    *  count, not a live socket subscription (or its reconnect timer). */
   async function sitrepHarness(maxIdle: number) {
     process.env.HERDR_ENV = "1";
+    process.env.HERDR_PANE_ID = "test-pane";
     process.env.HERDR_WORKSPACE_ID = "w-test";
     process.env.PICODE_SITREP_INTERVAL_MS = "1000";
     process.env.PICODE_SITREP_MAX_IDLE = String(maxIdle);
     const h = makeLifecycleHarness(tmpDir);
     h.setFlag("picode-id", "coordinator");
     h.setFlag("picode-role", "coordinator");
+    h.setFlag("picode-journal", "done"); // independent of the developer's global models.json
     await h.fire("session_start", h.makeCtx());
     getListenerHandle()?.stop();
     setListenerHandle({
@@ -4618,7 +4630,8 @@ describe("system-prompt: picode_send contract is in every worker template", () =
     assert.match(coordinator, /exact disk path/);
     assert.match(coordinator, /IDs are opaque strings/);
     assert.match(coordinator, /never guess, truncate, construct/);
-    assert.match(coordinator, /locked to your current `HERDR_WORKSPACE_ID`/);
+    assert.match(coordinator, /locked to your current scope/);
+    assert.match(coordinator, /TUIOS_SESSION/);
     assert.match(coordinator, /opencode-go\/mimo-v2\.5/);
     // The revivable-worker ladder is a decision rule, not a tool description:
     // without it in the prompt the coordinator never notices a worker worth

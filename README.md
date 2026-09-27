@@ -26,11 +26,7 @@ You need a few things installed first:
   ```bash
   export OPENROUTER_API_KEY=sk-or-...
   ```
-- **[Herdr](https://github.com/earendil-works/herdr)**, a terminal multiplexer, if you want the coordinator to spawn and manage workers automatically.
-  ```bash
-  brew install earendil-works/tap/herdr   # macOS
-  ```
-  Without Herdr you can still run workers manually in separate terminals. The coordinator just can't auto-spawn panes.
+- **[Herdr](https://github.com/earendil-works/herdr) or [TUIOS](https://github.com/Gaurav-Gosain/tuios)** for a coordinator that spawns and manages workers. Herdr remains the default path when running inside Herdr; TUIOS is selected automatically when running inside a TUIOS pane. Install TUIOS's Pi agent-state integration (`tuios integration install pi`) for reliable worker readiness/status detection. To force a backend, set `PICODE_RUNTIME=herdr` or `PICODE_RUNTIME=tuios` (default: `auto`). If both distinct runtime identities are present, auto mode refuses to choose; use an explicit override. Without a supported runtime, workers can still run manually, but coordinator startup requires one.
 - **[Hypa](https://github.com/earendil-works/hypa)** (optional) — compression extension that reduces context usage for read, grep, find, and ls operations. Scouts and explorers prefer it automatically when installed, keeping exploration outputs lean and fast.
   ```bash
   pi install git:github.com/earendil-works/hypa@main
@@ -143,13 +139,15 @@ Messages show up as `[<kind> from <sender> #<id>]`. The kind (request, reply, re
 | `picode_journal`    | Read another picode's journal, filtered by `tail` or `lookbackMinutes`.                                                                                                                     |
 | `picode_suspend`    | Mark this picode On Hold. The inbox queues until resume.                                                                                                                                    |
 | `picode_resume`     | Resume from On Hold and drain queued messages.                                                                                                                                              |
-| `picode_panes`      | Survey Herdr panes in current workspace: status, role, position, reuse/cleanup suggestions. Read-only workspace surveillance.                                                               |
+| `picode_panes`      | Survey panes/windows in the current runtime scope: status, role, and cleanup suggestions. Read-only surveillance.                                                                           |
 | `picode_pane_read`  | Read a worker pane's terminal output (scrollback). Use for silent worker recovery — when a worker owes a reply but hasn't sent via picode_send.                                             |
 | `spawn_worker`      | Spawn a new worker pane: splits, names, launches pi, waits for idle. Auto-reuses idle workers, claims empty panes, grid-aware split direction. Optional `tab` param for multi-tab spawning. |
-| `picode_tab_create` | Open a new Herdr tab in the current workspace for spawning workers when the current tab is full. Returns `tab_id` + `root_pane_id`. Coordinator-only.                                       |
-| `picode_tab_close`  | Close an empty or stale Herdr tab. Refuses coordinator's own tab and tabs with working panes. `force=true` to close idle/done panes too. Coordinator-only.                                  |
-| `cleanup_panes`     | Close stale herdr worker panes. `dry_run=true` to preview. `pane_id="<id>"` to close one. `force=true` to close idle workers too (e.g. "close all").                                        |
+| `picode_tab_create` | Open a Herdr tab, or claim and name an empty TUIOS workspace slot (1–9); TUIOS creates no root shell. Coordinator-only.                                                                     |
+| `picode_tab_close`  | Close a Herdr tab, or empty and clear a claimed TUIOS workspace slot (the physical slot remains). Refuses working or coordinator panes. Coordinator-only.                                   |
+| `cleanup_panes`     | Close known stale worker panes in the current runtime scope. `dry_run=true` previews; `pane_id="<id>"` targets one; `force=true` permits idle workers.                                      |
 | `picode_purge`      | Delete stale picode data directories. Default skips local debts and coordinator references; `force=true` also reconciles this picode's ledgers.                                             |
+
+**TUIOS differences:** Workspace slots are fixed, not actual tabs; pane geometry and Herdr-only round-table automation are unavailable. `picode_tab_create` claims an empty slot without opening a shell; pass `cwd` to `spawn_worker` when launching there. TUIOS may omit worker cwd from its snapshots: Picode remembers cwd for windows it launched during this coordinator process, but cannot verify later cwd changes or reuse those windows after a coordinator restart without fresh cwd evidence. Unknown agent state is never taken as proof that a worker stopped: cleanup and tab-close refuse such windows even with `force=true`. Startup does not bulk-close unknown TUIOS windows. `picode_run` and session revival use TUIOS-specific window commands; the `.herdr` compatibility socket is only for agent-state reports, not pane control. Picode envelopes, journals, barriers, and obligations remain in `.picode/` regardless of runtime.
 
 ## Slash commands for humans
 
@@ -197,7 +195,7 @@ If a worker goes silent (no `picode_send` reply within about 10 minutes), the co
 When a picode has the `coordinator` role (auto-detected from the name `coordinator`):
 
 - **Write, edit, and bash are disabled.** The coordinator cannot run shell commands or modify files. Quick targeted lookups (single grep, read known file path) go through [Hypa](https://github.com/earendil-works/hypa) tools when installed. Anything deeper — multi-file exploration, git operations, herdr commands — goes through workers via `spawn_worker` or `picode_send`.
-- **Auto-spawns workers via [herdr](https://github.com/earendil-works/herdr).** A terminal multiplexer that manages panes and tabs.
+- **Auto-spawns workers via Herdr or TUIOS.** Herdr manages panes/tabs; TUIOS manages windows in fixed workspace slots.
 - **Reuses panes.** It checks existing panes first and reuses idle or done workers instead of spawning duplicates.
 - **Adaptive layout.** Workers split in the direction that keeps new panes close to square. Grid-aware splitting avoids tall stacks. Empty panes are claimed instead of splitting. The coordinator stays at 50 percent on the left and the worker area fills the right half.
 - **Structured dispatch.** Tasks go out as Objective, Context, Constraints, Action Steps, Deliverables, and Prerequisites.

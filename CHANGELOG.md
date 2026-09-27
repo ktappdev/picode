@@ -2,6 +2,16 @@
 
 All notable changes to picode are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## Unreleased
+
+### Added
+
+- Experimental TUIOS runtime selection (`PICODE_RUNTIME=auto|herdr|tuios`), session-scoped JSON-socket client, worker/window tools, workspace-slot equivalents of tabs, lifecycle event listener, `picode_run`, and exact-Pi-session revival. Herdr's existing tools remain selected inside Herdr; Picode mailboxes and journals are unchanged. Unknown TUIOS agent state is never considered safe to close. Install the TUIOS Pi integration for readiness and status reporting. Herdr rollback: `PICODE_RUNTIME=herdr pi ...`. See [README.md](README.md) for differences and limitations.
+
+### Fixed
+
+- Isolated sit-rep tests from the developer's global journal-cadence preference.
+
 ## [0.6.0] — 2026-09-16
 
 ### Added
