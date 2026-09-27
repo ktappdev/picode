@@ -113,6 +113,25 @@ function makeMockRuntime(options: MockOptions = {}) {
       const window = windows.find(candidate => candidate.id === id);
       if (window) window.cwd = cwd;
     },
+    async split(id: string, direction: "right" | "down") {
+      runtime.pane(id);
+      calls.push({ verb: "split-window", params: { window: id, direction } });
+      const created: MockWindow = {
+        id: `win-split-${windows.length + 1}`,
+        label: "",
+        status: "unknown",
+        workspace: windows.find(w => w.id === id)?.workspace ?? ownWorkspace,
+        cwd: "",
+        rect: { x: 0, y: 0, width: 40, height: 24 },
+        agent: "none",
+      };
+      windows.push(created);
+      return created.id;
+    },
+    async sendText(id: string, text: string) {
+      runtime.pane(id);
+      calls.push({ verb: "send-text", params: { window: id, text } });
+    },
     tab(id: string) {
       const number = runtime.tabNumber(id);
       const tab = runtime.tabs.find(candidate => candidate.number === number);
@@ -307,8 +326,12 @@ describe("registerTuiosTools: spawn_worker", () => {
       tab: `${SCOPE}:t3`,
     });
     assert.equal(result.details.reused, false);
-    const created = calls.find(call => call.verb === "new-window");
-    assert.equal(created?.params.cwd, "/requested");
+    // Different cwd → not reused; workspace has a worker pane to split, so the
+    // new worker is a BSP split of it and Pi is typed into the new shell.
+    const split = calls.find(call => call.verb === "split-window");
+    assert.ok(split, "expected a split into the existing worker pane");
+    const sent = calls.find(call => call.verb === "send-text");
+    assert.ok(sent?.params.text?.toString().includes("/requested"), "cd to requested cwd");
   });
 
   it("does not reuse a same-role window from a different workspace", async () => {
@@ -365,6 +388,54 @@ describe("registerTuiosTools: spawn_worker", () => {
     });
     assert.equal(result.details.ok, true);
     assert.match(String(result.details.warning), /idle\/done within 30s/);
+  });
+
+  it("splits a worker pane in the coordinator's workspace (grid), not a floating window", async () => {
+    const { run, calls } = setup({
+      windows: [
+        { id: "pane-own", label: "coordinator", status: "working", workspace: 1 },
+        { id: "pane-w1", label: "builder", status: "idle", workspace: 1 },
+      ],
+    });
+    // Mock windows have default rect 80x24 — w1 is a valid split target.
+    const result = await run("spawn_worker", { role: "tester", model: "m", theme: "t" });
+    assert.equal(result.details.ok, true);
+    const split = calls.find(c => c.verb === "split-window");
+    assert.ok(split, "worker pane should be split to grow the grid");
+    assert.equal(split.params.window, "pane-w1");
+    assert.equal(calls.filter(c => c.verb === "new-window").length, 0);
+    const sent = calls.find(c => c.verb === "send-text");
+    assert.ok(sent?.params.text?.toString().includes("--picode-id"));
+    assert.ok(sent?.params.text?.toString().includes("exec env PICODE_RUNTIME=tuios pi"));
+  });
+
+  it("falls back to new-window on an empty workspace (nothing to split)", async () => {
+    const { run, calls } = setup({ workspaceNames: { 3: "workers" } });
+    const result = await run("spawn_worker", {
+      role: "builder",
+      model: "m",
+      theme: "t",
+      tab: `${SCOPE}:t3`,
+    });
+    assert.equal(result.details.ok, true);
+    assert.equal(calls.filter(c => c.verb === "split-window").length, 0);
+    assert.equal(calls.filter(c => c.verb === "new-window").length, 1);
+  });
+
+  it("overflows to new-window once the workspace grid holds 4 panes", async () => {
+    const { run, calls } = setup({
+      windows: [
+        { id: "pane-own", label: "coordinator", status: "working", workspace: 1 },
+        { id: "w1", label: "builder", status: "working", workspace: 1 },
+        { id: "w2", label: "builder-1", status: "working", workspace: 1 },
+        { id: "w3", label: "builder-2", status: "working", workspace: 1 },
+      ],
+    });
+    const result = await run("spawn_worker", { role: "tester", model: "m", theme: "t" });
+    assert.equal(result.details.ok, true);
+    // Grid is at 4 panes → getSplitTarget returns null → floating new-window.
+    assert.equal(calls.filter(c => c.verb === "split-window").length, 0);
+    assert.equal(calls.filter(c => c.verb === "new-window").length, 1);
   });
 });
 

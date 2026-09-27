@@ -132,6 +132,8 @@ describe("TUIOS session-scoped runtime", () => {
                 "list-workspaces",
                 "list-agents",
                 "new-window",
+                "split-window",
+                "send-text",
                 "close-window",
                 "set-window",
                 "set-workspace-name",
