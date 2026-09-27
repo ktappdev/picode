@@ -2383,7 +2383,7 @@ describe("lifecycle: opt-in gate (§2.3)", () => {
     h.store.stopWatcher();
   });
 
-  it("keeps a stable worker roster stub in its own section", async () => {
+  it("keeps the prompt free of any roster — worker lifecycle must never move the head", async () => {
     const prevHerdr = process.env.HERDR_ENV;
     process.env.HERDR_ENV = "1";
     try {
@@ -2400,12 +2400,15 @@ describe("lifecycle: opt-in gate (§2.3)", () => {
       });
       assert.equal(
         empty["picode-workers"],
-        "### Workers\n\n(none)\n\nFull state on demand: picode_list(). Before reviving a candidate: revive_closed_session(id, dry_run=true) — area, handoff, context age, HEAD freshness.",
-        "the roster section remains present when the workspace has no workers",
+        undefined,
+        "no roster section exists, even with no workers",
       );
 
-      // Seed one worker and let its liveness/age move between runs. Those
-      // volatile facts belong to on-demand picode_list(), not the prompt stub.
+      // Seed one worker and let its liveness/age move between runs. None of
+      // it may reach the prompt: a moving section value changes the request
+      // head, and a changed head re-bills the whole conversation
+      // (CACHE-DIAGNOSTICS.md, "Observed 2026-09-27"). picode_list() is the
+      // on-demand source of worker state.
       const seedWorker = (minutesAgo: number) => {
         const workerDir = join(tmpDir, ".picode", "picodes", "builder-a1");
         mkdirSync(workerDir, { recursive: true });
@@ -2435,25 +2438,19 @@ describe("lifecycle: opt-in gate (§2.3)", () => {
       });
 
       assert.equal(
-        first["picode-workers"],
-        "### Workers\n\nbuilder-a1 (builder)\n\nFull state on demand: picode_list(). Before reviving a candidate: revive_closed_session(id, dry_run=true) — area, handoff, context age, HEAD freshness.",
-        "the exact stable stub travels in its own section",
+        first.picode.includes("builder-a1"),
+        false,
+        "the rules section must not carry roster rows",
       );
-      assert.equal(
-        first["picode-workers"],
-        second["picode-workers"],
-        "volatile worker state must not churn the roster stub",
+      assert.deepEqual(
+        Object.keys(first).filter(name => name.startsWith("picode")),
+        ["picode"],
+        "exactly one picode section, and it holds only rules",
       );
-      assert.match(first["picode-workers"], /builder-a1 \(builder\)/);
       assert.equal(
         first.picode,
         second.picode,
-        "the stable roster stub is isolated from the rules section",
-      );
-      assert.equal(
-        first.picode.includes("builder-a1"),
-        false,
-        "the rules section must not carry the roster rows",
+        "worker spawn/stop/age must leave the rules byte-identical",
       );
       h.store.stopHeartbeat();
       h.store.stopWatcher();

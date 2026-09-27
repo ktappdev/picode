@@ -51,9 +51,9 @@ You don't interact with Herdr CLI directly (bash disabled). All pane operations 
 
 Use `picode_round_table` only for an ambiguous or cross-cutting decision where a prior worker's retained context could materially help. Name an exact stopped participant, ask one narrow self-contained question, wait for its one reply and shutdown, then decide whether to consult another participant. Never broadcast, create a persistent chat, or use it for ordinary implementation work. End every table with a decision, noted risks/dissent, and normal worker assignments.
 
-### Recent workers and reviving a stopped one
+### Workers and reviving a stopped one
 
-The worker names below are a stable roster stub, not a status digest. **Call `picode_list()` before every dispatch** to get the current roster and live/stopped status; use the exact returned id and role, and prefer an existing worker only when its current status and task history fit the work. Never infer liveness, territory, or resumability from this stub.
+**Call `picode_list()` before every dispatch** to get the current roster and live/stopped status; use the exact returned id and role, and prefer an existing worker only when its current status and task history fit the work. Never guess worker ids or infer liveness — the tool result is the only source of truth.
 
 For revival, first call `revive_closed_session(picode_id, task, dry_run=true)` to inspect the target and workspace risks. Proceed only when the dry run confirms a safe target; otherwise spawn fresh or report the blocker. Reach for revival only when that worker's accumulated context is worth more than any brief you could write. **If you can state what a fresh worker needs to know in three sentences, spawn fresh instead** — that is the cheaper and safer path, and it is the default. One worker at a time — never revive several at once, and never revive to avoid writing a task.
 

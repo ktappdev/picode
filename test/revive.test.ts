@@ -10,9 +10,7 @@ import {
   clearHeadCache,
   deriveArea,
   formatWorkerDigest,
-  formatWorkerStub,
   headMovedSince,
-  workerStubRows,
   recentWorkers,
   type LedgerRow,
 } from "../src/core/worker-ledger";
@@ -268,92 +266,6 @@ describe("worker ledger: rows", () => {
   });
 });
 
-describe("worker ledger: stable stub", () => {
-  it("includes every worker directory, independent of recency and ledger eligibility", () => {
-    const cwd = tempDir();
-    for (let i = 0; i < 10; i++) writeState(cwd, `worker-${String(i).padStart(2, "0")}`);
-    mkdirSync(join(cwd, ".picode", "picodes", "incomplete"), { recursive: true });
-    writeFileSync(join(cwd, ".picode", "picodes", "incomplete", "state.json"), "invalid");
-    writeState(cwd, "coordinator", { role: "coordinator" });
-
-    const rows = workerStubRows(cwd);
-    assert.equal(
-      rows.length,
-      11,
-      "all worker directories are included without a recent-worker cap",
-    );
-    assert.ok(rows.some(row => row.id === "incomplete" && row.role === "worker"));
-    assert.equal(
-      rows.some(row => row.id === "coordinator"),
-      false,
-    );
-  });
-  function row(overrides: Partial<LedgerRow>): LedgerRow {
-    return {
-      id: "builder",
-      role: "builder",
-      live: false,
-      area: ["src/core"],
-      lastState: "stopped",
-      closedAt: new Date().toISOString(),
-      contextAgeMinutes: 42,
-      headMovedSinceExit: false,
-      handoff: null,
-      ...overrides,
-    };
-  }
-
-  it("shows (none) for an empty roster", () => {
-    assert.strictEqual(
-      formatWorkerStub([]),
-      "### Workers\n\n(none)\n\nFull state on demand: picode_list(). Before reviving a candidate: revive_closed_session(id, dry_run=true) — area, handoff, context age, HEAD freshness.",
-    );
-  });
-
-  it("sorts by id and includes only id and role", () => {
-    assert.strictEqual(
-      formatWorkerStub([row({ id: "z-worker" }), row({ id: "a-worker", role: "scout" })]),
-      "### Workers\n\na-worker (scout), z-worker (builder)\n\nFull state on demand: picode_list(). Before reviving a candidate: revive_closed_session(id, dry_run=true) — area, handoff, context age, HEAD freshness.",
-    );
-  });
-
-  it("is unchanged by liveness, age, area, handoff, HEAD, close time, and input order", () => {
-    const original = [row({ id: "z-worker" }), row({ id: "a-worker", role: "scout" })];
-    const changed = [
-      row({
-        id: "a-worker",
-        role: "scout",
-        live: true,
-        contextAgeMinutes: 0,
-        area: ["test"],
-        handoff: {
-          id: "a-worker",
-          role: "scout",
-          outcome: "completed",
-          changed: "test",
-          leftUnverified: "unknown",
-          at: "2026-09-16T14:40:16.511Z",
-        },
-        headMovedSinceExit: true,
-        closedAt: "2026-01-01T00:00:00.000Z",
-      }),
-      row({ id: "z-worker", live: true, closedAt: "2026-02-01T00:00:00.000Z" }),
-    ];
-    assert.strictEqual(formatWorkerStub(changed), formatWorkerStub(original));
-    const stub = formatWorkerStub(changed);
-    assert.notStrictEqual(
-      formatWorkerStub([...changed, row({ id: "new-worker" })]),
-      stub,
-      "adding an id changes the stub",
-    );
-    assert.notStrictEqual(
-      formatWorkerStub(changed.filter(item => item.id !== "z-worker")),
-      stub,
-      "removing an id changes the stub",
-    );
-  });
-});
-
 describe("worker ledger: digest", () => {
   function row(overrides: Partial<LedgerRow>): LedgerRow {
     return {
@@ -428,33 +340,34 @@ describe("worker ledger: digest", () => {
 });
 
 describe("worker ledger: prompt wiring", () => {
-  const digest =
-    "### Recent workers (▶ live, · stopped)\n\n- · builder (builder) — src/test-only-area";
-
-  it("appends the roster digest to a coordinator prompt only when supplied", () => {
-    const withRoster = threadModelPrompt(picodeData("coordinator"), { workers: digest });
-    assert.match(withRoster, /src\/test-only-area/);
-    assert.doesNotMatch(threadModelPrompt(picodeData("coordinator")), /src\/test-only-area/);
-    // A worker never receives a roster.
-    assert.doesNotMatch(threadModelPrompt(picodeData("builder"), {}), /src\/test-only-area/);
+  it("never carries a roster — workers are discovered via picode_list", () => {
+    // The roster was removed from the prompt entirely: any text that moves
+    // with worker lifecycle busts the provider cache head (CACHE-DIAGNOSTICS.md,
+    // "Observed 2026-09-27"). picode_list() is the on-demand source.
+    for (const role of ["coordinator", "builder"]) {
+      const prompt = threadModelPrompt(picodeData(role));
+      assert.doesNotMatch(prompt, /picode-workers/, role);
+      assert.doesNotMatch(prompt, /\(none\)/, role);
+    }
   });
 
   it("tells a revived worker its context predates the gap", () => {
-    const prompt = threadModelPrompt(picodeData("builder"), {
-      revived: { since: new Date(Date.now() - 7_200_000).toISOString() },
-    });
+    const since = new Date(Date.now() - 7_200_000).toISOString();
+    const prompt = threadModelPrompt(picodeData("builder"), { revived: { since } });
     assert.match(prompt, /You were revived/);
-    assert.match(prompt, /2 hours ago/);
+    // The gap is rendered as the absolute stop timestamp, not a relative
+    // duration — a relative one would drift between runs and move the head.
+    assert.match(prompt, /stopped as of /);
     assert.match(prompt, /current fact/);
+    // Byte-stable across runs: same `since`, same prompt.
+    assert.equal(threadModelPrompt(picodeData("builder"), { revived: { since } }), prompt);
   });
 
-  it("keeps a Round Table consultation free of both blocks", () => {
+  it("keeps a Round Table consultation free of the revival caveat", () => {
     const prompt = threadModelPrompt(picodeData("builder"), {
       roundTable: true,
-      workers: digest,
       revived: { since: new Date().toISOString() },
     });
-    assert.doesNotMatch(prompt, /src\/test-only-area/);
     assert.doesNotMatch(prompt, /You were revived/);
   });
 });

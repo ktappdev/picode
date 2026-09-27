@@ -5,8 +5,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { PicodeStore, PicodeState } from "./core/types";
 import { createInjectBatch, type Inbox, type Injection } from "./inbox";
-import { splitPicodeRoster, threadModelPrompt } from "./core/system-prompt";
-import { formatWorkerStub, workerStubRows } from "./core/worker-ledger";
+import { threadModelPrompt } from "./core/system-prompt";
 import { registerCacheDiagnostics } from "./cache-diagnostics";
 import {
   journalMode,
@@ -800,56 +799,43 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
     // runs inherit them from the transcript; a forced systemPrompt override
     // applies only to this run and is not persisted.
 
-    // Stable roster stub — coordinator only, from all worker directories.
-    // Status and candidate details are pulled on demand from picode_list/revive.
-    const isCoordinator = store.role === "coordinator" && !isRoundTable;
-    const workerRows = isCoordinator ? workerStubRows(ctx.cwd) : [];
-    const workers = isCoordinator ? formatWorkerStub(workerRows) : "";
+    // The roster never enters the system prompt. Any text that moves when a
+    // worker spawns, finishes, dies, or is revived lands in the request head,
+    // and a changed head re-bills the whole conversation on every transport
+    // (see CACHE-DIAGNOSTICS.md, "Observed 2026-09-27"). The coordinator
+    // discovers workers on demand through picode_list(), which the coordinator
+    // prompt already requires before every dispatch.
 
     // Stamped by revive_closed_session at launch with the timestamp of this
     // worker's last heartbeat before it stopped, so a resumed session knows
-    // how stale its own context is.
+    // how stale its own context is. Rendered once below and frozen into the
+    // rules — see the revivedNotice comment in system-prompt.ts.
     const revivedFlag = pi.getFlag("picode-revived");
     const revived =
       typeof revivedFlag === "string" && revivedFlag ? { since: revivedFlag } : undefined;
 
     const picodePrompt = threadModelPrompt(store, {
       roundTable: isRoundTable,
-      workers,
       revived,
     });
     const basePrompt = event.systemPrompt;
     if (hasSystemPromptSections(event.systemPromptOptions)) {
-      // Two sections, not one. Keeping the stable roster stub separate from
-      // the rules preserves the suffix invariant without coupling roster edits
-      // to the rules section. See splitPicodeRoster. Pi wraps every section as
-      // `<name>...</name>` and joins the values with a blank line in insertion
-      // order, so this renders as the single-section form.
-      const { rules, roster } = splitPicodeRoster(picodePrompt, workers);
-      event.systemPromptOptions.sections.picode = rules;
-      if (roster) event.systemPromptOptions.sections["picode-workers"] = roster;
-      cacheDiagnostics.recordPrompt(
-        ctx,
-        basePrompt,
-        picodePrompt,
-        workers,
-        workerRows.length,
-        "sections",
-      );
+      // One section, holding stable rules only. The rules must be byte-stable
+      // for the life of the session: a changed section value re-sends the whole
+      // value and — because the transport folds sections into the leading
+      // instructions/head message — moves the request head, re-billing the
+      // conversation (CACHE-DIAGNOSTICS.md, "Observed 2026-09-27"). Anything
+      // session-volatile belongs in injected messages or on-demand tools,
+      // never here.
+      event.systemPromptOptions.sections.picode = picodePrompt;
+      cacheDiagnostics.recordPrompt(ctx, basePrompt, picodePrompt, "", 0, "sections");
       return;
     }
 
     // Older Pi versions do not expose structured sections; preserve their
     // existing prompt behavior while using transcript-backed sections when available.
     const renderedPrompt = `${basePrompt}\n\n${picodePrompt}`;
-    cacheDiagnostics.recordPrompt(
-      ctx,
-      basePrompt,
-      picodePrompt,
-      workers,
-      workerRows.length,
-      "override",
-    );
+    cacheDiagnostics.recordPrompt(ctx, basePrompt, picodePrompt, "", 0, "override");
     return { systemPrompt: renderedPrompt };
   });
 }

@@ -523,6 +523,79 @@ conversation (`payloadChanges` naming `request message 0`, i.e. the head moved) 
 only a small appended delta (`payloadChanges` naming the digest's own message).
 That is the measurement nobody has taken yet.
 
+## Observed 2026-09-27 — the decisive experiment ran itself, and the fix did not hold
+
+From a live cam-thing coordinator (`openai-codex/gpt-5.6-luna`, Pi 0.87.x, sections
+transport, cache key stable throughout — `sessionHash 0c1044f1`), plus a picode-repo
+coordinator (`commandcode/deepseek-v4.1-flash`, openai-completions, 4 workers, Sep 24)
+that had already recorded the same shape. This is the run ["What would close
+it"](#what-would-close-it) asked for: **a coordinator with workers, a roster move,
+and the counter reading**.
+
+### The cam-thing trace (10 responses)
+
+```
+time    instr hash     in      read    verdict
+05:51:51 971f0353    29803       0   MISS re=28,524  idle=20s  chg=[] body=[]
+05:52:06 971f0353     2406   28160   MISS re= 2,295  idle=2s   chg=[] body=[]
+05:55:00 90bec0ae    10251   20992   MISS re=10,070  idle=165s chg=[worker digest] body=[provider instructions]
+05:55:03 90bec0ae     1583   30208   MISS re= 1,035  idle=3s   chg=[]
+```
+
+Two separate diseases:
+
+1. **The 28,524 and 2,295 misses are not Picode's.** Every fingerprint — leading
+   instructions hash, cache key, body — was unchanged, idle was 20s/2s, and the
+   second one's read went _down_ (29,184→28,160) between identical requests.
+   That is provider-side cache loss/volatility on the ChatGPT backend.
+   `prompt_cache_key` is best-effort; nothing in the request can explain these.
+2. **The 10,070 miss is the roster stub.** A worker spawned at 05:55:00; the
+   leading `instructions` changed `971f0353`→`90bec0ae` (+7 chars) and the
+   prefix collapsed 30,208→20,992 — the re-bill covers everything after the
+   stub, i.e. the conversation tail.
+
+### Why the section split was not enough
+
+The Candidate A fix assumed section patches travel as appended messages,
+leaving the leading `instructions` byte-identical. That is **not what the
+transports actually do**:
+
+- `openai-codex-responses` (`pi-ai/dist/api/openai-codex-responses.js:387-393`)
+  builds `instructions` from the **folded** current prompt — every section
+  value, current as of this request — so any changed section moves the head
+  field itself. The +7-char delta at 05:55:00 is the roster stub inside
+  `instructions`.
+- `openai-completions` without mid-convo system messages collapses all system
+  messages into one head (`collapseSystemMessages`,
+  `pi-ai/dist/utils/transcript.js`), so the same fold happens in message 0.
+  The picode-repo coordinator trace shows exactly this: 5 misses re-billing
+  35–42k each, `payloadChanges` naming `request message 0 (system)`, read
+  frozen at 17,280 across all of them.
+
+Splitting the roster into its own section reduced the **re-sent bytes** (222
+chars, not 36,944 — the section-granularity fix stands) but the **positional
+break at the head** remained on every transport Picode actually runs. A head
+change re-bills the conversation tail, whatever the size of the delta.
+
+### The fix
+
+The roster was removed from the system prompt entirely (`src/lifecycle.ts`
+`before_agent_start` writes one stable `picode` rules section and nothing else;
+`workerStubRows`/`formatWorkerStub` deleted; `threadModelPrompt` dropped its
+`workers` option). The coordinator prompt already required `picode_list()`
+before every dispatch; that tool result is now the only roster source, and tool
+results append — they never move the head.
+
+The revived notice was also frozen to an absolute timestamp (`revivedNotice`
+renders the stop time, not a `Date.now()`-relative duration) because the same
+head-movement logic applies to any text that drifts between runs.
+
+| Claim                                                                                                            | Status                                                                                  |
+| ---------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| A changed section value moves the leading `instructions`/message 0 on codex-responses and completions transports | **Traced in the provider adapter code + confirmed by the 05:55:00 fingerprints**        |
+| The 2026-09-23 workerless sample could not exercise this                                                         | Confirmed — the same cam-thing session was healthy until the first worker spawned       |
+| The 28,524/2,295 misses are provider-side, not request-side                                                      | High confidence — all fingerprints identical, read regressed between identical requests |
+
 ## The decisive experiment
 
 Run this when you have a spare session and want to settle A vs B.

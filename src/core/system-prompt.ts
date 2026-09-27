@@ -195,35 +195,31 @@ function journalGuidanceFor(role: string): string {
 export interface ThreadPromptOptions {
   /** Read-only Recall Round Table consultation — a stripped, tool-less mode. */
   roundTable?: boolean;
-  /** Pre-rendered "Recent workers" digest (see core/worker-ledger.ts).
-   *  Coordinator only — a worker has no roster to consider. */
-  workers?: string;
   /** Set when this session was resumed by `revive_closed_session`, carrying
    *  the timestamp of the worker's last heartbeat before it stopped. */
   revived?: { since: string };
-}
-
-function humanDowntime(ms: number): string {
-  const minutes = Math.max(0, Math.round(ms / 60_000));
-  if (minutes < 1) return "moments";
-  if (minutes < 60) return `${minutes} minutes`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours} hours`;
-  return `${Math.round(hours / 24)} days`;
 }
 
 /** A revived worker resumes a session whose whole context predates the gap,
  *  so it must be told the gap exists. Without this it silently trusts a view
  *  of the tree that may be hours stale — the dangerous failure mode for
  *  revival is not wasted tokens, it is a confident edit against a world that
- *  has moved on. */
+ *  has moved on.
+ *
+ *  The gap is rendered as the absolute stop timestamp, never a relative
+ *  duration: `Date.now()` at prompt-build time would drift between runs
+ *  ("2 hours ago" → "3 hours ago"), moving the rules section and with it the
+ *  whole request head. The timestamp is stamped once by revive and never
+ *  changes, so the section is byte-stable for the life of the session. */
 function revivedNotice(since: string): string {
   const at = new Date(since).getTime();
-  const downFor = Number.isFinite(at) ? humanDowntime(Date.now() - at) : null;
+  const when = Number.isFinite(at)
+    ? new Date(since).toISOString().replace("T", " ").slice(0, 16) + " UTC"
+    : since;
   return [
     "### You were revived",
     "",
-    `This session was stopped${downFor ? ` ${downFor} ago` : " earlier"} and has just been resumed, so everything in your context predates that gap. **The working tree may have moved on since you last looked.**`,
+    `This session was stopped as of ${when} (UTC) and has just been resumed, so everything in your context predates that gap. **The working tree may have moved on since you last looked.**`,
     "",
     "- Treat your recalled state as a starting point, not as current fact.",
     "- Re-read a file before you change it, and re-run anything you are about to claim still passes.",
@@ -247,9 +243,9 @@ export function threadModelPrompt(data: PicodeData, options: ThreadPromptOptions
 
   // Optional trailing blocks, appended to every non-Round-Table prompt.
   // A Round Table consultation is a single correlated reply, so it gets
-  // neither the roster digest nor a revival caveat.
+  // no revival caveat.
   const withContext = (base: string): string =>
-    [base, options.revived ? revivedNotice(options.revived.since) : "", options.workers ?? ""]
+    [base, options.revived ? revivedNotice(options.revived.since) : ""]
       .filter(block => block.length > 0)
       .join("\n\n");
 
@@ -302,23 +298,20 @@ export function threadModelPrompt(data: PicodeData, options: ThreadPromptOptions
   );
 }
 
-/** Split a composed Picode prompt into stable rules and the volatile worker roster.
+/** Split a composed Picode prompt into stable rules and a trailing roster block.
  *
- *  Pi patches structured prompt sections by name, and re-sends the **whole new
- *  value** of any section whose text changed (`renderSystemMessageUpdate`). While
- *  the roster lived inside the `picode` section, one roster change re-sent the
- *  entire coordinator prompt — ~37k characters — to deliver a ~200-character
- *  digest. That is not a cache problem (the prefix still holds) but it is a real
- *  one: the roster moves whenever a worker spawns, exits, or changes status, and
- *  every minute a recently-stopped worker's age ticks over
- *  (`humanAge`, `src/core/worker-ledger.ts:286`), so an active coordinator appends
- *  a full copy of its own rules roughly once per turn. Keeping the roster in its
- *  own section makes a roster change cost the digest instead of the rules.
+ *  Historical: the roster once lived in the prompt, first inside the `picode`
+ *  section (one roster change re-sent ~37k characters of rules) and then in
+ *  its own `picode-workers` section. Both eras still bust the cache on the
+ *  transports Picode actually runs: a changed section value moves the request
+ *  head, and a moved head re-bills the whole conversation. The roster was
+ *  therefore removed from the prompt entirely (see CACHE-DIAGNOSTICS.md,
+ *  "Observed 2026-09-27"); the coordinator discovers workers through
+ *  picode_list() on demand.
  *
- *  `rules` and `roster` re-join with a blank line, in this order, which is exactly
- *  how `threadModelPrompt` composes them — so the leading prompt is byte-identical
- *  to the single-section form, and Pi's own join renders the same text.
- */
+ *  This split is kept for cache-diagnostics reconstruction of traces recorded
+ *  while a roster still existed, and returns the input unchanged for the
+ *  current no-roster prompts. */
 export function splitPicodeRoster(
   picodePrompt: string,
   workerDigest: string,
