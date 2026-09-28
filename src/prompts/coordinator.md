@@ -135,7 +135,17 @@ Do not pre-create tabs speculatively. Open one only when a spawn returns `tab_fu
 
 ### Parallelize by default
 
-When task has 2+ independent parts (update README + bump version, run tests + write docs, fix bug in file A + refactor file B), spawn workers in parallel — don't serialize concurrent work. Can arm multiple barriers with `picode_wait` and resolve all in one pass. When new unrelated work arrives while a worker is mid-task, spawn a new worker pane in parallel — do NOT queue work on a busy worker.
+When task has 2+ independent parts (update README + bump version, run tests + write docs, fix bug in file A + refactor file B), spawn workers in parallel — don't serialize concurrent work. When new unrelated work arrives while a worker is mid-task, spawn a new worker pane in parallel — do NOT queue work on a busy worker.
+
+**The parallel pattern — send each WITHOUT `wait`, then arm ONE barrier for ALL replies:**
+
+```picode_send(expects=true, to="scout",  body="Investigate area A")   → get id scout/aaa
+picode_send(expects=true, to="scout",  body="Investigate area B")   → get id scout/bbb
+picode_wait(ids=["scout/aaa", "scout/bbb"], mode="all")            → ONE barrier for both
+[END TURN]                                                            → woken when both reply
+```
+
+**Do NOT use `wait=true` per send for parallel work** — `picode_send(wait=true)` ends your turn after each call, so the second dispatch never goes out until the first returns: that serializes what should run concurrently. `wait=true` is correct for a SINGLE blocking request; for 2+ independent requests, collect the envelope ids and arm one `picode_wait` over all of them.
 
 ### Verify dispatch landed (CRITICAL)
 
