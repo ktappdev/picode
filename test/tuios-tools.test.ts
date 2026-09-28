@@ -113,25 +113,6 @@ function makeMockRuntime(options: MockOptions = {}) {
       const window = windows.find(candidate => candidate.id === id);
       if (window) window.cwd = cwd;
     },
-    async split(id: string, direction: "right" | "down") {
-      runtime.pane(id);
-      calls.push({ verb: "split-window", params: { window: id, direction } });
-      const created: MockWindow = {
-        id: `win-split-${windows.length + 1}`,
-        label: "",
-        status: "unknown",
-        workspace: windows.find(w => w.id === id)?.workspace ?? ownWorkspace,
-        cwd: "",
-        rect: { x: 0, y: 0, width: 40, height: 24 },
-        agent: "none",
-      };
-      windows.push(created);
-      return created.id;
-    },
-    async sendText(id: string, text: string) {
-      runtime.pane(id);
-      calls.push({ verb: "send-text", params: { window: id, text } });
-    },
     tab(id: string) {
       const number = runtime.tabNumber(id);
       const tab = runtime.tabs.find(candidate => candidate.number === number);
@@ -326,12 +307,12 @@ describe("registerTuiosTools: spawn_worker", () => {
       tab: `${SCOPE}:t3`,
     });
     assert.equal(result.details.reused, false);
-    // Different cwd → not reused; workspace has a worker pane to split, so the
-    // new worker is a BSP split of it and Pi is typed into the new shell.
-    const split = calls.find(call => call.verb === "split-window");
-    assert.ok(split, "expected a split into the existing worker pane");
-    const sent = calls.find(call => call.verb === "send-text");
-    assert.ok(sent?.params.text?.toString().includes("/requested"), "cd to requested cwd");
+    // Different cwd → not reused; a new argv window is created in the worker
+    // workspace (the client tiles it), no split/send-text dance.
+    const created = calls.find(call => call.verb === "new-window");
+    assert.ok(created);
+    assert.equal(created.params.cwd, "/requested");
+    assert.equal(calls.filter(call => call.verb === "send-text").length, 0);
   });
 
   it("does not reuse a same-role window from a different workspace", async () => {
@@ -390,7 +371,7 @@ describe("registerTuiosTools: spawn_worker", () => {
     assert.match(String(result.details.warning), /idle\/done within 30s/);
   });
 
-  it("splits an existing worker pane to grow the worker-workspace grid", async () => {
+  it("groups workers onto a partially-filled worker workspace via new-window", async () => {
     const { run, calls } = setup({
       workspaceNames: { 2: "workers" },
       windows: [
@@ -398,16 +379,17 @@ describe("registerTuiosTools: spawn_worker", () => {
         { id: "pane-w1", label: "builder", status: "idle", workspace: 2 },
       ],
     });
-    // No tab → picks the partially-filled worker workspace (2), splits w1.
+    // No tab → picks the partially-filled worker workspace (2), new-window
+    // with argv (the client tiles it into the grid — no split/send-text).
     const result = await run("spawn_worker", { role: "tester", model: "m", theme: "t" });
     assert.equal(result.details.ok, true);
-    const split = calls.find(c => c.verb === "split-window");
-    assert.ok(split, "worker pane should be split to grow the grid");
-    assert.equal(split.params.window, "pane-w1");
-    assert.equal(calls.filter(c => c.verb === "new-window").length, 0);
-    const sent = calls.find(c => c.verb === "send-text");
-    assert.ok(sent?.params.text?.toString().includes("--picode-id"));
-    assert.ok(sent?.params.text?.toString().includes("exec env PICODE_RUNTIME=tuios pi"));
+    const created = calls.find(c => c.verb === "new-window");
+    assert.ok(created);
+    assert.equal(created.params.workspace, 2, "groups onto the worker workspace");
+    assert.equal(created.params.focus, false);
+    assert.ok(Array.isArray(created.params.command));
+    assert.equal(calls.filter(c => c.verb === "split-window").length, 0);
+    assert.equal(calls.filter(c => c.verb === "send-text").length, 0);
   });
 
   it("never defaults workers onto the coordinator's own workspace", async () => {

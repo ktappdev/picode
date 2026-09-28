@@ -13,7 +13,6 @@ import {
   isProtectedTabLabel,
   quietCallRenderer,
   quietToolResult,
-  shellQuote,
 } from "./shared";
 
 /**
@@ -35,18 +34,10 @@ import {
  *   claims the physical slot was destroyed.
  * - `new-window` takes an argv `command` that no shell parses, so a worker is
  *   launched without building or quoting a shell line.
- * - Workers tile via `split-window`, which divides an existing pane through
- *   the attached client's BSP (like Herdr's split). It runs a shell in the
- *   new pane, so Pi is sent as text. Falls back to `new-window` when there
- *   is nothing to split (empty workspace) or tiling is off.
+ * - Workers land on a dedicated worker workspace and are tiled into its BSP
+ *   grid by the attached client's layout engine (no split-window, no shell,
+ *   no send-text race). ~4 panes per workspace, then overflow to a fresh slot.
  */
-
-/** Pane-size floors for split candidates, as workspace-area ratios — same
- *  thresholds Herdr uses (screen-size independent). */
-const MIN_PANE_RATIO = 0.2;
-const MIN_RESULT_RATIO = 0.15;
-/** Cap panes per workspace before overflow — matches the Herdr grid of 4. */
-const MAX_GRID_PANES = 4;
 
 /** Worker role labels (same pattern as spawn.ts / cleanup-panes.ts). Used to
  *  decide what cleanup may touch — a window with no worker-role label is
@@ -61,6 +52,9 @@ const WORKER_ROLE_PATTERN =
  *  is recognized for reporting but cleanup refuses it: missing telemetry is
  *  not proof that the process stopped. */
 const KNOWN_STATUSES = new Set(["working", "blocked", "idle", "done", "unknown"]);
+
+/** Cap panes per worker workspace before overflow — matches Herdr's grid. */
+const MAX_GRID_PANES = 4;
 
 /** Capture sources exposed to the model, mapped onto TUIOS `capture-pane`.
  *  TUIOS accepts `visible` and `recent` only (plus `last-command-output`);
@@ -200,115 +194,6 @@ function buildWorkerArgv(options: {
   if (thinking) argv.push("--thinking", thinking);
   argv.push("--picode-id", options.picodeId);
   return argv;
-}
-
-/** Shell line typed into a split-created pane. Unlike new-window's argv, this
- *  is parsed by the pane's shell, so every value is quoted. cd + exec so the
- *  pane lands in the right directory and pi replaces the shell. */
-function buildWorkerShellCommand(options: {
-  picodeId: string;
-  role: string;
-  model: string | null;
-  theme: string | null;
-  cwd: string;
-}): string {
-  const piArgs: string[] = [`env PICODE_RUNTIME=tuios pi`];
-  if (options.model) piArgs.push(`--model ${shellQuote(options.model)}`);
-  if (options.theme) piArgs.push(`--theme ${shellQuote(options.theme)}`);
-  const thinking = resolveThinking(options.role);
-  if (thinking) piArgs.push(`--thinking ${thinking}`);
-  piArgs.push(`--picode-id ${shellQuote(options.picodeId)}`);
-  // cd first, then exec pi so it replaces the pane's shell.
-  return `cd ${shellQuote(options.cwd)} && exec ${piArgs.join(" ")}`;
-}
-
-interface SplitTarget {
-  paneId: string;
-  direction: "right" | "down";
-}
-
-function isCoordinatorLabel(label: string): boolean {
-  return extractRole(label).toLowerCase() === "coordinator";
-}
-
-/** Mirror of Herdr's getSplitTarget: pick the largest non-coordinator pane in
- *  the workspace; never split the coordinator when a worker exists; overflow
- *  (return null) once the grid reaches MAX_GRID_PANES so the caller opens a
- *  new workspace. Empty workspace → split the sole pane even without an agent.
- */
-function getSplitTarget(
-  runtime: TuiosRuntime,
-  role: string,
-  workspace: number,
-): SplitTarget | null {
-  const panes = runtime.panes.filter(w => w.workspace === workspace);
-  if (panes.length === 0) return null;
-  if (panes.length >= MAX_GRID_PANES) return null;
-
-  // Workspace area from the bounding box of its panes (daemon tracks rects).
-  let maxX = 0,
-    maxY = 0;
-  for (const p of panes) {
-    maxX = Math.max(maxX, p.rect.x + p.rect.width);
-    maxY = Math.max(maxY, p.rect.y + p.rect.height);
-  }
-  const minW = maxX * MIN_PANE_RATIO;
-  const minH = maxY * MIN_PANE_RATIO;
-
-  let best: TuiosWindow | null = null;
-  let bestScore = -1;
-  for (const w of panes) {
-    if (w.id === runtime.ownPane) continue;
-    if (isCoordinatorLabel(w.label)) continue;
-    if (w.rect.width <= 0 || w.rect.height <= 0) continue;
-    let score = w.rect.width * w.rect.height;
-    if (w.rect.width < minW || w.rect.height < minH) score *= 0.3;
-    if (w.status !== "idle" && w.status !== "done") score *= 0.5;
-    if (extractRole(w.label).toLowerCase() === role.toLowerCase()) score *= 1.2;
-    if (score > bestScore) {
-      bestScore = score;
-      best = w;
-    }
-  }
-
-  // First-worker-in-workspace: the only pane is the coordinator (or a bare
-  // shell with no agent). Split it so the grid starts beside it.
-  if (!best) {
-    if (panes.length === 1) {
-      const only = panes[0];
-      return { paneId: only.id, direction: "right" };
-    }
-    return null;
-  }
-  return { paneId: best.id, direction: computeSplitDirection(best, maxX, maxY, panes) };
-}
-
-/** Mirror of Herdr's computeDirection: split the wider axis, balance the grid
- *  when one axis is already saturated. */
-function computeSplitDirection(
-  pane: TuiosWindow,
-  wsWidth: number,
-  wsHeight: number,
-  panes: TuiosWindow[],
-): "right" | "down" {
-  const { width, height } = pane.rect;
-  if (height > width * 2) return "down";
-  if (width > height * 4) return "right";
-  const rightOk = width / 2 >= wsWidth * MIN_RESULT_RATIO;
-  const downOk = height / 2 >= wsHeight * MIN_RESULT_RATIO;
-  if (rightOk && !downOk) return "right";
-  if (downOk && !rightOk) return "down";
-
-  const tol = Math.max(width, height) * 0.1;
-  let vStack = 0,
-    hRow = 0;
-  for (const p of panes) {
-    if (Math.abs(p.rect.x - pane.rect.x) < tol) vStack++;
-    if (Math.abs(p.rect.y - pane.rect.y) < tol) hRow++;
-  }
-  if (vStack >= 3 && rightOk) return "right";
-  if (hRow >= 3 && downOk) return "down";
-  return width > height * 1.5 ? "right" : "down";
 }
 
 function resolveModel(role: string, override?: string): string {
@@ -478,49 +363,18 @@ export function registerTuiosTools(
           theme,
         });
 
-        // Prefer a real BSP split (Herdr-style grid) over a floating
-        // new-window. getSplitTarget returns null when the workspace is empty
-        // (nothing to split) or full (≥ MAX_GRID_PANES → overflow to a new
-        // workspace instead of overcrowding).
-        const splitTarget = getSplitTarget(runtime, params.role, targetWorkspace);
+        // Daemon-created new-window gets tiled into the workspace's BSP
+        // automatically when the client has AutoTiling on (TileAllWindows
+        // adopts it). No split-window, no shell, no send-text race — the argv
+        // execs pi directly. The workspace cap + overflow below give the grid
+        // its ~4-pane-per-tab grouping.
         const paramsDirection: "right" | "down" | undefined =
           params.direction === "right" || params.direction === "down"
             ? params.direction
             : undefined;
         let windowId = "";
-        let usedSplit = false;
-        let splitError: string | undefined;
         let warning: string | undefined;
-        if (splitTarget) {
-          const direction = paramsDirection ?? splitTarget.direction;
-          try {
-            const createdId = await runtime.split(splitTarget.paneId, direction);
-            if (createdId) {
-              windowId = createdId;
-              usedSplit = true;
-              await runtime.rename(windowId, uniqueId);
-              // The split pane runs a plain shell: cd + exec pi into it.
-              await runtime.sendText(
-                windowId,
-                buildWorkerShellCommand({
-                  picodeId: uniqueId,
-                  role: params.role,
-                  model,
-                  theme,
-                  cwd: targetCwd,
-                }) + "\r",
-              );
-            } else {
-              splitError = "split-window returned no window id";
-            }
-          } catch (e) {
-            // needs_client (no attached TUI / headless session) or tiling off →
-            // fall back to a floating new-window rather than failing the spawn.
-            splitError = message(e);
-          }
-        }
-        if (!usedSplit) {
-          // Nothing to split (empty workspace) or grid full — create directly.
+        {
           // Claim an empty worker workspace by naming it so it reads as a
           // worker tab at the bottom.
           const wasEmpty = !runtime.panes.some(w => w.workspace === targetWorkspace);
@@ -546,12 +400,14 @@ export function registerTuiosTools(
           } catch (e) {
             return err(`TUIOS new-window failed: ${message(e)}`);
           }
-          if (splitError) {
-            warning = `split unavailable (${splitError}); used a floating window`;
-          }
         }
         if (!windowId) {
           return err("TUIOS did not produce a window for the worker.");
+        }
+        if (paramsDirection) {
+          warning = warning
+            ? `${warning} direction ignored under TUIOS: the workspace tiler places the window.`
+            : "direction ignored under TUIOS: the workspace tiler places the window.";
         }
 
         // TUIOS currently leaves cwd empty for daemon-created windows in its
@@ -580,12 +436,6 @@ export function registerTuiosTools(
         } catch {
           hooks.untrackPane?.(windowId);
           return err(`Worker window ${windowId} closed before spawn_worker completed.`);
-        }
-
-        if (params.direction && !usedSplit) {
-          const directionNote =
-            "direction ignored: workspace had nothing to split, so the window was placed by the daemon.";
-          warning = warning ? `${warning} ${directionNote}` : directionNote;
         }
 
         return ok({

@@ -77,8 +77,6 @@ export class TuiosRuntime {
         "list-windows",
         "list-workspaces",
         "new-window",
-        "split-window",
-        "send-text",
         "close-window",
         "set-window",
         "set-workspace-name",
@@ -228,26 +226,6 @@ export class TuiosRuntime {
   }
   rememberWindowCwd(id: string, cwd: string): void {
     this.knownWindowCwds.set(id, cwd);
-  }
-
-  /** Split a window's pane through the attached client (real BSP tiling).
-   *  `direction` maps to TUIOS's split axis: "right" → vertical cut (new pane
-   *  beside), "down" → horizontal cut (new pane below). Returns the new
-   *  window id, or "" when the split ran but the id did not reach state. */
-  async split(id: string, direction: "right" | "down"): Promise<string> {
-    this.pane(id);
-    // split-window focuses the target, routes Split to the attached client,
-    // and the client asks the daemon for a new window which lands tiled.
-    const result = await this.call("split-window", {
-      window: id,
-      direction: direction === "right" ? "vertical" : "horizontal",
-    });
-    return typeof result.window_id === "string" ? result.window_id : "";
-  }
-
-  async sendText(id: string, text: string): Promise<void> {
-    this.pane(id);
-    await this.call("send-text", { window: id, text });
   }
 
   async close(id: string): Promise<void> {
