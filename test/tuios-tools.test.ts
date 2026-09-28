@@ -390,14 +390,15 @@ describe("registerTuiosTools: spawn_worker", () => {
     assert.match(String(result.details.warning), /idle\/done within 30s/);
   });
 
-  it("splits a worker pane in the coordinator's workspace (grid), not a floating window", async () => {
+  it("splits an existing worker pane to grow the worker-workspace grid", async () => {
     const { run, calls } = setup({
+      workspaceNames: { 2: "workers" },
       windows: [
         { id: "pane-own", label: "coordinator", status: "working", workspace: 1 },
-        { id: "pane-w1", label: "builder", status: "idle", workspace: 1 },
+        { id: "pane-w1", label: "builder", status: "idle", workspace: 2 },
       ],
     });
-    // Mock windows have default rect 80x24 — w1 is a valid split target.
+    // No tab → picks the partially-filled worker workspace (2), splits w1.
     const result = await run("spawn_worker", { role: "tester", model: "m", theme: "t" });
     assert.equal(result.details.ok, true);
     const split = calls.find(c => c.verb === "split-window");
@@ -407,6 +408,38 @@ describe("registerTuiosTools: spawn_worker", () => {
     const sent = calls.find(c => c.verb === "send-text");
     assert.ok(sent?.params.text?.toString().includes("--picode-id"));
     assert.ok(sent?.params.text?.toString().includes("exec env PICODE_RUNTIME=tuios pi"));
+  });
+
+  it("never defaults workers onto the coordinator's own workspace", async () => {
+    const { run, calls } = setup({
+      windows: [
+        { id: "pane-own", label: "coordinator", status: "working", workspace: 1 },
+        // A worker on the coordinator's workspace must NOT be a split target
+        // when no tab is given — workers go to a separate worker workspace.
+        { id: "pane-w1", label: "builder", status: "idle", workspace: 1 },
+      ],
+    });
+    const result = await run("spawn_worker", { role: "tester", model: "m", theme: "t" });
+    assert.equal(result.details.ok, true);
+    // Should land on an empty worker workspace (2) via new-window, not split
+    // anything on workspace 1.
+    const created = calls.find(c => c.verb === "new-window");
+    assert.ok(created);
+    assert.notEqual(created.params.workspace, 1);
+    assert.equal(calls.filter(c => c.verb === "split-window").length, 0);
+    assert.equal(result.details.tab_id, `${SCOPE}:t2`);
+  });
+
+  it("claims and names an empty worker workspace on first spawn", async () => {
+    const { run, calls } = setup({
+      windows: [{ id: "pane-own", label: "coordinator", status: "working", workspace: 1 }],
+    });
+    const result = await run("spawn_worker", { role: "builder", model: "m", theme: "t" });
+    assert.equal(result.details.ok, true);
+    const named = calls.find(c => c.verb === "set-workspace-name");
+    assert.ok(named, "fresh worker workspace gets a name so it reads as a tab");
+    assert.equal(named.params.workspace, 2);
+    assert.equal(named.params.name, "workers");
   });
 
   it("falls back to new-window on an empty workspace (nothing to split)", async () => {
@@ -422,20 +455,26 @@ describe("registerTuiosTools: spawn_worker", () => {
     assert.equal(calls.filter(c => c.verb === "new-window").length, 1);
   });
 
-  it("overflows to new-window once the workspace grid holds 4 panes", async () => {
+  it("overflows to a fresh workspace once the worker grid holds 4 panes", async () => {
     const { run, calls } = setup({
+      workspaceNames: { 2: "workers" },
       windows: [
         { id: "pane-own", label: "coordinator", status: "working", workspace: 1 },
-        { id: "w1", label: "builder", status: "working", workspace: 1 },
-        { id: "w2", label: "builder-1", status: "working", workspace: 1 },
-        { id: "w3", label: "builder-2", status: "working", workspace: 1 },
+        // Worker workspace 2 is full (4 panes) → 5th worker overflows to a
+        // fresh slot instead of splitting further.
+        { id: "w1", label: "builder", status: "working", workspace: 2 },
+        { id: "w2", label: "builder-1", status: "working", workspace: 2 },
+        { id: "w3", label: "builder-2", status: "working", workspace: 2 },
+        { id: "w4", label: "builder-3", status: "working", workspace: 2 },
       ],
     });
     const result = await run("spawn_worker", { role: "tester", model: "m", theme: "t" });
     assert.equal(result.details.ok, true);
-    // Grid is at 4 panes → getSplitTarget returns null → floating new-window.
     assert.equal(calls.filter(c => c.verb === "split-window").length, 0);
-    assert.equal(calls.filter(c => c.verb === "new-window").length, 1);
+    const created = calls.find(c => c.verb === "new-window");
+    assert.ok(created);
+    assert.notEqual(created.params.workspace, 2, "full workspace must not get a 5th pane");
+    assert.notEqual(created.params.workspace, 1, "never the coordinator's workspace");
   });
 });
 

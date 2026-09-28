@@ -329,6 +329,34 @@ function workspaceName(runtime: TuiosRuntime, workspace: number): string {
   return runtime.tabs.find(tab => tab.number === workspace)?.name ?? "";
 }
 
+/** Pick a worker workspace when the caller gave no tab. Workers never default
+ *  to the coordinator's workspace — they tile into a dedicated worker slot,
+ *  ~MAX_GRID_PANES per workspace, then overflow to a fresh claimed slot.
+ *  Returns the workspace number, or 0 when every slot is taken/owned. */
+function resolveWorkerWorkspace(runtime: TuiosRuntime): number {
+  const ownWs = ownWorkspaceNumber(runtime);
+  const paneCount = new Map<number, number>();
+  for (const w of runtime.panes) paneCount.set(w.workspace, (paneCount.get(w.workspace) ?? 0) + 1);
+
+  // Prefer a writable, partially-filled worker workspace (group up to the grid).
+  let candidate = 0;
+  for (const tab of runtime.tabs) {
+    if (tab.number === ownWs || isProtectedTabLabel(tab.name)) continue;
+    const n = paneCount.get(tab.number) ?? 0;
+    if (n > 0 && n < MAX_GRID_PANES) return tab.number; // existing, not yet full
+    if (n === 0 && candidate === 0) candidate = tab.number; // remember first empty
+  }
+  return candidate; // first free empty slot (may be 0 if none)
+}
+
+/** Name a freshly claimed worker workspace so it reads as a worker tab. */
+async function claimWorkerWorkspace(runtime: TuiosRuntime, workspace: number): Promise<void> {
+  const used = new Set(runtime.tabs.map(t => t.name).filter(Boolean));
+  let name = "workers";
+  for (let i = 2; used.has(name); i++) name = `workers-${i}`;
+  await runtime.call("set-workspace-name", { workspace, name });
+}
+
 export function registerTuiosTools(
   pi: ExtensionAPI,
   store: PicodeStore,
@@ -393,17 +421,26 @@ export function registerTuiosTools(
 
         await runtime.refresh();
 
-        // The target tab is addressed by its exact id; tabNumber + tab() reject
-        // anything outside this session and assertWritableTab rejects a
-        // user-owned ("don't close") workspace.
-        const targetTabId = params.tab || runtime.tabId;
+        // The target workspace: an explicit `tab` is honored (exact-id,
+        // session-locked, writable). With no tab, workers go to a dedicated
+        // worker workspace (~MAX_GRID_PANES each), never onto the
+        // coordinator's screen.
         let targetWorkspace: number;
-        try {
-          targetWorkspace = runtime.assertWritableTab(targetTabId).number;
-        } catch (e) {
-          return err(
-            `${message(e)} Get an exact tab ID from picode_panes() or picode_tab_create().`,
-          );
+        if (params.tab) {
+          try {
+            targetWorkspace = runtime.assertWritableTab(params.tab).number;
+          } catch (e) {
+            return err(
+              `${message(e)} Get an exact tab ID from picode_panes() or picode_tab_create().`,
+            );
+          }
+        } else {
+          targetWorkspace = resolveWorkerWorkspace(runtime);
+          if (!targetWorkspace) {
+            return err(
+              "No writable worker workspace free (slots 1-9 are all taken or user-owned). Close a workspace or pass an explicit `tab`.",
+            );
+          }
         }
 
         const paneRoles = new Set(
@@ -484,6 +521,16 @@ export function registerTuiosTools(
         }
         if (!usedSplit) {
           // Nothing to split (empty workspace) or grid full — create directly.
+          // Claim an empty worker workspace by naming it so it reads as a
+          // worker tab at the bottom.
+          const wasEmpty = !runtime.panes.some(w => w.workspace === targetWorkspace);
+          if (wasEmpty && !workspaceName(runtime, targetWorkspace)) {
+            try {
+              await claimWorkerWorkspace(runtime, targetWorkspace);
+            } catch {
+              /* naming is cosmetic — proceed even if it fails */
+            }
+          }
           try {
             const created = await runtime.call("new-window", {
               name: uniqueId,
