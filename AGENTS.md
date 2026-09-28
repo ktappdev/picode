@@ -24,7 +24,7 @@ picode/
 ├── src/
 │   ├── adapter/          # Storage backends (local-fs.ts, restate)
 │   ├── core/             # System prompt loader, types, roles, handoff + worker-ledger, time utilities
-│   ├── prompts/          # Role prompts as markdown files (coordinator, builder, reviewer, etc.)
+│   ├── prompts/          # Role prompts — coordinator.md is split per runtime under prompts/{herdr,tuios}/; workers shared
 │   ├── tools/            # Picode tools (send, wait, status, list, journal, finish, suspend, resume, purge, spawn, revive, cleanup-panes, pane-read)
 │   ├── restate/          # Restate backend adapter + service
 │   ├── commands.ts       # Slash commands (/picode-status, /picode-journal, etc.)
@@ -168,7 +168,8 @@ If `npm run test:unit` prints all tests green and then hangs, check for inherite
 ### Prompt Files
 
 - Prompts live in `src/prompts/*.md` as plain markdown — no escaping needed
-- Edit markdown files directly; `system-prompt.ts` loads them at module init
+- **Coordinator prompt is split per runtime:** `src/prompts/herdr/coordinator.md` and `src/prompts/tuios/coordinator.md` are independent files — `system-prompt.ts` picks one via `detectRuntime()`. Worker/role prompts stay shared at `src/prompts/*.md`.
+- Edit markdown files directly; `system-prompt.ts` loads them at module init (coordinator file is chosen per-runtime at prompt-build time)
 - Dynamic context (picodeId, parent, role) is added by the wrapper in `system-prompt.ts`
 - Per-project overrides (`.picode/prompts/<role>.md`) extend the bundled prompt by default (append after bundled rules). Use `mode: replace` in frontmatter to replace entirely.
 
@@ -176,28 +177,29 @@ If `npm run test:unit` prints all tests green and then hangs, check for inherite
 
 ### Core Logic
 
-| File                         | Responsibility                                                                                                                                                                                          |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/prompts/coordinator.md` | Coordinator rules + full herdr reference — **the prompt agents see at startup**                                                                                                                         |
-| `src/prompts/worker-base.md` | Shared worker communication contract — all workers inherit this                                                                                                                                         |
-| `src/prompts/<role>.md`      | Role-specific prompts (builder, reviewer, explorer, tester, designer, visionary, bug-hunter, scout, planner)                                                                                            |
-| `src/core/system-prompt.ts`  | Prompt loader — reads markdown files, adds dynamic context, handles overrides                                                                                                                           |
-| `src/inbox.ts`               | Envelope delivery, barrier resolution, obligation tracking, dead-letter handling. **Injection gate blocks during compaction**                                                                           |
-| `src/lifecycle.ts`           | Picode startup, state machine, footer rendering, widget injection. **Auto-purges stale threads on coordinator startup. Footer shows model, ctx usage, io, t/s**                                         |
-| `src/state.ts`               | Picode state persistence, heartbeats, journal storage. **Heartbeat re-attempts inbox drain**                                                                                                            |
-| `src/commands.ts`            | Slash command handlers (status, journal, send, models, suspend, resume, quiet)                                                                                                                          |
-| `src/journal.ts`             | Auto-journaling, compaction logic, duplicate suppression. **Fires at turn_end or agent_end depending on mode**                                                                                          |
-| `src/tools/spawn.ts`         | spawn_worker tool — splits pane, launches pi, waits for idle. **Reuses dead panes, validates role, multi-tab via `tab` param, returns `tab_full` signal**                                               |
-| `src/tools/tab-create.ts`    | picode_tab_create tool — opens new Herdr tab in current workspace. **Coordinator-only, returns tab_id + root_pane_id**                                                                                  |
-| `src/tools/tab-close.ts`     | picode_tab_close tool — closes empty/stale Herdr tab. **Refuses coordinator tab, protects working panes, force=true for idle**                                                                          |
-| `src/tools/cleanup-panes.ts` | cleanup_panes tool — closes stale herdr worker panes. **dry_run + targeted pane_id option available**                                                                                                   |
-| `src/tools/panes.ts`         | picode_panes tool — surveys all Herdr panes with status, role, position. **Read-only workspace surveillance**                                                                                           |
-| `src/tools/pane-read.ts`     | picode_pane_read tool — reads worker pane terminal output. **Silent worker recovery, inspect blocked workers**                                                                                          |
-| `src/tools/purge.ts`         | picode_purge tool + `purgeStalePcodes()` helper. **Called on coordinator startup**                                                                                                                      |
-| `src/tools/finish.ts`        | picode_finish tool — worker-side handoff note (outcome/changed/leftUnverified) written **before** the final report send. **Worker-only; never by the coordinator**                                      |
-| `src/tools/revive.ts`        | revive_closed_session tool — resumes a stopped worker's own Pi session in a pane with full tools and hands it the continuation. **Coordinator-only; refuses live targets and stale-workspace sessions** |
-| `src/core/handoff.ts`        | HandoffNote read/write at `.picode/picodes/<id>/handoff.json`, atomic (tmp+rename). **Per-picode, so no shared-file race; purge takes it with the dir**                                                 |
-| `src/core/worker-ledger.ts`  | Derived recent-workers view: area from session JSONL tool calls, git freshness, digest rendering. **Nothing here is authored — a killed pane still produces a row**                                     |
+| File                               | Responsibility                                                                                                                                                                                          |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/prompts/herdr/coordinator.md` | **Herdr** coordinator rules + pane/tab reference — loaded when `detectRuntime()` returns `herdr`                                                                                                        |
+| `src/prompts/tuios/coordinator.md` | **TUIOS** coordinator rules + workspace reference — loaded when `detectRuntime()` returns `tuios`. Independent of the Herdr file; changes to one never affect the other                                 |
+| `src/prompts/worker-base.md`       | Shared worker communication contract — all workers inherit this                                                                                                                                         |
+| `src/prompts/<role>.md`            | Role-specific prompts (builder, reviewer, explorer, tester, designer, visionary, bug-hunter, scout, planner)                                                                                            |
+| `src/core/system-prompt.ts`        | Prompt loader — reads markdown files, adds dynamic context, handles overrides                                                                                                                           |
+| `src/inbox.ts`                     | Envelope delivery, barrier resolution, obligation tracking, dead-letter handling. **Injection gate blocks during compaction**                                                                           |
+| `src/lifecycle.ts`                 | Picode startup, state machine, footer rendering, widget injection. **Auto-purges stale threads on coordinator startup. Footer shows model, ctx usage, io, t/s**                                         |
+| `src/state.ts`                     | Picode state persistence, heartbeats, journal storage. **Heartbeat re-attempts inbox drain**                                                                                                            |
+| `src/commands.ts`                  | Slash command handlers (status, journal, send, models, suspend, resume, quiet)                                                                                                                          |
+| `src/journal.ts`                   | Auto-journaling, compaction logic, duplicate suppression. **Fires at turn_end or agent_end depending on mode**                                                                                          |
+| `src/tools/spawn.ts`               | spawn_worker tool — splits pane, launches pi, waits for idle. **Reuses dead panes, validates role, multi-tab via `tab` param, returns `tab_full` signal**                                               |
+| `src/tools/tab-create.ts`          | picode_tab_create tool — opens new Herdr tab in current workspace. **Coordinator-only, returns tab_id + root_pane_id**                                                                                  |
+| `src/tools/tab-close.ts`           | picode_tab_close tool — closes empty/stale Herdr tab. **Refuses coordinator tab, protects working panes, force=true for idle**                                                                          |
+| `src/tools/cleanup-panes.ts`       | cleanup_panes tool — closes stale herdr worker panes. **dry_run + targeted pane_id option available**                                                                                                   |
+| `src/tools/panes.ts`               | picode_panes tool — surveys all Herdr panes with status, role, position. **Read-only workspace surveillance**                                                                                           |
+| `src/tools/pane-read.ts`           | picode_pane_read tool — reads worker pane terminal output. **Silent worker recovery, inspect blocked workers**                                                                                          |
+| `src/tools/purge.ts`               | picode_purge tool + `purgeStalePcodes()` helper. **Called on coordinator startup**                                                                                                                      |
+| `src/tools/finish.ts`              | picode_finish tool — worker-side handoff note (outcome/changed/leftUnverified) written **before** the final report send. **Worker-only; never by the coordinator**                                      |
+| `src/tools/revive.ts`              | revive_closed_session tool — resumes a stopped worker's own Pi session in a pane with full tools and hands it the continuation. **Coordinator-only; refuses live targets and stale-workspace sessions** |
+| `src/core/handoff.ts`              | HandoffNote read/write at `.picode/picodes/<id>/handoff.json`, atomic (tmp+rename). **Per-picode, so no shared-file race; purge takes it with the dir**                                                 |
+| `src/core/worker-ledger.ts`        | Derived recent-workers view: area from session JSONL tool calls, git freshness, digest rendering. **Nothing here is authored — a killed pane still produces a row**                                     |
 
 ### Storage & Backend
 
@@ -340,7 +342,7 @@ chore: update dependencies
 
 ### Modifying Coordinator Behavior
 
-1. Edit `src/prompts/coordinator.md` (plain markdown, no escaping needed)
+1. Edit the coordinator file for the runtime you're changing — `src/prompts/herdr/coordinator.md` or `src/prompts/tuios/coordinator.md`. **They are independent files** (hard split): edit only the one you mean to. Shared coordination rules are duplicated between them on purpose — keep that part in sync only where the protocol is genuinely identical.
 2. Test with real coordinator + workers (E2E)
 3. Update `AGENTS.md` if conventions change
 

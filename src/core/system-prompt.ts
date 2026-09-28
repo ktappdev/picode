@@ -3,6 +3,7 @@ import { execSync } from "node:child_process";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { PicodeData } from "./types";
+import { detectRuntime, type RuntimeKind } from "../runtime/detect";
 
 /** Worker subtypes that get specialized prompts. Any role not matching
  *  "coordinator" or a known subtype is treated as a generic worker. */
@@ -45,8 +46,37 @@ function loadPromptFile(filename: string): string {
   return readFileSync(filePath, "utf-8").trim();
 }
 
-// Load all prompts once at module init
-const COORDINATOR_RULES = loadPromptFile("coordinator.md");
+/** Coordinator prompts are split per pane runtime — src/prompts/herdr/coordinator.md
+ *  and src/prompts/tuios/coordinator.md are independent files so a TUIOS change
+ *  can never bleed into the (stable) Herdr coordinator, and vice-versa. The
+ *  coordination contract is duplicated between the two on purpose; keep them in
+ *  sync only where the protocol is genuinely shared. Loaded lazily (not a module
+ *  const) so the runtime is resolved at prompt-build time, after detection. */
+const COORDINATOR_PROMPT_FILES: Record<RuntimeKind, string | null> = {
+  herdr: join("herdr", "coordinator.md"),
+  tuios: join("tuios", "coordinator.md"),
+  // "none" (running outside any multiplexer) still needs a coordinator prompt
+  // for non-pane work; fall back to the herdr file as the established default.
+  none: join("herdr", "coordinator.md"),
+};
+
+function coordinatorPromptFile(): string {
+  let kind: RuntimeKind = "none";
+  try {
+    kind = detectRuntime();
+  } catch {
+    // Misconfigured PICODE_RUNTIME (e.g. herdr selected but not in a pane) —
+    // still emit a usable coordinator prompt rather than crash prompt-build.
+    kind = "none";
+  }
+  return COORDINATOR_PROMPT_FILES[kind] ?? join("herdr", "coordinator.md");
+}
+
+function coordinatorRules(): string {
+  return loadPromptFile(coordinatorPromptFile());
+}
+
+// Load all prompts once at module init (coordinator is lazy — see above)
 const WORKER_BASE_RULES = loadPromptFile("worker-base.md");
 const BUILDER_RULES = loadPromptFile("builder.md");
 const REVIEWER_RULES = loadPromptFile("reviewer.md");
@@ -259,7 +289,7 @@ export function threadModelPrompt(data: PicodeData, options: ThreadPromptOptions
     let bundledBlock = "";
     if (mode === "extend") {
       if (role === "coordinator") {
-        bundledBlock = COORDINATOR_RULES;
+        bundledBlock = coordinatorRules();
       } else {
         const subtype = workerSubtype(role);
         bundledBlock = [WORKER_BASE_RULES, subtype ? SUBTYPE_PROMPTS[subtype] : ""]
@@ -285,7 +315,7 @@ export function threadModelPrompt(data: PicodeData, options: ThreadPromptOptions
 
   let roleBlock = "";
   if (role === "coordinator") {
-    roleBlock = COORDINATOR_RULES;
+    roleBlock = coordinatorRules();
   } else {
     const subtype = workerSubtype(role);
     roleBlock = [WORKER_BASE_RULES, subtype ? SUBTYPE_PROMPTS[subtype] : ""]

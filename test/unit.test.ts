@@ -4594,8 +4594,16 @@ describe("system-prompt: picode_send contract is in every worker template", () =
     new URL("../src/prompts/worker-base.md", import.meta.url),
     "utf-8",
   );
-  const coordinator = readFileSync(
-    new URL("../src/prompts/coordinator.md", import.meta.url),
+  // Coordinator prompts are split per pane runtime so a TUIOS change can
+  // never bleed into the stable Herdr coordinator (and vice-versa). Each is
+  // a full standalone file — the shared coordination contract is duplicated
+  // between them on purpose.
+  const coordinatorHerdr = readFileSync(
+    new URL("../src/prompts/herdr/coordinator.md", import.meta.url),
+    "utf-8",
+  );
+  const coordinatorTuios = readFileSync(
+    new URL("../src/prompts/tuios/coordinator.md", import.meta.url),
     "utf-8",
   );
   it("WORKER_BASE_RULES mentions the communication contract and 'picode_send' reply path", () => {
@@ -4620,25 +4628,49 @@ describe("system-prompt: picode_send contract is in every worker template", () =
       "missing picode_finish close-out rule",
     );
   });
-  it("COORDINATOR_RULES has the silent-recovery rule", () => {
-    assert.match(coordinator, /Worker silent\? Check their pane/);
-    assert.ok(
-      coordinator.includes("answered in plain text instead of via"),
-      "silent-recovery rule must mention the plain-text mistake",
-    );
-    assert.match(coordinator, /Mandatory image routing/);
-    assert.match(coordinator, /exact disk path/);
-    assert.match(coordinator, /IDs are opaque strings/);
-    assert.match(coordinator, /never guess, truncate, construct/);
-    assert.match(coordinator, /locked to your current scope/);
-    assert.match(coordinator, /TUIOS_SESSION/);
-    assert.match(coordinator, /opencode-go\/mimo-v2\.5/);
-    // The revivable-worker ladder is a decision rule, not a tool description:
-    // without it in the prompt the coordinator never notices a worker worth
-    // resuming and revive_closed_session is never called.
-    assert.match(coordinator, /Call `picode_list\(\)` before every dispatch/);
-    assert.match(coordinator, /revive_closed_session\(picode_id, task, dry_run=true\)/);
-    assert.match(coordinator, /spawn fresh instead/);
+  it("both runtime coordinator prompts carry the shared coordination contract", () => {
+    for (const [name, coordinator] of [
+      ["herdr", coordinatorHerdr],
+      ["tuios", coordinatorTuios],
+    ] as const) {
+      assert.match(coordinator, /Worker silent\? Check their pane/, `${name}`);
+      assert.ok(
+        coordinator.includes("answered in plain text instead of via"),
+        `${name} silent-recovery rule must mention the plain-text mistake`,
+      );
+      assert.match(coordinator, /Mandatory image routing/, name);
+      assert.match(coordinator, /exact disk path/, name);
+      // "IDs are opaque" + "never guess" is the opaque-id contract; phrasing
+      // differs slightly per runtime file, so assert the substance.
+      assert.match(coordinator, /IDs are opaque/, name);
+      assert.match(coordinator, /never guess, truncate, construct/, name);
+      assert.match(coordinator, /opencode-go\/mimo-v2\.5/, name);
+      // The revivable-worker ladder is a decision rule, not a tool
+      // description: without it the coordinator never notices a worker worth
+      // resuming and revive_closed_session is never called.
+      assert.match(coordinator, /Call `picode_list\(\)` before every dispatch/, name);
+      assert.match(coordinator, /revive_closed_session\(picode_id, task, dry_run=true\)/, name);
+      assert.match(coordinator, /spawn fresh instead/, name);
+      // The parallel-dispatch pattern (send all, then ONE barrier) is the fix
+      // for the serialized two-scout bug — it must live in both.
+      assert.match(coordinator, /mode="all"/, `${name} must show the parallel barrier`);
+      assert.match(coordinator, /Do NOT use `wait=true` per send for parallel work/, name);
+    }
+  });
+  it("herdr coordinator prompt is Herdr-scoped; tuios is TUIOS-scoped", () => {
+    // Each file names only its own runtime env — wrong-runtime prose must not
+    // leak across. (worker-base stays shared; only the coordinator split.)
+    assert.match(coordinatorHerdr, /HERDR_PANE_ID/);
+    assert.doesNotMatch(coordinatorHerdr, /TUIOS_SESSION/);
+    assert.match(coordinatorHerdr, /Pane Management \(Herdr\)/);
+    assert.match(coordinatorTuios, /TUIOS_PANE_ID/);
+    assert.match(coordinatorTuios, /TUIOS_SESSION/);
+    assert.doesNotMatch(coordinatorTuios, /HERDR_PANE_ID/);
+    assert.match(coordinatorTuios, /Pane Management \(TUIOS\)/);
+    // tab_full is a Herdr-only split signal; TUIOS places windows via the
+    // daemon, so it must not appear in the TUIOS coordinator prompt.
+    assert.match(coordinatorHerdr, /tab_full=true/);
+    assert.doesNotMatch(coordinatorTuios, /tab_full=true/);
   });
 });
 
