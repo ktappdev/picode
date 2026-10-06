@@ -35,12 +35,6 @@ import {
 } from "./herdr/listener";
 import { execSync } from "node:child_process";
 import { detectRuntime, type RuntimeKind } from "./runtime/detect";
-import { TuiosRuntime } from "./runtime/tuios";
-import {
-  startTuiosListener,
-  setTuiosListenerHandle,
-  getTuiosTrackedPaneCount,
-} from "./runtime/tuios-listener";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -184,11 +178,8 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
   let active = false;
   let isRoundTable = false;
   let stopHerdrListener: HerdrListenerHandle | null = null;
-  let stopTuiosListener: HerdrListenerHandle | null = null;
   let runtimeKind: RuntimeKind = "none";
-  let tuios: TuiosRuntime | null = null;
-  const trackedPaneCount = () =>
-    runtimeKind === "tuios" ? getTuiosTrackedPaneCount() : getTrackedPaneCount();
+  const trackedPaneCount = () => getTrackedPaneCount();
   let sitRepTimer: NodeJS.Timeout | null = null;
   const cacheDiagnostics = registerCacheDiagnostics(pi, store, () => active);
 
@@ -401,11 +392,8 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
       runtimeKind = detectRuntime();
       if (store.role === "coordinator" && runtimeKind === "none") {
         throw new Error(
-          "Coordinator must run inside Herdr or TUIOS. Set PICODE_RUNTIME to select one.",
+          "Coordinator must run inside Herdr. Set PICODE_RUNTIME=herdr to select it.",
         );
-      }
-      if (runtimeKind === "tuios") {
-        tuios = await new TuiosRuntime().refresh();
       }
     } catch (error) {
       ctx.ui.notify(`Picode runtime: ${String(error)}`, "error");
@@ -457,16 +445,6 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
       // health and stale barriers. Only fires when the coordinator is idle
       // (done/open state), not during active work, compaction, or suspend. A
       // delivered envelope is real activity: it restarts a paused timer.
-      sitRepEligible = true;
-      inbox.onInjected = () => notePicodeActivity();
-      armSitRepTimer(ctx);
-    }
-
-    if (store.role === "coordinator" && tuios) {
-      // No bulk startup cleanup: window ownership is not proven after a
-      // restart, and a TUIOS session may also hold user-owned terminals.
-      stopTuiosListener = startTuiosListener(tuios, inbox, ctx);
-      setTuiosListenerHandle(stopTuiosListener);
       sitRepEligible = true;
       inbox.onInjected = () => notePicodeActivity();
       armSitRepTimer(ctx);
@@ -560,16 +538,7 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
       ? `🗣️ Round Table · ${store.picodeId}`
       : `${roleEmoji(store.role)} ${store.role ?? "worker"}`;
     ctx.ui.setTitle(`pi · ${titleRole} · ${basename(ctx.cwd)}`);
-    if (tuios) {
-      const label = isRoundTable
-        ? `🗣️ Round Table · ${store.picodeId}`
-        : `${roleEmoji(store.role)} ${store.role ?? "worker"}`;
-      try {
-        await tuios.rename(tuios.ownPane, label);
-      } catch (error) {
-        console.error(`[picode] Failed to set TUIOS pane label: ${String(error)}`);
-      }
-    } else if (runtimeKind === "herdr") {
+    if (runtimeKind === "herdr") {
       setHerdrPaneLabel(store, isRoundTable);
     }
 
@@ -648,12 +617,6 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
       stopHerdrListener = null;
       setListenerHandle(null);
     }
-    if (stopTuiosListener) {
-      stopTuiosListener.stop();
-      stopTuiosListener = null;
-      setTuiosListenerHandle(null);
-    }
-    tuios = null;
     if (active) await store.shutdown(event.reason);
   });
 

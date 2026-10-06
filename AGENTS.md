@@ -24,7 +24,7 @@ picode/
 ├── src/
 │   ├── adapter/          # Storage backends (local-fs.ts, restate)
 │   ├── core/             # System prompt loader, types, roles, handoff + worker-ledger, time utilities
-│   ├── prompts/          # Role prompts — coordinator.md is split per runtime under prompts/{herdr,tuios}/; workers shared
+│   ├── prompts/          # Role prompts — coordinator.md lives under prompts/herdr/; workers shared
 │   ├── tools/            # Picode tools (send, wait, status, list, journal, finish, suspend, resume, purge, spawn, revive, cleanup-panes, pane-read)
 │   ├── restate/          # Restate backend adapter + service
 │   ├── commands.ts       # Slash commands (/picode-status, /picode-journal, etc.)
@@ -130,7 +130,7 @@ npm run mcp                   # Start MCP server
 
 ### Test hermeticity — never inherit Herdr env
 
-**Tests must clear and restore Herdr identity (`HERDR_ENV`, `HERDR_WORKSPACE_ID`, `HERDR_PANE_ID`, `HERDR_TAB_ID`, `HERDR_SOCKET_PATH`) and TUIOS selection/identity (`PICODE_RUNTIME`, `TUIOS_SOCKET`, `TUIOS_SESSION`, `TUIOS_PANE_ID`, `TUIOS_WINDOW_ID`, `TUIOS_PANE_TOKEN`) before running.** `test/unit.test.ts` does this in its top-level `beforeEach`/`afterEach`; any new test file that calls `registerLifecycle` or fires `session_start` must do the same.
+**Tests must clear and restore Herdr identity (`HERDR_ENV`, `HERDR_WORKSPACE_ID`, `HERDR_PANE_ID`, `HERDR_TAB_ID`, `HERDR_SOCKET_PATH`, `PICODE_RUNTIME`) before running.** `test/unit.test.ts` does this in its top-level `beforeEach`/`afterEach`; any new test file that calls `registerLifecycle` or fires `session_start` must do the same.
 
 Why this is not optional: picode is normally developed _inside_ a Herdr pane, so those variables are already set in the developer's shell. A test that flips `HERDR_ENV=1` to get past the coordinator's must-run-in-herdr guard then also satisfies `startHerdrListener`'s guard, which additionally requires `HERDR_WORKSPACE_ID` — and opens a real `net.Socket` subscription to the live daemon. Nothing closes it, so libuv stays alive and `node --test` **never exits**, after having reported every test green. The failure is invisible in CI (no Herdr env) and reproducible only on the machine you develop on, which is the worst possible shape for a test bug.
 
@@ -168,7 +168,7 @@ If `npm run test:unit` prints all tests green and then hangs, check for inherite
 ### Prompt Files
 
 - Prompts live in `src/prompts/*.md` as plain markdown — no escaping needed
-- **Coordinator prompt is split per runtime:** `src/prompts/herdr/coordinator.md` and `src/prompts/tuios/coordinator.md` are independent files — `system-prompt.ts` picks one via `detectRuntime()`. Worker/role prompts stay shared at `src/prompts/*.md`.
+- **Coordinator prompt:** one file, `src/prompts/herdr/coordinator.md`, loaded by `system-prompt.ts` for every session (a standalone `none` runtime emits the same rules). Worker/role prompts stay shared at `src/prompts/*.md`.
 - Edit markdown files directly; `system-prompt.ts` loads them at module init (coordinator file is chosen per-runtime at prompt-build time)
 - Dynamic context (picodeId, parent, role) is added by the wrapper in `system-prompt.ts`
 - Per-project overrides (`.picode/prompts/<role>.md`) extend the bundled prompt by default (append after bundled rules). Use `mode: replace` in frontmatter to replace entirely.
@@ -179,8 +179,7 @@ If `npm run test:unit` prints all tests green and then hangs, check for inherite
 
 | File                               | Responsibility                                                                                                                                                                                          |
 | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/prompts/herdr/coordinator.md` | **Herdr** coordinator rules + pane/tab reference — loaded when `detectRuntime()` returns `herdr`                                                                                                        |
-| `src/prompts/tuios/coordinator.md` | **TUIOS** coordinator rules + workspace reference — loaded when `detectRuntime()` returns `tuios`. Independent of the Herdr file; changes to one never affect the other                                 |
+| `src/prompts/herdr/coordinator.md` | **Coordinator** rules + Herdr pane/tab reference — the only coordinator prompt, loaded for every runtime                                                                                                |
 | `src/prompts/worker-base.md`       | Shared worker communication contract — all workers inherit this                                                                                                                                         |
 | `src/prompts/<role>.md`            | Role-specific prompts (builder, reviewer, explorer, tester, designer, visionary, bug-hunter, scout, planner)                                                                                            |
 | `src/core/system-prompt.ts`        | Prompt loader — reads markdown files, adds dynamic context, handles overrides                                                                                                                           |
@@ -342,7 +341,7 @@ chore: update dependencies
 
 ### Modifying Coordinator Behavior
 
-1. Edit the coordinator file for the runtime you're changing — `src/prompts/herdr/coordinator.md` or `src/prompts/tuios/coordinator.md`. **They are independent files** (hard split): edit only the one you mean to. Shared coordination rules are duplicated between them on purpose — keep that part in sync only where the protocol is genuinely identical.
+1. Edit `src/prompts/herdr/coordinator.md` — the only coordinator prompt.
 2. Test with real coordinator + workers (E2E)
 3. Update `AGENTS.md` if conventions change
 

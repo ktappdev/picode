@@ -3,7 +3,6 @@ import { execSync } from "node:child_process";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { PicodeData } from "./types";
-import { detectRuntime, type RuntimeKind } from "../runtime/detect";
 
 /** Worker subtypes that get specialized prompts. Any role not matching
  *  "coordinator" or a known subtype is treated as a generic worker. */
@@ -46,34 +45,13 @@ function loadPromptFile(filename: string): string {
   return readFileSync(filePath, "utf-8").trim();
 }
 
-/** Coordinator prompts are split per pane runtime — src/prompts/herdr/coordinator.md
- *  and src/prompts/tuios/coordinator.md are independent files so a TUIOS change
- *  can never bleed into the (stable) Herdr coordinator, and vice-versa. The
- *  coordination contract is duplicated between the two on purpose; keep them in
- *  sync only where the protocol is genuinely shared. Loaded lazily (not a module
- *  const) so the runtime is resolved at prompt-build time, after detection. */
-const COORDINATOR_PROMPT_FILES: Record<RuntimeKind, string | null> = {
-  herdr: join("herdr", "coordinator.md"),
-  tuios: join("tuios", "coordinator.md"),
-  // "none" (running outside any multiplexer) still needs a coordinator prompt
-  // for non-pane work; fall back to the herdr file as the established default.
-  none: join("herdr", "coordinator.md"),
-};
-
-function coordinatorPromptFile(): string {
-  let kind: RuntimeKind = "none";
-  try {
-    kind = detectRuntime();
-  } catch {
-    // Misconfigured PICODE_RUNTIME (e.g. herdr selected but not in a pane) —
-    // still emit a usable coordinator prompt rather than crash prompt-build.
-    kind = "none";
-  }
-  return COORDINATOR_PROMPT_FILES[kind] ?? join("herdr", "coordinator.md");
-}
+/** The coordinator prompt. src/prompts/herdr/coordinator.md is the only
+ *  coordinator prompt; a standalone ("none") session emits the same rules so
+ *  prompt-build never depends on the environment. */
+const COORDINATOR_PROMPT_FILE = join("herdr", "coordinator.md");
 
 function coordinatorRules(): string {
-  return loadPromptFile(coordinatorPromptFile());
+  return loadPromptFile(COORDINATOR_PROMPT_FILE);
 }
 
 // Load all prompts once at module init (coordinator is lazy — see above)

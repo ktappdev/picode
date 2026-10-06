@@ -454,11 +454,6 @@ const HERDR_ENV_KEYS = [
   "HERDR_TAB_ID",
   "HERDR_SOCKET_PATH",
   "PICODE_RUNTIME",
-  "TUIOS_SOCKET",
-  "TUIOS_SESSION",
-  "TUIOS_PANE_ID",
-  "TUIOS_WINDOW_ID",
-  "TUIOS_PANE_TOKEN",
 ] as const;
 let savedHerdrEnv: Record<string, string | undefined> = {};
 let savedQuietEnv: string | undefined;
@@ -4594,16 +4589,11 @@ describe("system-prompt: picode_send contract is in every worker template", () =
     new URL("../src/prompts/worker-base.md", import.meta.url),
     "utf-8",
   );
-  // Coordinator prompts are split per pane runtime so a TUIOS change can
-  // never bleed into the stable Herdr coordinator (and vice-versa). Each is
-  // a full standalone file — the shared coordination contract is duplicated
-  // between them on purpose.
+  // src/prompts/herdr/coordinator.md is the only coordinator prompt: a
+  // standalone session emits the same file, so there is no second variant to
+  // drift out of sync.
   const coordinatorHerdr = readFileSync(
     new URL("../src/prompts/herdr/coordinator.md", import.meta.url),
-    "utf-8",
-  );
-  const coordinatorTuios = readFileSync(
-    new URL("../src/prompts/tuios/coordinator.md", import.meta.url),
     "utf-8",
   );
   it("WORKER_BASE_RULES mentions the communication contract and 'picode_send' reply path", () => {
@@ -4628,11 +4618,8 @@ describe("system-prompt: picode_send contract is in every worker template", () =
       "missing picode_finish close-out rule",
     );
   });
-  it("both runtime coordinator prompts carry the shared coordination contract", () => {
-    for (const [name, coordinator] of [
-      ["herdr", coordinatorHerdr],
-      ["tuios", coordinatorTuios],
-    ] as const) {
+  it("the coordinator prompt carries the shared coordination contract", () => {
+    for (const [name, coordinator] of [["herdr", coordinatorHerdr]] as const) {
       assert.match(coordinator, /Worker silent\? Check their pane/, `${name}`);
       assert.ok(
         coordinator.includes("answered in plain text instead of via"),
@@ -4657,20 +4644,13 @@ describe("system-prompt: picode_send contract is in every worker template", () =
       assert.match(coordinator, /Do NOT use `wait=true` per send for parallel work/, name);
     }
   });
-  it("herdr coordinator prompt is Herdr-scoped; tuios is TUIOS-scoped", () => {
-    // Each file names only its own runtime env — wrong-runtime prose must not
-    // leak across. (worker-base stays shared; only the coordinator split.)
+  it("herdr coordinator prompt is Herdr-scoped", () => {
+    // The coordinator prompt names only Herdr's environment; no removed
+    // runtime's prose may reappear in it.
     assert.match(coordinatorHerdr, /HERDR_PANE_ID/);
     assert.doesNotMatch(coordinatorHerdr, /TUIOS_SESSION/);
     assert.match(coordinatorHerdr, /Pane Management \(Herdr\)/);
-    assert.match(coordinatorTuios, /TUIOS_PANE_ID/);
-    assert.match(coordinatorTuios, /TUIOS_SESSION/);
-    assert.doesNotMatch(coordinatorTuios, /HERDR_PANE_ID/);
-    assert.match(coordinatorTuios, /Pane Management \(TUIOS\)/);
-    // tab_full is a Herdr-only split signal; TUIOS places windows via the
-    // daemon, so it must not appear in the TUIOS coordinator prompt.
     assert.match(coordinatorHerdr, /tab_full=true/);
-    assert.doesNotMatch(coordinatorTuios, /tab_full=true/);
   });
 });
 
