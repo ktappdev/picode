@@ -1225,6 +1225,33 @@ describe("tools: picode_list", () => {
     const ghost = (r.details.threads as PicodeSummary[]).find(t => t.id === "ghost")!;
     assert.strictEqual(ghost.status, "stopped");
   });
+
+  // The recent-workers digest is what makes a stopped worker discoverable by
+  // exact id, which is the only input `revive_closed_session` accepts. It is
+  // opt-in because this tool is called before every dispatch and its result
+  // then sits in the coordinator's context for the rest of the run.
+  it("omits the recent-workers digest unless asked", async () => {
+    const h = makeHarness(tmpDir);
+    seedRemoteThread(h, "builder-1", { role: "builder", stale: true });
+    const r = await callTool(h, "picode_list");
+    assert.doesNotMatch(r.content[0].text, /Recent workers/);
+  });
+
+  it("recent=true appends the digest with the exact ids revive needs", async () => {
+    const h = makeHarness(tmpDir);
+    seedRemoteThread(h, "builder-1", { role: "builder", stale: true });
+    const r = await callTool(h, "picode_list", { recent: true });
+    assert.match(r.content[0].text, /### Recent workers/);
+    assert.match(r.content[0].text, /builder-1 \(builder\)/);
+  });
+
+  it("recent=true reports an empty ledger rather than an empty string", async () => {
+    // The coordinator is excluded from the ledger, so this workspace has no
+    // workers on record at all.
+    const h = makeHarness(tmpDir, "coordinator");
+    const r = await callTool(h, "picode_list", { recent: true });
+    assert.match(r.content[0].text, /None on record/);
+  });
 });
 
 describe("tools: picode_journal", () => {

@@ -1,6 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { PicodeStore } from "../core/types";
+import { formatWorkerDigest, recentWorkers } from "../core/worker-ledger";
 import { barrierLines, formatThreadLine, obligationLines, owedLines } from "../core/format";
 import { splitJournalEntries, compactEntry } from "../journal";
 import { err, quietCallRenderer, quietToolResult } from "./shared";
@@ -98,21 +99,36 @@ export function registerIntrospectionTools(pi: ExtensionAPI, store: PicodeStore)
     name: "picode_list",
     label: "Picode List",
     description:
-      "List all known threads sharing this workspace and their last known state. Use this to find a valid `to` id before calling picode_send.",
+      "List all known threads sharing this workspace and their last known state. Use this to find a valid `to` id before calling picode_send. Pass recent=true for the recent-workers digest — the exact ids, roles, and derived areas of workers that stopped or are still live, which is what `revive_closed_session` needs.",
     promptSnippet:
-      "List all picodes in the workspace and their last known state (find a valid `to` id before picode_send).",
-    parameters: Type.Object({}),
-    async execute() {
+      "List picodes in the workspace and their last known state (valid `to` ids). Pass recent=true for revivable/stopped workers and what they left unverified.",
+    parameters: Type.Object({
+      recent: Type.Optional(
+        Type.Boolean({
+          description:
+            "Also return the recent-workers digest: exact id, role, derived area (directories that worker touched), live/stopped, context age, whether HEAD moved since it exited, and what its handoff left unverified. Use this before calling revive_closed_session.",
+        }),
+      ),
+    }),
+    async execute(_id, params, _signal, _onUpdate, ctx) {
       const threads = await store.listPcodes();
       const lines = threads.map(formatThreadLine);
+      const parts = [lines.length ? lines.join("\n") : "(no other threads found)"];
+      const rows = params.recent ? recentWorkers(ctx?.cwd || process.cwd()) : [];
+      if (params.recent) {
+        parts.push(
+          formatWorkerDigest(rows) ||
+            "### Recent workers\n\nNone on record — no worker has written a state file in this workspace yet.",
+        );
+      }
       return {
         content: [
           {
             type: "text" as const,
-            text: lines.length ? lines.join("\n") : "(no other threads found)",
+            text: parts.join("\n\n"),
           },
         ],
-        details: { threads },
+        details: { threads, ...(params.recent ? { recentWorkers: rows } : {}) },
       };
     },
     renderCall: quietCallRenderer("picode_list"),

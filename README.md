@@ -130,22 +130,22 @@ Messages show up as `[<kind> from <sender> #<id>]`. The kind (request, reply, re
 
 ## Tools the model can use
 
-| Tool                | Purpose                                                                                                                                                                                     |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `picode_send`       | Send an envelope to one name, `a,b`, `*`, or `role:<role>`. Supports `expects`, `re`, `urgency`, `deliverAfterSeconds`, `wait=true` to arm a barrier inline.                                |
-| `picode_wait`       | Wait for all or any of several outstanding replies (a barrier). Accepts `deadlineSeconds` and an optional `message` injected on resolution.                                                 |
-| `picode_status`     | Read this picode's state, obligations, owed replies, barriers, and journal.                                                                                                                 |
-| `picode_list`       | List all known threads in the workspace.                                                                                                                                                    |
-| `picode_journal`    | Read another picode's journal, filtered by `tail` or `lookbackMinutes`.                                                                                                                     |
-| `picode_suspend`    | Mark this picode On Hold. The inbox queues until resume.                                                                                                                                    |
-| `picode_resume`     | Resume from On Hold and drain queued messages.                                                                                                                                              |
-| `picode_panes`      | Survey panes/windows in the current runtime scope: status, role, and cleanup suggestions. Read-only surveillance.                                                                           |
-| `picode_pane_read`  | Read a worker pane's terminal output (scrollback). Use for silent worker recovery — when a worker owes a reply but hasn't sent via picode_send.                                             |
-| `spawn_worker`      | Spawn a new worker pane: splits, names, launches pi, waits for idle. Auto-reuses idle workers, claims empty panes, grid-aware split direction. Optional `tab` param for multi-tab spawning. |
-| `picode_tab_create` | Open a Herdr tab. Coordinator-only.                                                                                                                                                         |
-| `picode_tab_close`  | Close a Herdr tab. Refuses working or coordinator panes. Coordinator-only.                                                                                                                  |
-| `cleanup_panes`     | Close known stale worker panes in the current runtime scope. `dry_run=true` previews; `pane_id="<id>"` targets one; `force=true` permits idle workers.                                      |
-| `picode_purge`      | Delete stale picode data directories. Default skips local debts and coordinator references; `force=true` also reconciles this picode's ledgers.                                             |
+| Tool                | Purpose                                                                                                                                                                                           |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `picode_send`       | Send an envelope to one name, `a,b`, `*`, or `role:<role>`. Supports `expects`, `re`, `urgency`, `deliverAfterSeconds`, `wait=true` to arm a barrier inline.                                      |
+| `picode_wait`       | Wait for all or any of several outstanding replies (a barrier). Accepts `deadlineSeconds` and an optional `message` injected on resolution.                                                       |
+| `picode_status`     | Read this picode's state, obligations, owed replies, barriers, and journal.                                                                                                                       |
+| `picode_list`       | List all known threads in the workspace. `recent=true` adds the recent-workers digest (exact ids, derived areas, context age, what each left unverified) — use it before `revive_closed_session`. |
+| `picode_journal`    | Read another picode's journal, filtered by `tail` or `lookbackMinutes`.                                                                                                                           |
+| `picode_suspend`    | Mark this picode On Hold. The inbox queues until resume.                                                                                                                                          |
+| `picode_resume`     | Resume from On Hold and drain queued messages.                                                                                                                                                    |
+| `picode_panes`      | Survey panes/windows in the current runtime scope: status, role, and cleanup suggestions. Read-only surveillance.                                                                                 |
+| `picode_pane_read`  | Read a worker pane's terminal output (scrollback). Use for silent worker recovery — when a worker owes a reply but hasn't sent via picode_send.                                                   |
+| `spawn_worker`      | Spawn a new worker pane: splits, names, launches pi, waits for idle. Auto-reuses idle workers, claims empty panes, grid-aware split direction. Optional `tab` param for multi-tab spawning.       |
+| `picode_tab_create` | Open a Herdr tab. Coordinator-only.                                                                                                                                                               |
+| `picode_tab_close`  | Close a Herdr tab. Refuses working or coordinator panes. Coordinator-only.                                                                                                                        |
+| `cleanup_panes`     | Close known stale worker panes in the current runtime scope. `dry_run=true` previews; `pane_id="<id>"` targets one; `force=true` permits idle workers.                                            |
+| `picode_purge`      | Delete stale picode data directories. Default skips local debts and coordinator references; `force=true` also reconciles this picode's ledgers.                                                   |
 
 ## Slash commands for humans
 

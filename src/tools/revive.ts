@@ -128,7 +128,7 @@ export function registerReviveTool(pi: ExtensionAPI, store: PicodeStore, inbox: 
     parameters: Type.Object({
       picode_id: Type.String({
         description:
-          "Exact id of the stopped worker to revive (e.g. 'builder-1'). Take it from the Recent workers list — never guess or construct one.",
+          "Exact id of the stopped worker to revive (e.g. 'builder-1'). Take it from `picode_list(recent=true)` — never guess or construct one.",
       }),
       task: Type.Optional(
         Type.String({
@@ -177,7 +177,7 @@ export function registerReviveTool(pi: ExtensionAPI, store: PicodeStore, inbox: 
       const state = await store.adapter.loadPicodeState(picodeId);
       if (!state) {
         return err(
-          `No picode "${picodeId}" exists in this workspace. Use the Recent workers list for exact ids.`,
+          `No picode "${picodeId}" exists in this workspace. Use picode_list(recent=true) for exact ids.`,
         );
       }
       if (!state.sessionFile) {
