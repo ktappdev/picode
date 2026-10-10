@@ -1,103 +1,112 @@
-# picode
+# Picode + Herdr
 
-picode lets you run several [pi](https://github.com/earendil-works/pi-coding-agent) sessions at once and have them talk to each other. Each session becomes a "picode" with a stable name. One can be the coordinator that hands out work, and the rest are workers that build, review, explore, or test. They pass messages through durable mailboxes stored on disk, so nothing is lost when a picode restarts.
+**Herdr gives your coding agents a place to run. Picode gives those agents a way to work together.** Together, they turn a set of independent [Pi](https://github.com/earendil-works/pi-coding-agent) sessions into a coordinated team: a Picode coordinator assigns work, Herdr launches and manages worker panes, and the workers report back through durable Picode mailboxes.
 
-The point is simple: split a big task across multiple AI threads without any of them losing context or forking their own history.
+Picode is designed to work **fully with [Herdr](https://herdr.dev/)**. Herdr handles the live runtime—workspaces, tabs, panes, agent status, and session recovery. Picode handles team coordination—roles, task messages, reply tracking, journals, and handoffs. Each tool has a distinct job; together they let you delegate across agents without losing the work or the conversation.
+
+**Start here:** [Install Herdr](https://herdr.dev/docs/install/) · [Install Picode](#install) · [How the integration works](#how-picode-and-herdr-work-together)
+
+## The relationship: Herdr runs the team; Picode coordinates it
+
+|                                          | Herdr                                                                                                    | Picode                                                                                                             |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| **Owns**                                 | Agent runtime and terminal layout: workspaces, tabs, panes, process/session lifecycle, and agent status. | Cross-agent collaboration: identities and roles, durable messages, reply obligations, journals, and task handoffs. |
+| **When the coordinator delegates**       | Creates or reuses a worker pane, launches Pi, and keeps the worker visible and manageable.               | Chooses the worker role, sends its task, tracks the reply, and preserves coordination state across restarts.       |
+| **When a worker finishes or gets stuck** | Reports pane/agent lifecycle and exposes the worker's terminal and session.                              | Records the worker's report and handoff; lets the coordinator inspect or recover the work.                         |
+
+Herdr is not a replacement for Picode's mailboxes, and Picode is not a terminal multiplexer. Herdr controls **where and when agents run**; Picode controls **how they communicate and coordinate**. Worker panes remain ordinary Herdr-managed Pi sessions, with their own session histories and Picode identities.
 
 ## What you get
 
-- A coordinator that delegates work and reads results, without ever writing files itself.
-- Workers that self-label by name (builder-1, explorer-a) and know their role automatically.
-- A single message shape called an envelope, with replies tracked as durable "debts" so nothing falls through the cracks.
-- A live journal per picode, auto-summarized so it stays readable.
-- A human command line tool to watch, steer, and message any picode.
-- A pluggable storage backend: plain files by default, or Restate if you need to wake stopped picodes.
+- A Herdr-managed coordinator that delegates work without writing project files itself.
+- Workers launched into Herdr panes, automatically assigned roles such as `builder`, `reviewer`, or `explorer`.
+- Durable Picode messages with correlated replies, so a worker's response is not just transient terminal text.
+- Herdr-aware pane and tab management: reuse workers, open tabs when a tab is full, inspect pane output, and clean up stale panes.
+- Worker journals and handoff notes that help the coordinator continue work across turns and sessions.
+- A human CLI and slash commands for monitoring and steering the team.
 
-## Requirements
+## Install
 
-You need a few things installed first:
+For the full, supported Picode + Herdr workflow, install both tools and the Pi integration:
 
-- **[pi](https://github.com/earendil-works/pi-coding-agent)**, the coding agent this extension runs on:
-  ```bash
-  npm install -g @earendil-works/pi-coding-agent
-  ```
-- **Node.js 20 or newer.**
-- **An LLM provider.** At minimum an [OpenRouter](https://openrouter.ai/) key works (free models are fine). Anthropic, OpenAI, Google, and local Ollama are also supported.
-  ```bash
-  export OPENROUTER_API_KEY=sk-or-...
-  ```
-- **[Herdr](https://github.com/earendil-works/herdr)** for a coordinator that spawns and manages workers. Herdr is detected automatically when running inside a Herdr pane; set `PICODE_RUNTIME=herdr` to require it explicitly (default: `auto`). Without Herdr, workers can still run manually, but coordinator startup requires it.
-- **[Hypa](https://github.com/earendil-works/hypa)** (optional) — compression extension that reduces context usage for read, grep, find, and ls operations. Scouts and explorers prefer it automatically when installed, keeping exploration outputs lean and fast.
-  ```bash
-  pi install git:github.com/earendil-works/hypa@main
-  ```
-- **Docker** is only needed for the optional Restate backend.
+1. **Install Herdr** using the [official installation guide](https://herdr.dev/docs/install/). On macOS or Linux:
+   ```bash
+   curl -fsSL https://herdr.dev/install.sh | sh
+   ```
+   Windows instructions and other installation methods are in the [Herdr install docs](https://herdr.dev/docs/install/).
+2. **Install Pi** and make sure an LLM provider is configured:
+   ```bash
+   npm install -g @earendil-works/pi-coding-agent
+   ```
+   Pi supports providers including [OpenRouter](https://openrouter.ai/), Anthropic, OpenAI, Google, and local Ollama models. For example, configure an OpenRouter key with `export OPENROUTER_API_KEY=sk-or-...`.
+3. **Install Herdr's Pi integration.** It reports Pi session identity and lifecycle to Herdr, and allows Herdr to restore Pi sessions after a Herdr server restart:
+   ```bash
+   herdr integration install pi
+   ```
+   See Herdr's [Pi integration documentation](https://herdr.dev/docs/integrations/).
+4. **Install Picode into Pi:**
+   ```bash
+   pi install git:github.com/ktappdev/picode@main
+   ```
+5. **Start Herdr**, open a pane in your project, and start the coordinator there:
+   ```bash
+   pi --picode-id coordinator
+   ```
+   The coordinator can now use Herdr to start and manage its worker panes. See [Quick start](#quick-start).
 
-## A note on commands in this guide
+**Requirements:** Node.js 20 or newer and a configured LLM provider. Docker is only needed for the optional Restate backend. Herdr is required for automatic coordinator-managed worker orchestration; without Herdr, Picode's messaging protocol and manual worker workflows are still available, but Herdr pane/tab tools and automatic spawning are not.
 
-The examples below use a shell alias called `picode` that expands to `pi --picode-id`. So:
+### Optional: Hypa
+
+[Hypa](https://github.com/earendil-works/hypa) is a Pi extension that compresses file lookup output and helps scouts and explorers keep their context lean. Picode works without it:
 
 ```bash
-picode coordinator
+pi install git:github.com/earendil-works/hypa@main
 ```
 
-is the same as:
+## Quick start
+
+Run Pi inside a Herdr pane. Start one session as the coordinator:
 
 ```bash
 pi --picode-id coordinator
 ```
 
-Set up the alias once in your shell config if you like:
+The coordinator is the command center. Describe the work; it delegates to workers through Picode and Herdr. Workers are launched as separate Pi sessions in Herdr-managed panes, with a Picode identity and role. You do not need to manually open a terminal for each worker.
+
+To start a worker manually instead, open another Herdr pane in the same project and give it its own identity:
 
 ```bash
-alias picode='pi --picode-id'
+pi --picode-id builder
 ```
 
-If you would rather not, just type the full `pi --picode-id <name>` form everywhere you see `picode <name>`. Installing the extension itself still uses the `pi install` command.
+Other examples include `reviewer`, `explorer`, and `visionary` (the latter needs a multimodal model). Names such as `builder-1` and `reviewer-a` inherit their role from the prefix; other names become generic workers.
 
-## Install
+Picode is opt-in: a Pi session becomes a picode only when started with `--picode-id` (or resumed from a session that already has a Picode identity). All Picode sessions in the same working directory share coordination data under `.picode/`.
 
-```bash
-pi install git:github.com/ktappdev/picode@main
-```
+## How Picode and Herdr work together
 
-Or try it without installing:
+1. **You start a coordinator in Herdr.** Picode detects the Herdr pane identity and enables its Herdr-aware coordinator tools.
+2. **The coordinator dispatches a task.** Picode selects a role and creates a durable task message; its `spawn_worker` tool asks Herdr to reuse a suitable pane or create a worker pane, then launches Pi with the worker's Picode identity.
+3. **Herdr manages the running worker.** It owns the pane and session lifecycle. Picode labels the pane with the worker's role, tracks relevant worker panes, and can react to pane-exit events.
+4. **The worker reports through Picode.** The worker sends its result to the coordinator using `picode_send` / `picode_finish`. Messages, outstanding replies, journals, and handoff notes live in the project’s Picode data—not in Herdr’s terminal output.
+5. **The coordinator follows up.** It can check Herdr pane status/output, reuse or revive a worker when appropriate, and clean up stale worker panes. Picode's durable state lets coordination survive individual Pi turns and process restarts.
+
+This division is important: **Herdr's agent status is not the same as a Picode reply.** A pane can be idle or done without having sent its required message. Picode tracks the reply obligation separately and can inspect the Herdr pane when a worker goes silent.
+
+By default, Picode stores mailboxes and coordination state in local files under `.picode/`; it needs no message broker. The optional Restate backend can wake stopped picodes, while Herdr continues to manage their agent panes. The protocol (Postbox) is specified in [THREAD-MODEL.md](THREAD-MODEL.md).
+
+### Runtime notes
+
+Picode detects Herdr automatically when Pi runs inside a Herdr-managed pane. Set `PICODE_RUNTIME=herdr` if you want startup to fail unless that Herdr context is present; the default is `auto`. Picode remains useful outside Herdr for messaging and manually started workers, but **automatic worker spawning, pane/tab operations, pane inspection, and Herdr lifecycle events require Herdr**.
+
+To try Picode without installing it, use Pi's extension option:
 
 ```bash
 pi -e git:github.com/ktappdev/picode@main --picode-id my-picode
 ```
 
-## Quick start
-
-Open a few terminals. In each one, start a picode with a unique name:
-
-```bash
-# Terminal 1: the coordinator
-picode coordinator
-
-# Terminal 2: a builder
-picode builder
-
-# Terminal 3: an explorer
-picode explorer
-
-# Terminal 4: a visual reader (requires a multimodal model)
-picode visionary --model YOUR_PROVIDER/YOUR_VISION_MODEL
-```
-
-That is the whole setup. Each picode figures out its role from its name. A name like `builder-1` or `reviewer-a` becomes the `builder` or `reviewer` role automatically. Any name that does not match a known role becomes a generic worker.
-
-The extension does nothing unless you pass a name. Without `--picode-id` (or the `picode` alias), there is no `.picode/` directory, no tools, and no prompt changes. It stays completely out of your way.
-
-All picodes in the same working directory share state through `.picode/picodes/<name>/`.
-
-## How it works
-
-Each pi process becomes a picode with a stable identity. Picodes talk through durable per-picode mailboxes. One picode writes an envelope, and the target drains it on startup or as new messages arrive.
-
-By default the mailbox is just files on disk. No central broker, no extra services. The storage layer is a pluggable adapter, so the exact same tools also work against Restate, a durable backend that can wake a stopped picode.
-
-The protocol (called Postbox) is fully specified in [THREAD-MODEL.md](THREAD-MODEL.md).
+The extension does nothing to a session that has not opted in with a Picode identity.
 
 ## The message model
 
@@ -193,7 +202,7 @@ If a worker goes silent (no `picode_send` reply within about 10 minutes), the co
 When a picode has the `coordinator` role (auto-detected from the name `coordinator`):
 
 - **Write, edit, and bash are disabled.** The coordinator cannot run shell commands or modify files. Quick targeted lookups (single grep, read known file path) go through [Hypa](https://github.com/earendil-works/hypa) tools when installed. Anything deeper — multi-file exploration, git operations, herdr commands — goes through workers via `spawn_worker` or `picode_send`.
-- **Auto-spawns workers via Herdr.** Herdr manages panes and tabs.
+- **Herdr-native orchestration.** The coordinator uses Herdr to create and reuse worker panes, open tabs when needed, inspect output and lifecycle, and clean up stale workers. Picode handles roles, task messages, reply obligations, and handoffs; Herdr handles the live agent runtime. See [How Picode and Herdr work together](#how-picode-and-herdr-work-together).
 - **Reuses panes.** It checks existing panes first and reuses idle or done workers instead of spawning duplicates.
 - **Adaptive layout.** Workers split in the direction that keeps new panes close to square. Grid-aware splitting avoids tall stacks. Empty panes are claimed instead of splitting. The coordinator stays at 50 percent on the left and the worker area fills the right half.
 - **Structured dispatch.** Tasks go out as Objective, Context, Constraints, Action Steps, Deliverables, and Prerequisites.
@@ -416,11 +425,12 @@ any -(unclean exit)-> STOPPED
 
 There is no waiting state. Debts and barriers are durable records rather than states, so nothing needs repair on restart beyond `done` or `stopped` going back to `idle`. Full detail is in [THREAD-MODEL.md](THREAD-MODEL.md).
 
-## Visual identification
+## Herdr integration details
 
-- **Role emoji in the pane label.** Each herdr pane label shows the role with an emoji: `🧭 coordinator`, `🔨 builder`, `🔍 explorer`, `🛡️ reviewer`, `🎨 designer`, `👁️ visionary`, `🧪 tester`, `🐛 bug-hunter`, `👷 worker`.
-- **Role in the terminal title.** The terminal title shows `pi · <emoji> <role> · <cwd>`, which is useful when you are not running inside herdr.
-- **Coordination with herdr.** Herdr's pane label and the terminal title carry the same role info, so identification is consistent across surfaces.
+- **Pane labels:** Picode labels its Herdr panes with the worker role and emoji, such as `🧭 coordinator`, `🔨 builder`, `🔍 explorer`, or `🛡️ reviewer`. The Pi terminal title also shows the role and working directory.
+- **Pane and tab lifecycle:** `spawn_worker` uses Herdr to find/reuse a suitable pane, choose an adaptive split, launch Pi, and wait for it to become ready. When the tab is full, the coordinator can create another Herdr tab. Picode also provides pane inspection, pane reads, cleanup, and controlled revival tools.
+- **Status and events:** Picode uses Herdr's pane/workspace identity and event API to scope operations and notice tracked worker pane exits. Herdr's own Pi integration reports Pi session identity and lifecycle so Herdr can restore and identify sessions.
+- **Install both pieces:** Install Picode in Pi, then install Herdr's Pi integration with `herdr integration install pi`. See the [Herdr integration docs](https://herdr.dev/docs/integrations/) and the [Herdr agent automation guide](https://herdr.dev/docs/agent-automation/).
 
 ## Developing picode
 
