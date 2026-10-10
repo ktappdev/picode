@@ -48,13 +48,27 @@ For the full, supported Picode + Herdr workflow, install both tools and the Pi i
    ```bash
    pi install git:github.com/ktappdev/picode@main
    ```
-5. **Start Herdr**, open a pane in your project, and start the coordinator there:
-   ```bash
-   pi --picode-id coordinator
-   ```
-   The coordinator can now use Herdr to start and manage its worker panes. See [Quick start](#quick-start).
+5. **Start Herdr**, open a pane in your project, and start the coordinator there. Use `picode coordinator` if you set up the optional shortcut below, or `pi --picode-id coordinator` otherwise. The coordinator can now use Herdr to start and manage its worker panes. See [Quick start](#quick-start).
 
 **Requirements:** Node.js 20 or newer and a configured LLM provider. Docker is only needed for the optional Restate backend. Herdr is required for automatic coordinator-managed worker orchestration; without Herdr, Picode's messaging protocol and manual worker workflows are still available, but Herdr pane/tab tools and automatic spawning are not.
+
+### Optional: `picode` shell shortcut
+
+Picode does not edit your shell configuration or create aliases automatically. To type `picode coordinator` instead of `pi --picode-id coordinator`, add a shortcut to your shell profile.
+
+For Bash or Zsh, add this line to `~/.bashrc` or `~/.zshrc`:
+
+```bash
+alias picode='pi --picode-id'
+```
+
+Then reopen the terminal (or reload the profile with `source ~/.bashrc` / `source ~/.zshrc`). For PowerShell, add this function to the profile shown by `$PROFILE`:
+
+```powershell
+function picode { pi --picode-id @args }
+```
+
+Without the shortcut, use the full `pi --picode-id <name>` command shown in the examples.
 
 ### Optional: Hypa
 
@@ -69,7 +83,8 @@ pi install git:github.com/earendil-works/hypa@main
 Run Pi inside a Herdr pane. Start one session as the coordinator:
 
 ```bash
-pi --picode-id coordinator
+picode coordinator
+# Without the optional shell shortcut: pi --picode-id coordinator
 ```
 
 The coordinator is the command center. Describe the work; it delegates to workers through Picode and Herdr. Workers are launched as separate Pi sessions in Herdr-managed panes, with a Picode identity and role. You do not need to manually open a terminal for each worker.
@@ -77,7 +92,8 @@ The coordinator is the command center. Describe the work; it delegates to worker
 To start a worker manually instead, open another Herdr pane in the same project and give it its own identity:
 
 ```bash
-pi --picode-id builder
+picode builder
+# Without the optional shell shortcut: pi --picode-id builder
 ```
 
 Other examples include `reviewer`, `explorer`, and `visionary` (the latter needs a multimodal model). Names such as `builder-1` and `reviewer-a` inherit their role from the prefix; other names become generic workers.
