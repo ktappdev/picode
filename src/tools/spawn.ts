@@ -5,6 +5,11 @@ import { readFileSync, existsSync } from "fs";
 import { join } from "path";
 import { loadModelsConfig, resolveModelForRole } from "../core/model-config";
 import {
+  loadThinkingConfig,
+  resolveThinkingFromConfigs,
+  type ThinkingLevel,
+} from "../core/thinking-config";
+import {
   belongsToWorkspace,
   err,
   extractPaneInfo,
@@ -91,30 +96,15 @@ export function resolveTheme(override?: string): string | null {
   return null;
 }
 
-/** Thinking level per worker role. Unlisted roles (worker, unknown) inherit
- *  pi's default. Valid pi --thinking levels: off, minimal, low, medium,
- *  high, xhigh, max. pi clamps the requested level down to the highest the
- *  model supports (max → xhigh → high), so requesting "max" is safe even
- *  when the configured model tops out at "high". */
-const THINKING_BY_ROLE: Record<string, string> = {
-  builder: "high",
-  reviewer: "high",
-  "bug-hunter": "high",
-  planner: "max",
-  designer: "max",
-  scout: "medium",
-  explorer: "medium",
-  visionary: "medium",
-  gauntlet: "max",
-  tester: "low",
-  runner: "low",
-};
-
-export function resolveThinking(role: string): string | null {
-  if (THINKING_BY_ROLE[role]) return THINKING_BY_ROLE[role];
-  const prefix = role.split("-")[0];
-  if (prefix !== role && THINKING_BY_ROLE[prefix]) return THINKING_BY_ROLE[prefix];
-  return null;
+/** Resolve configured worker thinking. Unlisted roles inherit pi's default;
+ * pi clamps requested levels to what the model supports. */
+export function resolveThinking(
+  role: string,
+  cwd = process.cwd(),
+  agentDir?: string,
+): ThinkingLevel | null {
+  const config = loadThinkingConfig(cwd, agentDir);
+  return resolveThinkingFromConfigs(role, config.project, config.global) ?? null;
 }
 
 export function buildWorkerLaunchCommand(options: {

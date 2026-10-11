@@ -174,16 +174,17 @@ Messages show up as `[<kind> from <sender> #<id>]`. The kind (request, reply, re
 
 ## Slash commands for humans
 
-| Command                    | Purpose                                           |
-| -------------------------- | ------------------------------------------------- |
-| `/picode-status`           | Show state and the latest journal entry.          |
-| `/picode-list`             | List all known threads.                           |
-| `/picode-send <to> <body>` | Send a high-urgency note to another picode.       |
-| `/picode-suspend`          | Mark On Hold.                                     |
-| `/picode-resume`           | Resume from On Hold.                              |
-| `/picode-models`           | Show, set, or reset per-role worker model config. |
-| `/picode-journal`          | View, trim, clear, or compact the journal.        |
-| `/picode-quiet`            | Toggle the quiet operator screen (display only).  |
+| Command                    | Purpose                                              |
+| -------------------------- | ---------------------------------------------------- |
+| `/picode-status`           | Show state and the latest journal entry.             |
+| `/picode-list`             | List all known threads.                              |
+| `/picode-send <to> <body>` | Send a high-urgency note to another picode.          |
+| `/picode-suspend`          | Mark On Hold.                                        |
+| `/picode-resume`           | Resume from On Hold.                                 |
+| `/picode-models`           | Show, set, or reset per-role worker model config.    |
+| `/picode-thinking`         | Show, set, or reset per-role worker thinking levels. |
+| `/picode-journal`          | View, trim, clear, or compact the journal.           |
+| `/picode-quiet`            | Toggle the quiet operator screen (display only).     |
 
 `/picode-quiet` hides picode's traffic rows — envelope batches, system prompts, and quiet-tool call rows — without changing behavior: messages, obligations, journal, status, and the model's context are untouched. High-urgency (⚠) envelopes stay visible, and expanding any row still shows it. Usage: `/picode-quiet [on | off | status] [--project]`. The saved setting resolves `PICODE_QUIET_TUI=1|0` env → project `<git-root>/.picode/quiet-tui.json` → global `~/.pi/agent/.picode/quiet-tui.json` → loud (default).
 
@@ -261,6 +262,23 @@ Resolution order: **project role/default → global role/default → built-in ro
 | `/picode-models --project scout MODEL`             | Set one project-only override.             |
 | `/picode-models --project --reset`                 | Remove project overrides; inherit global.  |
 | `/picode-models --global --reset`                  | Clear global overrides; restore built-ins. |
+
+## Worker thinking levels
+
+Thinking levels are configured separately from worker models. Global defaults live at `~/.pi/agent/.picode/thinking.json`; optional project overrides live at `<git-root>/.picode/thinking.json`. The built-in role defaults are preserved unless overridden: builder/reviewer/bug-hunter `high`, planner/designer/gauntlet `max`, scout/explorer/visionary `medium`, tester/runner `low`. Other roles inherit Pi's default. Pi clamps a requested level to the maximum supported by the selected model.
+
+Supported levels: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`.
+
+| Command                                 | Effect                                                              |
+| --------------------------------------- | ------------------------------------------------------------------- |
+| `/picode-thinking`                      | Show effective levels, with project → global → built-in precedence. |
+| `/picode-thinking builder low`          | Set the project override for builder.                               |
+| `/picode-thinking --global builder max` | Set a global default.                                               |
+| `/picode-thinking --project scout high` | Set a project-only override.                                        |
+| `/picode-thinking --project --reset`    | Remove project overrides; inherit global/default levels.            |
+| `/picode-thinking --global --reset`     | Clear global overrides; restore built-ins.                          |
+
+Role names match by prefix, so `builder` applies to `builder-1` and `builder-a`.
 
 ## Customizing prompts
 

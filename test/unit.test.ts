@@ -54,6 +54,11 @@ import {
 import { envelopeMessageRenderer, systemMessageRenderer } from "../src/renderers";
 import { isQuietTui, resolveQuietTui, setQuietTui } from "../src/core/quiet-tui";
 import { countPanesInTab, solePaneInTab, resolveThinking } from "../src/tools/spawn";
+import {
+  readThinkingConfig,
+  thinkingConfigPaths,
+  writeThinkingConfig,
+} from "../src/core/thinking-config";
 import { validateLabel } from "../src/tools/tab-create";
 import { registerLifecycle, extractFirstLine } from "../src/lifecycle";
 import { getListenerHandle, setListenerHandle, startHerdrListener } from "../src/herdr/listener";
@@ -2916,6 +2921,28 @@ describe("commands: slash commands", () => {
     assert.match(text, /builder/);
     assert.doesNotMatch(text, /theme/);
   });
+
+  it("/picode-thinking sets a project override and reports effective values", async () => {
+    const h = makeHarness(tmpDir);
+    await callCommand(h, "/picode-thinking", "builder low");
+    const paths = thinkingConfigPaths(tmpDir, join(tmpDir, "agent"));
+    assert.equal(readThinkingConfig(paths.project).builder, "low");
+    assert.equal(existsSync(paths.global), false);
+
+    await callCommand(h, "/picode-thinking");
+    assert.match(h.notifications.at(-1)!.text, /builder: low/);
+  });
+
+  it("/picode-thinking supports global overrides and rejects invalid levels", async () => {
+    const h = makeHarness(tmpDir);
+    await callCommand(h, "/picode-thinking", "--global scout xhigh");
+    const paths = thinkingConfigPaths(tmpDir, join(tmpDir, "agent"));
+    assert.equal(readThinkingConfig(paths.global).scout, "xhigh");
+
+    await callCommand(h, "/picode-thinking", "builder turbo");
+    assert.match(h.notifications.at(-1)!.text, /Invalid thinking level/);
+    assert.equal(readThinkingConfig(paths.project).builder, undefined);
+  });
 });
 
 // --- commands-models: pure helpers --------------------------------------
@@ -5108,34 +5135,36 @@ describe("spawn: solePaneInTab", () => {
 });
 
 describe("spawn: resolveThinking", () => {
-  it("maps standard deep-reasoning roles to high", () => {
-    for (const role of ["builder", "reviewer", "bug-hunter"]) {
-      assert.strictEqual(resolveThinking(role), "high");
+  const agentDir = () => join(tmpDir, "agent");
+  const resolve = (role: string) => resolveThinking(role, tmpDir, agentDir());
+
+  it("preserves built-in role defaults and suffix matching", () => {
+    for (const role of ["builder", "reviewer", "bug-hunter", "builder-1"]) {
+      assert.strictEqual(resolve(role), "high");
     }
-  });
-  it("requests max thinking for planner and designer", () => {
-    assert.strictEqual(resolveThinking("planner"), "max");
-    assert.strictEqual(resolveThinking("designer"), "max");
-  });
-  it("maps scouting/vision to medium (explorer alias included)", () => {
-    for (const role of ["scout", "explorer", "visionary"]) {
-      assert.strictEqual(resolveThinking(role), "medium");
+    for (const role of ["planner", "designer", "gauntlet", "gauntlet-2"]) {
+      assert.strictEqual(resolve(role), "max");
     }
-  });
-  it("maps mechanical roles to low", () => {
+    for (const role of ["scout", "explorer", "visionary", "scout-3"]) {
+      assert.strictEqual(resolve(role), "medium");
+    }
     for (const role of ["tester", "runner"]) {
-      assert.strictEqual(resolveThinking(role), "low");
+      assert.strictEqual(resolve(role), "low");
     }
   });
-  it("resolves suffixed ids via prefix", () => {
-    assert.strictEqual(resolveThinking("builder-1"), "high");
-    assert.strictEqual(resolveThinking("scout-3"), "medium");
-    assert.strictEqual(resolveThinking("gauntlet"), "max");
-    assert.strictEqual(resolveThinking("gauntlet-2"), "max");
+
+  it("uses project overrides before global overrides and built-ins", () => {
+    const paths = thinkingConfigPaths(tmpDir, agentDir());
+    writeThinkingConfig(paths.global, { builder: "max", reviewer: "medium" });
+    writeThinkingConfig(paths.project, { builder: "low" });
+    assert.strictEqual(resolve("builder-1"), "low");
+    assert.strictEqual(resolve("reviewer"), "medium");
+    assert.strictEqual(resolve("planner"), "max");
   });
+
   it("returns null for unlisted roles (inherits pi default)", () => {
-    assert.strictEqual(resolveThinking("worker"), null);
-    assert.strictEqual(resolveThinking("worker-1"), null);
+    assert.strictEqual(resolve("worker"), null);
+    assert.strictEqual(resolve("worker-1"), null);
   });
 });
 

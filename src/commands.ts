@@ -15,6 +15,17 @@ import {
   type ModelConfigScope,
 } from "./core/model-config";
 import { isQuietTui, resolveQuietTui, setQuietTui, writeQuietTui } from "./core/quiet-tui";
+import {
+  DEFAULT_THINKING,
+  THINKING_LEVELS,
+  isThinkingLevel,
+  readThinkingConfig,
+  resetThinkingConfig,
+  resolveThinkingFromConfigs,
+  thinkingConfigPaths,
+  writeThinkingConfig,
+  type ThinkingScope,
+} from "./core/thinking-config";
 
 /** Slash commands: the human operator's view of the same operations the
  *  picode_* tools give the model. */
@@ -399,6 +410,110 @@ export function registerCommands(
         ctx.ui.notify(lines.join("\n"), cleared.length > 0 ? "info" : "warning");
       } catch (e) {
         ctx.ui.notify(e instanceof Error ? e.message : String(e), "error");
+      }
+    },
+  });
+
+  pi.registerCommand("/picode-thinking", {
+    description:
+      "Configure worker thinking levels: /picode-thinking [--global|--project] (role level | --reset)",
+    getArgumentCompletions(argumentPrefix: string) {
+      if (argumentPrefix.includes(" ")) return null;
+      const choices = [
+        "builder",
+        "reviewer",
+        "bug-hunter",
+        "planner",
+        "designer",
+        "scout",
+        "explorer",
+        "visionary",
+        "gauntlet",
+        "tester",
+        "runner",
+        "--global",
+        "--project",
+        "--reset",
+      ];
+      return choices
+        .filter(value => value.startsWith(argumentPrefix.trim()))
+        .map(value => ({ value, label: value }));
+    },
+    async handler(args, ctx) {
+      if (!checkActive(store, ctx)) return;
+      const paths = thinkingConfigPaths(ctx.cwd, agentDir);
+      const usage = `Usage: /picode-thinking [--global|--project] [role level | --reset] (levels: ${THINKING_LEVELS.join(", ")})`;
+      const rawParts = args.trim() ? args.trim().split(/\s+/) : [];
+      const scopeFlags = rawParts.filter(part => part === "--global" || part === "--project");
+      if (scopeFlags.length > 1) {
+        ctx.ui.notify(usage, "warning");
+        return;
+      }
+      const scope: ThinkingScope = scopeFlags[0] === "--global" ? "global" : "project";
+      const parts = rawParts.filter(part => part !== "--global" && part !== "--project");
+      const scopeLabel = scope === "global" ? "global defaults" : "project overrides";
+
+      if (parts[0] === "--reset") {
+        if (parts.length !== 1) {
+          ctx.ui.notify(usage, "warning");
+          return;
+        }
+        try {
+          resetThinkingConfig(paths[scope], scope);
+          ctx.ui.notify(
+            scope === "global"
+              ? "Cleared global Picode thinking overrides — built-in defaults restored."
+              : "Cleared project Picode thinking overrides — global defaults restored.",
+            "info",
+          );
+        } catch (e) {
+          ctx.ui.notify(e instanceof Error ? e.message : String(e), "error");
+        }
+        return;
+      }
+
+      if (parts.length > 0) {
+        if (parts.length !== 2 || !/^[a-zA-Z0-9-]+$/.test(parts[0])) {
+          ctx.ui.notify(usage, "warning");
+          return;
+        }
+        const [role, level] = parts;
+        if (!isThinkingLevel(level)) {
+          ctx.ui.notify(`Invalid thinking level: ${level}. ${usage}`, "warning");
+          return;
+        }
+        try {
+          const config = readThinkingConfig(paths[scope]);
+          config[role] = level;
+          writeThinkingConfig(paths[scope], config);
+          ctx.ui.notify(`Set ${role} thinking → ${level} in ${scopeLabel}.`, "info");
+        } catch (e) {
+          ctx.ui.notify(e instanceof Error ? e.message : String(e), "error");
+        }
+        return;
+      }
+
+      try {
+        const project = readThinkingConfig(paths.project);
+        const global = readThinkingConfig(paths.global);
+        const roles = [
+          ...new Set([
+            ...Object.keys(DEFAULT_THINKING),
+            ...Object.keys(global),
+            ...Object.keys(project),
+          ]),
+        ].sort();
+        const lines = ["Effective worker thinking levels (project → global → built-in):"];
+        for (const role of roles) {
+          const level = resolveThinkingFromConfigs(role, project, global);
+          lines.push(`  ${role}: ${level ?? "pi default"}`);
+        }
+        ctx.ui.notify(lines.join("\n"), "info");
+      } catch (e) {
+        ctx.ui.notify(
+          e instanceof Error ? e.message : "Picode thinking config is invalid.",
+          "error",
+        );
       }
     },
   });
