@@ -271,11 +271,15 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
       sitRepRunSignature = signature;
 
       // Inject sit-rep as followUp (non-interrupting — waits for current
-      // turn). Use sendUserMessage so an idle run re-applies Picode's system
-      // prompt sections rather than continuing with a stale prompt head.
+      // turn). A picode-system CustomMessage keeps it collapsed on the quiet
+      // operator screen; Pi still fires before_agent_start for the triggered
+      // run, so Picode's system-prompt sections are re-applied.
       const sitrep =
         "[picode-system] Periodic sit-rep: run picode_panes(), picode_list(), and picode_status(tail=5). Check for: (1) zombie workers — working but no recent activity, (2) stale barriers — expired deadlines, (3) idle workers that could be reused or closed. Act on findings — close zombies, purge stale barriers, reassign idle workers. Don't just report.";
-      pi.sendUserMessage(sitrep, { deliverAs: "followUp" });
+      pi.sendMessage(
+        { customType: "picode-system", content: sitrep, display: true, details: {} },
+        { triggerTurn: true, deliverAs: "followUp" },
+      );
     }, sitRepIntervalMs());
   }
 
@@ -569,8 +573,8 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
       const filtered = pi.getActiveTools().filter(name => name !== "picode_journal");
       pi.setActiveTools(filtered);
     }
-    // Defer initial drain to next tick — calling pi.sendUserMessage
-    // synchronously from session_start deadlocks turn scheduling.
+    // Defer initial drain to next tick — calling the send API synchronously
+    // from session_start deadlocks turn scheduling.
     setImmediate(() => void inbox.drainInbox(ctx));
     store.startWatcher(inbox.drainInbox, ctx);
     // The heartbeat also re-attempts the drain: it is the retry path for
@@ -582,7 +586,7 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
       // idle-time inFlightSince write would gate out the deadline check for
       // a full heartbeat interval. The batch carries each source's commit
       // (drain finalize, deadline persist) so they run only once the batch
-      // actually reaches sendUserMessage — a gated batch stays durable on
+      // actually reaches the send API — a gated batch stays durable on
       // disk instead of being marked delivered while it sits in RAM.
       const batch = createInjectBatch();
       await inbox.drainInbox(ctx, batch);
@@ -797,10 +801,11 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
 
   pi.on("before_agent_start", async (event, ctx) => {
     if (!active) return;
-    // Only prompt()-driven runs assemble the system prompt through this
-    // handler. Persist the Picode rules as a structured section so later
-    // runs inherit them from the transcript; a forced systemPrompt override
-    // applies only to this run and is not persisted.
+    // Every run — prompt()-driven and sendMessage-triggered alike — assembles
+    // the system prompt through this handler. Persist the Picode rules as a
+    // structured section so later runs inherit them from the transcript; a
+    // forced systemPrompt override applies only to this run and is not
+    // persisted.
 
     // The roster never enters the system prompt. Any text that moves when a
     // worker spawns, finishes, dies, or is revived lands in the request head,

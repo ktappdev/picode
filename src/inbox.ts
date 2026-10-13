@@ -33,7 +33,7 @@ export interface Injection {
 
 /** A coalesced heartbeat batch: parts gathered from the drain and deadline
  *  sources, plus the commit callbacks that must run only after the batch
- *  actually reaches sendUserMessage. Carries commits so a gate flip that
+ *  actually reaches the send API. Carries commits so a gate flip that
  *  buffers the batch also defers its finalize/persist side effects. */
 export interface InjectBatch {
   parts: Injection[];
@@ -92,8 +92,9 @@ export interface Inbox {
    *  or barrier. With `batch`, pushes parts and their persist commit into the
    *  shared coalescing batch instead of injecting. */
   checkDeadlines(ctx: ExtensionContext, batch?: InjectBatch): Promise<void>;
-  /** Push parts into this session as ONE user message (steer if any part is
-   *  urgency=high). Returns true only after sendUserMessage queues the batch;
+  /** Push parts into this session as ONE coalesced message — a custom message
+   *  for the coordinator, a user message for workers (steer if any part is
+   *  urgency=high). Returns true only after the send API queues the batch;
    *  a held batch stays in memory until the gate opens and is not durable.
    *  `onDelivered` runs at most once, only after an actual send. */
   inject(parts: Injection[], ctx: ExtensionContext, onDelivered?: () => Promise<void>): boolean;
@@ -117,15 +118,16 @@ export interface Inbox {
 
 export function createInbox(store: PicodeStore, pi: ExtensionAPI): Inbox {
   // --- injection gate ----------------------------------------------------
-  // pi.sendUserMessage during a run queues safely (pi drains its queues at
-  // turn boundaries and after agent_end handlers). While idle it starts a
-  // new run after an async preflight, and two of those in flight race; worse,
+  // pi.sendUserMessage (and the custom-message sendMessage) during a run
+  // queues safely (pi drains its queues at turn boundaries and after agent_end
+  // handlers). While idle either starts a new run after an async preflight,
+  // and two of those in flight race; worse,
   // during auto-compaction the agent *looks* idle, so an injection starts a
   // run that races the compaction's context rewrite. The gate serializes idle
   // injections and holds new ones shut during compaction.
   //
   // What happens to a batch depends on which side of the gate it landed. A
-  // batch that reaches sendUserMessage is out of picode's hands — picode's
+  // batch that reaches the send API is out of picode's hands — picode's
   // responsibility ends there, and pi owns it from there. A batch the gate
   // held is buffered in memory (pendingParts/pendingDelivered) and retried
   // from the retry timer, turn boundaries, and the heartbeat. That buffer is
@@ -135,11 +137,11 @@ export function createInbox(store: PicodeStore, pi: ExtensionAPI): Inbox {
   // lost if the process dies before the flush.
   //
   // Known residual, pre-existing and not introduced by the inbox funnel:
-  // sendUserMessage is a void API whose runtime wrapper swallows rejections
+  // both send APIs are void methods whose runtime wrappers swallow rejections
   // into the runner's error channel. A genuine send failure is therefore an
   // async rejection picode never sees — inject() has already returned true
   // and the delivery commits have run. There is no rejection seam to hook
-  // here; the only lever would be not calling sendUserMessage at all.
+  // here; the only lever would be not calling the send API at all.
   let inFlightSince: number | null = null;
   let compactingSince: number | null = null;
   let _onInjected: ((parts: Injection[]) => void) | undefined;
@@ -192,22 +194,37 @@ export function createInbox(store: PicodeStore, pi: ExtensionAPI): Inbox {
     const steer = batch.some(p => p.urgency === "high");
     if (batchCtx.isIdle?.() ?? false) inFlightSince = Date.now();
     const body = batch.map(p => p.text).join("\n\n");
-    // Always use sendUserMessage so idle injections go through prompt() and
-    // re-apply Picode's system-prompt sections. sendMessage-triggered
-    // continuation runs skip before_agent_start, so they can inherit a stale
-    // prompt head after other extensions append or reorder content.
+    // Coordinator traffic rides as a picode-envelope CustomMessage so the quiet
+    // operator screen can collapse the body (src/renderers.ts). Pi fires
+    // before_agent_start for sendMessage-triggered runs too, so an idle
+    // coordinator still re-applies Picode's system-prompt sections instead of
+    // inheriting a stale prompt head. Workers keep the verbose sendUserMessage
+    // path: their incoming envelope IS their task, and the human watching a
+    // worker pane wants to see it.
     try {
-      pi.sendUserMessage(body, {
-        deliverAs: steer ? "steer" : "followUp",
-      });
+      if (store.role === "coordinator") {
+        pi.sendMessage(
+          {
+            customType: "picode-envelope",
+            content: body,
+            display: true,
+            details: { count: batch.length, highUrgency: steer },
+          },
+          { triggerTurn: true, deliverAs: steer ? "steer" : "followUp" },
+        );
+      } else {
+        pi.sendUserMessage(body, {
+          deliverAs: steer ? "steer" : "followUp",
+        });
+      }
     } catch (error) {
-      // Retain the whole batch plus its finalizers: a sendUserMessage throw
-      // (e.g. "Agent is already processing") drops nothing on the floor.
+      // Retain the whole batch plus its finalizers: a throw (e.g. "Agent is
+      // already processing") drops nothing on the floor.
       pendingParts = [...batch];
       pendingCtx = batchCtx;
       pendingDelivered = delivered;
       if (process.env.NODE_ENV !== "production") {
-        console.error("[pdbg] inbox.ts: sendUserMessage failed; retaining buffered batch", error);
+        console.error("[pdbg] inbox.ts: inject failed; retaining buffered batch", error);
       }
       schedulePendingRetry();
       return false;

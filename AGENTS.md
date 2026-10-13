@@ -234,6 +234,8 @@ If `npm run test:unit` prints all tests green and then hangs, check for inherite
 - **`src/core/system-prompt.ts`** — Prompt loader; changes affect how prompts are assembled
 - **`src/inbox.ts`** — Obligation/barrier logic; bugs cause silent message drops
 - **`src/lifecycle.ts`** — State machine transitions; bugs cause picode death or stuck states
+- **Injection/cache delivery path (`src/inbox.ts` `inject()`, `src/lifecycle.ts` sit-rep) + `src/renderers.ts`** — Coordinator envelope batches and the sit-rep ride as `picode-envelope`/`picode-system` **CustomMessages** so the quiet operator screen (`/picode-quiet`) can collapse them; workers keep the verbose `sendUserMessage` path. This was restored after `bdecb4b` unified everything on `sendUserMessage` (a workaround for pi <1.2.0 skipping `before_agent_start` on `sendMessage`-triggered runs). Pi ≥1.2.0 fires `before_agent_start` for those runs and fixed the mid-run section-drop cache bug, so the renderer contract is safe again.
+  > **Warning:** I deliberately did not touch the injection/cache design beyond restoring the renderer contract. If you ever see a cache-miss spike after this, `CACHE-DIAGNOSTICS.md` ("`fullPromptHash` cannot see forced-prompt appends") is the place to look.
 - **`src/adapter/local-fs.ts`** — File operations must be atomic (rename for enqueue)
 - **`src/state.ts`** — Heartbeat and state persistence; corruption = picode identity loss
 

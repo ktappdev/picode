@@ -2597,24 +2597,25 @@ describe("lifecycle: bounded sit-reps", () => {
     const h = await sitrepHarness(2);
     try {
       const tick = () => mock.timers.tick(1000);
+      const sitreps = () => h.sentMessages.filter(m => m.customType === "picode-system");
       tick(); // baseline
-      assert.match(h.userMessages[0] ?? "", /picode_list\(\)/);
+      assert.match(sitreps()[0]?.content ?? "", /picode_list\(\)/);
       tick(); // unchanged #1
       tick(); // unchanged #2
-      assert.strictEqual(h.userMessages.length, 3, "each check wakes the coordinator");
+      assert.strictEqual(sitreps().length, 3, "each check wakes the coordinator");
       assert.strictEqual(h.notifications.length, 0, "nothing to report yet");
 
       tick(); // the check after the cap pauses instead of injecting
-      assert.strictEqual(h.userMessages.length, 3, "a paused timer must not wake the model");
+      assert.strictEqual(sitreps().length, 3, "a paused timer must not wake the model");
       assert.match(h.notifications.at(-1)!.text, /2 checks in a row found no changes/);
 
       mock.timers.tick(600_000);
-      assert.strictEqual(h.userMessages.length, 3, "paused means paused — an hour changes nothing");
+      assert.strictEqual(sitreps().length, 3, "paused means paused — an hour changes nothing");
 
       // Operator speaks: fresh baseline, checks run again.
       await h.fire("input", h.makeCtx(), { source: "prompt" });
       tick();
-      assert.strictEqual(h.userMessages.length, 4, "operator input re-arms the timer");
+      assert.strictEqual(sitreps().length, 4, "operator input re-arms the timer");
       closeSitrepHarness(h);
     } finally {
       mock.timers.reset();
@@ -2625,17 +2626,18 @@ describe("lifecycle: bounded sit-reps", () => {
     mock.timers.enable({ apis: ["setInterval"] });
     const h = await sitrepHarness(1);
     try {
+      const sitreps = () => h.sentMessages.filter(m => m.customType === "picode-system");
       mock.timers.tick(1000); // baseline
       mock.timers.tick(1000); // unchanged #1
       mock.timers.tick(1000); // > cap → pause
-      assert.strictEqual(h.userMessages.length, 2);
-      const pausedAt = h.userMessages.length;
+      assert.strictEqual(sitreps().length, 2);
+      const pausedAt = sitreps().length;
 
       // An envelope landing is real activity — the inbox hook restarts the
       // timer, so a paused idle check never eats a teammate's message.
       h.inbox.onInjected?.([{ text: "[request from boss] status?", urgency: "low" }]);
       mock.timers.tick(1000);
-      assert.strictEqual(h.userMessages.length, pausedAt + 1);
+      assert.strictEqual(sitreps().length, pausedAt + 1);
       closeSitrepHarness(h);
     } finally {
       mock.timers.reset();
@@ -2653,7 +2655,11 @@ describe("lifecycle: bounded sit-reps", () => {
     const runCtx = () => h.makeCtx(entries);
     try {
       mock.timers.tick(1000);
-      assert.strictEqual(h.userMessages.length, 1, "sit-rep injected");
+      assert.strictEqual(
+        h.sentMessages.filter(m => m.customType === "picode-system").length,
+        1,
+        "sit-rep injected",
+      );
 
       // The sit-rep run: tools ran, the run settled (open → done), and the
       // picture did not otherwise move.
@@ -5266,19 +5272,22 @@ describe("shared: tabLabelMap", () => {
 });
 
 describe("operator screen: coordinator envelope injections", () => {
-  it("coordinator drains envelopes via prompt()-driven sendUserMessage even when primed", async () => {
+  it("coordinator drains envelopes as a picode-envelope CustomMessage the quiet renderer can collapse", async () => {
     const h = makeHarness(tmpDir);
     h.store.role = "coordinator";
     seedEnvelope(h, "t1", { from: "builder", body: "lexer done" });
     await h.inbox.drainInbox(h.ctx);
-    assert.strictEqual(h.sentCustom.length, 0);
-    assert.strictEqual(h.calls.length, 1);
-    assert.match(h.calls[0].content, /\[note from builder #/);
-    assert.match(h.calls[0].content, /lexer done/);
-    assert.strictEqual(h.calls[0].options?.deliverAs, "followUp");
+    assert.strictEqual(h.sentCustom.length, 1);
+    assert.strictEqual(h.calls.length, 0);
+    assert.strictEqual(h.sentCustom[0].msg.customType, "picode-envelope");
+    assert.match(h.sentCustom[0].msg.content, /\[note from builder #/);
+    assert.match(h.sentCustom[0].msg.content, /lexer done/);
+    assert.deepStrictEqual(h.sentCustom[0].msg.details, { count: 1, highUrgency: false });
+    assert.strictEqual(h.sentCustom[0].options?.triggerTurn, true);
+    assert.strictEqual(h.sentCustom[0].options?.deliverAs, "followUp");
   });
 
-  it("one high-urgency part steers the whole batch", async () => {
+  it("one high-urgency part steers the whole batch and flags the envelope", async () => {
     const h = makeHarness(tmpDir);
     h.store.role = "coordinator";
     seedEnvelope(
@@ -5289,21 +5298,12 @@ describe("operator screen: coordinator envelope injections", () => {
     );
     seedEnvelope(h, "t1", { from: "scout", body: "fyi" }, "1-low.json");
     await h.inbox.drainInbox(h.ctx);
-    assert.strictEqual(h.sentCustom.length, 0);
-    assert.strictEqual(h.calls.length, 1);
-    assert.match(h.calls[0].content, /urgent fix/);
-    assert.match(h.calls[0].content, /fyi/);
-    assert.strictEqual(h.calls[0].options?.deliverAs, "steer");
-  });
-
-  it("unprimed coordinator falls back to sendUserMessage so the first run gets the picode system prompt", async () => {
-    const h = makeHarness(tmpDir);
-    h.store.role = "coordinator";
-    seedEnvelope(h, "t1", { from: "builder", body: "hello" });
-    await h.inbox.drainInbox(h.ctx);
-    assert.strictEqual(h.sentCustom.length, 0);
-    assert.strictEqual(h.calls.length, 1);
-    assert.match(h.calls[0].content, /hello/);
+    assert.strictEqual(h.sentCustom.length, 1);
+    assert.strictEqual(h.calls.length, 0);
+    assert.match(h.sentCustom[0].msg.content, /urgent fix/);
+    assert.match(h.sentCustom[0].msg.content, /fyi/);
+    assert.deepStrictEqual(h.sentCustom[0].msg.details, { count: 2, highUrgency: true });
+    assert.strictEqual(h.sentCustom[0].options?.deliverAs, "steer");
   });
 
   it("worker keeps the verbose path for incoming task envelopes", async () => {
