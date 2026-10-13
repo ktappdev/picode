@@ -59,7 +59,10 @@ function isDue(msg, now) {
 
 /** Claim-and-remove the due mail this gate is allowed to deliver.
  *  highOnly implements §7 urgency: mid-turn openings deliver only
- *  urgency=high; everything else waits for a turn boundary. */
+ *  urgency=high; everything else waits for a turn boundary. `interrupt` is
+ *  strictly more urgent than `high`, so it must never be deferred past it —
+ *  a hook has no way to cancel a pending tool call, and delivering late would
+ *  make the strongest level the weakest. */
 function drain({ highOnly = false } = {}) {
   let files;
   try {
@@ -76,7 +79,7 @@ function drain({ highOnly = false } = {}) {
     const msg = readJsonSafe(path.join(INBOX, f));
     if (!msg || typeof msg !== "object" || !msg.id) continue; // malformed: left in place
     if (!isDue(msg, now)) continue;
-    if (highOnly && msg.urgency !== "high") continue;
+    if (highOnly && msg.urgency !== "high" && msg.urgency !== "interrupt") continue;
     fs.mkdirSync(PROCESSED, { recursive: true });
     try {
       fs.renameSync(path.join(INBOX, f), path.join(PROCESSED, f));
@@ -106,7 +109,9 @@ function updateLedger(messages) {
     barriers: [],
     startedAt: new Date().toISOString(),
     // Advisory (Rev 10 §8.1): hooks push urgency=high mid-turn
-    // (PostToolUse) and honor deliverAfter/expiresAt at drain.
+    // (PostToolUse) and honor deliverAfter/expiresAt at drain. Deliberately
+    // NOT "interrupt": a hook cannot preempt in-flight tool calls, so it must
+    // not claim a capability it cannot honor.
     capabilities: ["urgency", "deliverAfter", "expiresAt"],
     ...(process.env.POSTBOX_WAKE ? { wake: process.env.POSTBOX_WAKE } : {}),
   };

@@ -108,6 +108,14 @@ import { STALE_MS, PROCESSED_TTL_MS, CLIENT_CAPABILITIES, toSummary } from "../s
 import { formatThreadLine } from "../src/core/format";
 import { ulid, mintEnvelopeId } from "../src/core/ids";
 import { detectWorkerRole } from "../src/core/roles";
+import {
+  INTERRUPT_BLOCK_REASON,
+  INTERRUPT_PREEMPT_TTL_MS,
+  armInterruptPreempt,
+  clearInterruptPreempt,
+  interruptPreemptBlockResult,
+  isInterruptPreemptArmed,
+} from "../src/core/interrupt";
 import { threadModelPrompt } from "../src/core/system-prompt";
 import {
   DEFAULT_MODELS,
@@ -483,6 +491,9 @@ beforeEach(() => {
   savedQuietEnv = process.env.PICODE_QUIET_TUI;
   delete process.env.PICODE_QUIET_TUI;
   setQuietTui(false);
+  // Same for the interrupt preempt gate: module state, so a test that arms it
+  // must not refuse a later test's tool calls.
+  clearInterruptPreempt();
 });
 
 afterEach(() => {
@@ -494,6 +505,7 @@ afterEach(() => {
   else process.env.PICODE_QUIET_TUI = savedQuietEnv;
   // Renderers read module state — never let one test's quiet flip leak.
   setQuietTui(false);
+  clearInterruptPreempt();
   // Close handles before the directory they watch is removed, so the watcher
   // isn't left reporting ENOENT against a deleted path.
   for (const store of openStores.splice(0)) {
@@ -912,6 +924,66 @@ describe("tools: picode_send", () => {
     const second = readInboxFile(h, "alice", 1);
     assert.strictEqual(first.urgency, "high");
     assert.strictEqual(second.urgency, undefined);
+  });
+
+  it("urgency=interrupt is written on the wire, and is not collapsed to high (§6)", async () => {
+    const h = makeHarness(tmpDir);
+    seedRemoteThread(h, "alice");
+    await callTool(h, "picode_send", {
+      to: "alice",
+      body: "change of plan",
+      urgency: "interrupt",
+    });
+    assert.strictEqual(readInboxFile(h, "alice", 0).urgency, "interrupt");
+  });
+});
+
+describe("interrupt preempt gate (core/interrupt.ts)", () => {
+  it("refuses a tool call only while armed", () => {
+    assert.strictEqual(
+      interruptPreemptBlockResult(),
+      undefined,
+      "unarmed must not refuse anything",
+    );
+    armInterruptPreempt();
+    assert.strictEqual(isInterruptPreemptArmed(), true);
+    assert.deepStrictEqual(interruptPreemptBlockResult(), {
+      block: true,
+      reason: INTERRUPT_BLOCK_REASON,
+    });
+    clearInterruptPreempt();
+    assert.strictEqual(interruptPreemptBlockResult(), undefined);
+  });
+
+  it("expires as a backstop, so a gate that never reached turn_start cannot refuse work later", () => {
+    const t0 = 1_000_000;
+    armInterruptPreempt(t0);
+    assert.strictEqual(isInterruptPreemptArmed(t0 + INTERRUPT_PREEMPT_TTL_MS), true);
+    assert.strictEqual(isInterruptPreemptArmed(t0 + INTERRUPT_PREEMPT_TTL_MS + 1), false);
+    // Expiry disarms, not merely answers false: the next read cannot revive it.
+    assert.strictEqual(interruptPreemptBlockResult(t0), undefined);
+  });
+});
+
+describe("lifecycle: interrupt gate is wired to tool_call and disarmed at turn_start", () => {
+  it("refuses while armed and stops refusing once the turn boundary pulls the message in", async () => {
+    const h = makeLifecycleHarness(tmpDir);
+    h.setFlag("picode-id", "builder");
+    await h.fire("session_start", h.makeCtx());
+    assert.strictEqual(await h.fire("tool_call", h.makeCtx()), undefined);
+    armInterruptPreempt();
+    assert.deepStrictEqual(await h.fire("tool_call", h.makeCtx()), {
+      block: true,
+      reason: INTERRUPT_BLOCK_REASON,
+    });
+    await h.fire("turn_start", h.makeCtx());
+    assert.strictEqual(await h.fire("tool_call", h.makeCtx()), undefined);
+  });
+
+  it("stays silent in a session that never opted into picode", async () => {
+    const h = makeLifecycleHarness(tmpDir);
+    armInterruptPreempt();
+    assert.strictEqual(await h.fire("tool_call", h.makeCtx()), undefined);
   });
 });
 
@@ -5282,7 +5354,11 @@ describe("operator screen: coordinator envelope injections", () => {
     assert.strictEqual(h.sentCustom[0].msg.customType, "picode-envelope");
     assert.match(h.sentCustom[0].msg.content, /\[note from builder #/);
     assert.match(h.sentCustom[0].msg.content, /lexer done/);
-    assert.deepStrictEqual(h.sentCustom[0].msg.details, { count: 1, highUrgency: false });
+    assert.deepStrictEqual(h.sentCustom[0].msg.details, {
+      count: 1,
+      highUrgency: false,
+      interrupt: false,
+    });
     assert.strictEqual(h.sentCustom[0].options?.triggerTurn, true);
     assert.strictEqual(h.sentCustom[0].options?.deliverAs, "followUp");
   });
@@ -5302,8 +5378,58 @@ describe("operator screen: coordinator envelope injections", () => {
     assert.strictEqual(h.calls.length, 0);
     assert.match(h.sentCustom[0].msg.content, /urgent fix/);
     assert.match(h.sentCustom[0].msg.content, /fyi/);
-    assert.deepStrictEqual(h.sentCustom[0].msg.details, { count: 2, highUrgency: true });
+    assert.deepStrictEqual(h.sentCustom[0].msg.details, {
+      count: 2,
+      highUrgency: true,
+      interrupt: false,
+    });
     assert.strictEqual(h.sentCustom[0].options?.deliverAs, "steer");
+  });
+
+  it("an interrupt part steers, marks the header, and preempts the batch it landed in", async () => {
+    const h = makeHarness(tmpDir);
+    h.store.role = "worker";
+    seedEnvelope(
+      h,
+      "t1",
+      { from: "coordinator", body: "stop the refactor; fix the parser bug", urgency: "interrupt" },
+      "0-interrupt.json",
+    );
+    // The harness default is mid-run (agent.idle === false) — the only case
+    // preemption means anything.
+    await h.inbox.drainInbox(h.ctx);
+    assert.strictEqual(h.calls.length, 1);
+    assert.deepStrictEqual(h.calls[0].options, { deliverAs: "steer" });
+    assert.match(h.calls[0].content, /^\[interrupt note from coordinator #/);
+    // The gate is armed, so the model's not-yet-started tool calls are refused
+    // instead of running out the rest of the old plan...
+    assert.deepStrictEqual(interruptPreemptBlockResult(), {
+      block: true,
+      reason: INTERRUPT_BLOCK_REASON,
+    });
+    // ...and the refusal ends at the next turn boundary, where pi pulls the
+    // steer message into context.
+    clearInterruptPreempt();
+    assert.strictEqual(interruptPreemptBlockResult(), undefined);
+  });
+
+  it("an interrupt delivered to an idle receiver does not arm the gate", async () => {
+    const h = makeHarness(tmpDir);
+    h.store.role = "worker";
+    h.idle = true;
+    seedEnvelope(
+      h,
+      "t1",
+      { from: "coordinator", body: "new direction", urgency: "interrupt" },
+      "0-interrupt.json",
+    );
+    await h.inbox.drainInbox(h.ctx);
+    assert.strictEqual(h.calls.length, 1, "idle delivery starts a fresh run with the message");
+    assert.strictEqual(
+      interruptPreemptBlockResult(),
+      undefined,
+      "arming here would refuse the first tool call of the run it just started",
+    );
   });
 
   it("worker keeps the verbose path for incoming task envelopes", async () => {

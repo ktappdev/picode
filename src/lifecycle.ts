@@ -5,6 +5,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { PicodeStore, PicodeState } from "./core/types";
 import { createInjectBatch, type Inbox, type Injection } from "./inbox";
+import { clearInterruptPreempt, interruptPreemptBlockResult } from "./core/interrupt";
 import { threadModelPrompt } from "./core/system-prompt";
 import { registerCacheDiagnostics } from "./cache-diagnostics";
 import {
@@ -684,8 +685,25 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
     }
   });
 
+  // --- Interrupt preemption ------------------------------------------------
+  // `urgency: "interrupt"` arms the gate in src/core/interrupt.ts while this
+  // picode is mid-run (inbox.ts arms it right after the steer message is
+  // queued). Refusing the call is the whole mechanism: a tool call that was
+  // never started costs nothing, and cutting the batch short is what lets pi
+  // pull the interrupt into context before the next model request. It is
+  // deliberately not an abort — see the module comment for why aborting is
+  // unsafe in an autonomous pane.
+  pi.on("tool_call", async () => {
+    if (!active) return;
+    return interruptPreemptBlockResult();
+  });
+
   pi.on("turn_start", async (_event, ctx) => {
     if (!active) return;
+    // A steering message is pulled into context on this boundary, so an
+    // interrupt armed by the previous batch has done its job: tool calls from
+    // here on belong to a response the model has not produced yet.
+    clearInterruptPreempt();
     inbox.noteRunStarted();
     const wasOnHold = store.state === "on-hold";
     toolUsedThisTurn = false;

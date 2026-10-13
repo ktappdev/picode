@@ -20,21 +20,28 @@ function messageText(content: unknown): string {
  *  content always reaches the model regardless of what this renders. */
 export const envelopeMessageRenderer: MessageRenderer = (message, { expanded }, theme) => {
   const content = messageText(message.content);
-  const details = message.details as { count?: number; highUrgency?: boolean } | undefined;
+  const details = message.details as
+    { count?: number; highUrgency?: boolean; interrupt?: boolean } | undefined;
   const count = details?.count ?? 1;
 
-  // Quiet mode: a collapsed low-urgency batch renders as an empty Text — zero
+  // Quiet mode: a collapsed low-priority batch renders as an empty Text — zero
   // lines under the component's Spacer. The empty component MUST stay truthy:
   // CustomMessageComponent falls back to DEFAULT rendering (full content) when
-  // a renderer returns nothing. High-urgency batches keep their ⚠ line so
-  // escalations still surface, and expanded still shows everything — expand
-  // is the in-place escape hatch while quiet.
-  if (!expanded && isQuietTui() && !details?.highUrgency) return new Text("", 0, 0);
+  // a renderer returns nothing. Steered (⚠) and interrupt (⛔) batches keep
+  // their line so escalations and course corrections still surface, and
+  // expanded still shows everything — expand is the in-place escape hatch
+  // while quiet.
+  if (!expanded && isQuietTui() && !details?.highUrgency && !details?.interrupt)
+    return new Text("", 0, 0);
 
   // First envelope header line looks like "[kind from <id> #<eid> re #<rid>]".
   const firstHeader = /^\[([^\]]+)\]/.exec(content)?.[1] ?? "incoming envelope";
   const more = count > 1 ? theme.fg("dim", `  (+${count - 1} more)`) : "";
-  const marker = details?.highUrgency ? theme.fg("warning", "⚠ ") : "";
+  const marker = details?.interrupt
+    ? theme.fg("error", "⛔ ")
+    : details?.highUrgency
+      ? theme.fg("warning", "⚠ ")
+      : "";
   const collapsed = `${marker}${theme.fg("customMessageLabel", "📨 ")}${theme.fg("dim", firstHeader)}${more}`;
 
   return systemBox(

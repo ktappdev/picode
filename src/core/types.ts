@@ -8,11 +8,13 @@ import type { PicodeAdapter } from "../adapter/types";
 
 export type PicodeState = "idle" | "thinking" | "working" | "open" | "on-hold" | "stopped" | "done";
 
-/** Wire urgency level (§6). Deliberately abstract: this client maps `high`
- *  to a steering injection and `low` (the default when absent) to delivery
- *  at idle; other implementations may map levels differently. Receivers
- *  treat unknown levels as `low` (§6, must-ignore discipline). */
-export type Urgency = "high" | "low";
+/** Wire urgency level (§6). Deliberately abstract: this client maps
+ *  `interrupt` to a steering injection that also preempts the receiver's
+ *  current tool batch, `high` to a plain steering injection, and `low` (the
+ *  default when absent) to delivery at idle; other implementations may map
+ *  levels differently. Receivers treat unknown levels as `low` (§6,
+ *  must-ignore discipline). */
+export type Urgency = "interrupt" | "high" | "low";
 
 /** The one wire record (PROTOCOL-FORMALISM.md §6). Self-contained: `to` is
  *  consumed at enqueue to place the envelope; receivers never branch on it
@@ -29,7 +31,9 @@ export interface Envelope {
   re?: string;
   /** The sender tracks a debt; reply with re = this envelope's id. */
   expects?: true;
-  /** Delivery-priority hint. Absent = "low". */
+  /** Delivery-priority hint. Absent = "low". `interrupt` is `high` plus
+   *  preemption: the receiver's not-yet-started tool calls are refused so it
+   *  reads the message before its next model request. */
   urgency?: Urgency;
   /** Not drainable before this instant — delayed delivery / self-wakes. */
   deliverAfter?: string;
@@ -95,6 +99,7 @@ export interface Barrier {
  *  readers ignore unknown tokens. The pi client honors all of these. */
 export const CLIENT_CAPABILITIES = [
   "urgency", // urgency=high steers mid-turn, not just at idle
+  "interrupt", // urgency=interrupt also preempts the current tool batch
   "barriers", // durable reply barriers (§12.1)
   "deliverAfter", // scheduled self-wakes honored
   "expiresAt", // stale mail discarded at drain (Rev 10)

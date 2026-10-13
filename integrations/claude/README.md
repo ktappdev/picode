@@ -13,12 +13,12 @@ Two pieces:
 - **Hooks** (`bin/postbox-hook.mjs`, one script on four events) — push
   delivery, so the session doesn't have to poll:
 
-  | Event              | Gate                                                                     |
-  | ------------------ | ------------------------------------------------------------------------ |
-  | `SessionStart`     | cold-start drain of all due mail                                         |
-  | `UserPromptSubmit` | turn-start drain of all due mail                                         |
-  | `PostToolUse`      | `urgency=high` mail injected at the next tool boundary — mid-turn        |
-  | `Stop`             | pending mail blocks the stop; the turn continues with the mail delivered |
+  | Event              | Gate                                                                                                                                         |
+  | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
+  | `SessionStart`     | cold-start drain of all due mail                                                                                                             |
+  | `UserPromptSubmit` | turn-start drain of all due mail                                                                                                             |
+  | `PostToolUse`      | `urgency=high` (and `interrupt`, which a hook cannot preempt but must never defer past `high`) injected at the next tool boundary — mid-turn |
+  | `Stop`             | pending mail blocks the stop; the turn continues with the mail delivered                                                                     |
 
   The only blind window is a turn that streams prose without a single
   tool call — that mail lands at `Stop`. True mid-generation steer needs

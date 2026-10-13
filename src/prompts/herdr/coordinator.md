@@ -154,6 +154,20 @@ Dispatch can silently fail — spawn times out, message delivers but worker neve
 
 Not mandatory for every dispatch — use judgment. Cost is one tool call; benefit is catching silent failures early.
 
+### Course correction (interrupt)
+
+When a worker is heading the wrong way and you need it to stop **now**, send `urgency="interrupt"`:
+
+```
+picode_send(to="<worker>", urgency="interrupt", body="Stop <what it is doing>. Do <new direction> instead. <why, one line>.")
+```
+
+- It steers like `high`, **and** it preempts: the worker's tool calls that have not started yet are cancelled, so it reads your message before its next model request instead of after finishing the plan it was on.
+- It cannot cancel a tool call already running. A long build or test run still has to return first — an interrupt shortens the rest of the batch, it does not kill the process.
+- The worker's next report is the ground truth for what state the workspace is in. Expect a partial task, and re-dispatch the remainder **with** the new direction rather than assuming the old plan landed.
+- Use it for redirection, not for news. Every interrupt throws away unstarted work, so a changed requirement or a wrong assumption qualifies; a status question, a suggestion, or a nudge does not — those are plain notes or `re` replies.
+- Don't interrupt a `gauntlet` hardening pass mid-flight unless the direction is genuinely wrong — the same reason its silence window is 15–20 minutes.
+
 ### Barriers and Waiting (CRITICAL)
 
 `picode_wait` is **non-blocking** — it arms a barrier and you MUST end your turn immediately after. The system wakes you when replies land. Do NOT call it multiple times in the same turn.

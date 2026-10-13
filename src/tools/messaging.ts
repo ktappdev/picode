@@ -60,9 +60,9 @@ export function registerMessagingTools(pi: ExtensionAPI, store: PicodeStore, inb
     name: "picode_send",
     label: "Picode Send",
     description:
-      'Send a message to other picode(s). `to` accepts a picode id, a comma-separated list, `*` (all known threads), or `role:<role>` — see picode_list. Set expects=true when you need a reply (a "request" — tracked as an obligation until the reply lands). Set re=<id> to reply to a message you received (this discharges the debt). Both together = a reply that asks a follow-up. Neither = a plain note. To your parent with expects=true and urgency="high" = an escalation. A future-dated send to your OWN id (deliverAfterSeconds) is a scheduled self-wake.',
+      'Send a message to other picode(s). `to` accepts a picode id, a comma-separated list, `*` (all known threads), or `role:<role>` — see picode_list. Set expects=true when you need a reply (a "request" — tracked as an obligation until the reply lands). Set re=<id> to reply to a message you received (this discharges the debt). Both together = a reply that asks a follow-up. Neither = a plain note. To your parent with expects=true and urgency="high" = an escalation. urgency="interrupt" = a course correction: it preempts the receiver mid-task so it reads your new direction before its next model request. A future-dated send to your OWN id (deliverAfterSeconds) is a scheduled self-wake.',
     promptSnippet:
-      "Send a message to other picode(s); expects=true for a request, re=<id> to reply, to parent+high=escalation.",
+      'Send a message to other picode(s); expects=true for a request, re=<id> to reply, to parent+high=escalation, urgency="interrupt" to redirect a task mid-flight.',
     parameters: Type.Object({
       to: Type.String({
         description: 'Target: picode id, "a,b,c", "*", or "role:<role>".',
@@ -81,9 +81,9 @@ export function registerMessagingTools(pi: ExtensionAPI, store: PicodeStore, inb
         }),
       ),
       urgency: Type.Optional(
-        Type.Union([Type.Literal("high"), Type.Literal("low")], {
+        Type.Union([Type.Literal("interrupt"), Type.Literal("high"), Type.Literal("low")], {
           description:
-            "Delivery priority: high interrupts the receiver at its next opening; low (default) delivers when it is idle.",
+            'Delivery priority. "interrupt": a course correction — the receiver\'s tool calls that have not started yet are cancelled and it reads you before its next model request (a tool call already running still finishes). "high": steers — read at the receiver\'s next opening. "low" (default): waits until the receiver is idle.',
         }),
       ),
       deliverAfterSeconds: Type.Optional(

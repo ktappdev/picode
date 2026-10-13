@@ -10,6 +10,9 @@ import { setTimeout } from "node:timers";
 
 const STALE_MS = 60000;
 
+/** Wire urgency levels (PROTOCOL-FORMALISM.md §6); absence means "low". */
+const VALID_URGENCIES = new Set(["interrupt", "high", "low"]);
+
 function usage() {
   return `picode-cli.mjs — monitor and steer a multi-agent picode system
 
@@ -28,8 +31,10 @@ Commands:
     --from <id>                 Sender id (default: "user")
     --re <envelopeId>           Reply correlation: settles the debt on that id
     --expects                   Ask for a reply (the receiver records an owed reply)
-    --urgency <high|low>        Delivery priority (default: high — operator sends
-                                should be seen at the target's next opening)
+    --urgency <interrupt|high|low> Delivery priority (default: high — operator
+                                sends should be seen at the target's next opening;
+                                "interrupt" also cancels the target's not-yet-started
+                                tool calls so it reads you before its next model request)
     --deliver-after <seconds>   Hold the envelope for N seconds before delivery
     --expires-in <seconds>      Discard undelivered after N seconds (time-sensitive notes)
     Use "<to>" = "*" to fan out to every picode except --from.
@@ -388,8 +393,10 @@ function cmdSend(args) {
     process.stderr.write("usage: picode-cli.mjs send <to> <body...>\n");
     return 1;
   }
-  if (args.urgency && args.urgency !== "high" && args.urgency !== "low") {
-    process.stderr.write(`error: unknown urgency "${args.urgency}". Valid: high, low\n`);
+  if (args.urgency && !VALID_URGENCIES.has(args.urgency)) {
+    process.stderr.write(
+      `error: unknown urgency "${args.urgency}". Valid: ${[...VALID_URGENCIES].join(", ")}\n`,
+    );
     return 1;
   }
   const from = args.from ?? "user";
@@ -442,7 +449,7 @@ function cmdSend(args) {
       sentAt,
       ...(args.re ? { re: args.re } : {}),
       ...(args.expects ? { expects: true } : {}),
-      ...(urgency === "high" ? { urgency } : {}),
+      ...(urgency !== "low" ? { urgency } : {}),
       ...(deliverAfter ? { deliverAfter } : {}),
       ...(expiresAt ? { expiresAt } : {}),
     };

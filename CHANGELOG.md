@@ -4,6 +4,10 @@ All notable changes to picode are documented here. Format follows [Keep a Change
 
 ## Unreleased
 
+### Added
+
+- **`urgency="interrupt"` — redirect a worker mid-task.** A third wire urgency level between `high` and `low`: it steers like `high` _and_ preempts, so a course correction lands before the receiver's next model request instead of after it finishes the plan it was already on. The receiver's tool calls that have not started yet are refused (`tool_call` returning `block`), which ends the batch early and lets pi pull the interrupt into context at the next turn boundary; an interrupt is labelled `[interrupt request from …]` in the envelope header so it never reads as one more queued note. It cannot cancel a tool call already running — a long build still has to return first. `high` is unchanged, `low` is still the default, and receivers that do not know the level still read it as `low` (§6 must-ignore). Deliberately implemented without `ctx.abort()`: pi's abort contract returns queued messages to the editor, which in an autonomous worker pane strands picode traffic in an input box nobody submits. Wired through `picode_send`, `/picode-send`'s CLI equivalent (`picode-cli.mjs send --urgency interrupt`), the capability token, the coordinator prompt (new "Course correction (interrupt)" section), the shared communication model, and the worker contract. See `src/core/interrupt.ts`.
+
 ### Fixed
 
 - Isolated sit-rep tests from the developer's global journal-cadence preference.

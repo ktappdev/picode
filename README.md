@@ -136,7 +136,8 @@ Envelope {
   sentAt        ISO-8601 timestamp
   re?           reply correlation: settles the debt on that envelope id
   expects?      true means the sender needs a reply, tracked until one arrives
-  urgency?      "high" interrupts at the next opening, "low" waits until idle
+  urgency?      "interrupt" cancels the receiver's unstarted tool calls and steers;
+                "high" steers at the next opening; "low" waits until idle
   deliverAfter? not deliverable before this instant
   expiresAt?    not deliverable after this instant
 }
@@ -148,6 +149,7 @@ Here is how it reads in practice:
 - `re: <id>` makes a **reply**. It settles the debt.
 - Both together is a reply that asks a follow-up, useful when you can't answer without more information.
 - Neither is a plain **note**.
+- `urgency` sets when it lands. `low` (the default) waits until the receiver is idle; `high` steers — the receiver reads it at its next opening, before its next model request; `interrupt` steers **and preempts** — the receiver's tool calls that have not started yet are cancelled so it reads you before its next model request. An interrupt is labelled `[interrupt request from …]` in the message header. It cannot cancel a tool call that is already running.
 
 There are no message types on the wire and no locks. If a picode wants to block on a reply, it arms a barrier (with `wait=true` or `picode_wait`) and ends its turn. The reply wakes it. A scheduled self-wake is just an envelope to your own name with `deliverAfter`.
 
@@ -155,22 +157,22 @@ Messages show up as `[<kind> from <sender> #<id>]`. The kind (request, reply, re
 
 ## Tools the model can use
 
-| Tool                | Purpose                                                                                                                                                                                           |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `picode_send`       | Send an envelope to one name, `a,b`, `*`, or `role:<role>`. Supports `expects`, `re`, `urgency`, `deliverAfterSeconds`, `wait=true` to arm a barrier inline.                                      |
-| `picode_wait`       | Wait for all or any of several outstanding replies (a barrier). Accepts `deadlineSeconds` and an optional `message` injected on resolution.                                                       |
-| `picode_status`     | Read this picode's state, obligations, owed replies, barriers, and journal.                                                                                                                       |
-| `picode_list`       | List all known threads in the workspace. `recent=true` adds the recent-workers digest (exact ids, derived areas, context age, what each left unverified) — use it before `revive_closed_session`. |
-| `picode_journal`    | Read another picode's journal, filtered by `tail` or `lookbackMinutes`.                                                                                                                           |
-| `picode_suspend`    | Mark this picode On Hold. The inbox queues until resume.                                                                                                                                          |
-| `picode_resume`     | Resume from On Hold and drain queued messages.                                                                                                                                                    |
-| `picode_panes`      | Survey panes/windows in the current runtime scope: status, role, and cleanup suggestions. Read-only surveillance.                                                                                 |
-| `picode_pane_read`  | Read a worker pane's terminal output (scrollback). Use for silent worker recovery — when a worker owes a reply but hasn't sent via picode_send.                                                   |
-| `spawn_worker`      | Spawn a new worker pane: splits, names, launches pi, waits for idle. Auto-reuses idle workers, claims empty panes, grid-aware split direction. Optional `tab` param for multi-tab spawning.       |
-| `picode_tab_create` | Open a Herdr tab. Coordinator-only.                                                                                                                                                               |
-| `picode_tab_close`  | Close a Herdr tab. Refuses working or coordinator panes. Coordinator-only.                                                                                                                        |
-| `cleanup_panes`     | Close known stale worker panes in the current runtime scope. `dry_run=true` previews; `pane_id="<id>"` targets one; `force=true` permits idle workers.                                            |
-| `picode_purge`      | Delete stale picode data directories. Default skips local debts and coordinator references; `force=true` also reconciles this picode's ledgers.                                                   |
+| Tool                | Purpose                                                                                                                                                                                                |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `picode_send`       | Send an envelope to one name, `a,b`, `*`, or `role:<role>`. Supports `expects`, `re`, `urgency` (`interrupt` redirects a worker mid-task), `deliverAfterSeconds`, `wait=true` to arm a barrier inline. |
+| `picode_wait`       | Wait for all or any of several outstanding replies (a barrier). Accepts `deadlineSeconds` and an optional `message` injected on resolution.                                                            |
+| `picode_status`     | Read this picode's state, obligations, owed replies, barriers, and journal.                                                                                                                            |
+| `picode_list`       | List all known threads in the workspace. `recent=true` adds the recent-workers digest (exact ids, derived areas, context age, what each left unverified) — use it before `revive_closed_session`.      |
+| `picode_journal`    | Read another picode's journal, filtered by `tail` or `lookbackMinutes`.                                                                                                                                |
+| `picode_suspend`    | Mark this picode On Hold. The inbox queues until resume.                                                                                                                                               |
+| `picode_resume`     | Resume from On Hold and drain queued messages.                                                                                                                                                         |
+| `picode_panes`      | Survey panes/windows in the current runtime scope: status, role, and cleanup suggestions. Read-only surveillance.                                                                                      |
+| `picode_pane_read`  | Read a worker pane's terminal output (scrollback). Use for silent worker recovery — when a worker owes a reply but hasn't sent via picode_send.                                                        |
+| `spawn_worker`      | Spawn a new worker pane: splits, names, launches pi, waits for idle. Auto-reuses idle workers, claims empty panes, grid-aware split direction. Optional `tab` param for multi-tab spawning.            |
+| `picode_tab_create` | Open a Herdr tab. Coordinator-only.                                                                                                                                                                    |
+| `picode_tab_close`  | Close a Herdr tab. Refuses working or coordinator panes. Coordinator-only.                                                                                                                             |
+| `cleanup_panes`     | Close known stale worker panes in the current runtime scope. `dry_run=true` previews; `pane_id="<id>"` targets one; `force=true` permits idle workers.                                                 |
+| `picode_purge`      | Delete stale picode data directories. Default skips local debts and coordinator references; `force=true` also reconciles this picode's ledgers.                                                        |
 
 ## Slash commands for humans
 
@@ -186,7 +188,7 @@ Messages show up as `[<kind> from <sender> #<id>]`. The kind (request, reply, re
 | `/picode-journal`          | View, trim, clear, or compact the journal.           |
 | `/picode-quiet`            | Toggle the quiet operator screen (display only).     |
 
-`/picode-quiet` hides picode's traffic rows — envelope batches, system prompts, and quiet-tool call rows — without changing behavior: messages, obligations, journal, status, and the model's context are untouched. High-urgency (⚠) envelopes stay visible, and expanding any row still shows it. Usage: `/picode-quiet [on | off | status] [--project]`. The saved setting resolves `PICODE_QUIET_TUI=1|0` env → project `<git-root>/.picode/quiet-tui.json` → global `~/.pi/agent/.picode/quiet-tui.json` → loud (default).
+`/picode-quiet` hides picode's traffic rows — envelope batches, system prompts, and quiet-tool call rows — without changing behavior: messages, obligations, journal, status, and the model's context are untouched. Steered (⚠) and interrupt (⛔) envelopes stay visible, and expanding any row still shows it. Usage: `/picode-quiet [on | off | status] [--project]`. The saved setting resolves `PICODE_QUIET_TUI=1|0` env → project `<git-root>/.picode/quiet-tui.json` → global `~/.pi/agent/.picode/quiet-tui.json` → loud (default).
 
 ## Worker roles
 

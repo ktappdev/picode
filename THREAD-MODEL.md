@@ -96,7 +96,7 @@ One envelope shape (`src/core/types.ts` `Envelope`); `expects` and `re` presence
 | **reply**         | `re`      | settles the debt keyed by `re`                                        |
 | **reply+request** | both      | settles the old debt, opens a new one the other way ("pass the ball") |
 
-`urgency: "high"` interrupts the receiver at its next opening; absent/low waits for idle. `deliverAfter` holds the envelope until due — a self-addressed one is a scheduled wake. Conventions on top: a **meeting** (request "meet?" → ok/busy → high-urgency notes → "closing", exclusivity advisory) and an **escalation** (request to `parent` at high urgency).
+`urgency` has three levels: absent/`low` waits for idle, `high` steers (read at the receiver's next opening, once its in-flight tool batch finishes), and `interrupt` steers **and preempts** — the receiver's not-yet-started tool calls are refused so it reads the message before its next model request. No level cancels a tool call that is already running. `deliverAfter` holds the envelope until due — a self-addressed one is a scheduled wake. Conventions on top: a **meeting** (request "meet?" → ok/busy → high-urgency notes → "closing", exclusivity advisory) and an **escalation** (request to `parent` at high urgency).
 
 ---
 
@@ -104,13 +104,15 @@ One envelope shape (`src/core/types.ts` `Envelope`); `expects` and `re` presence
 
 Cooperative by default. The harness handles unconditional stops externally.
 
-| Level       | Delivery                                               | Resumable |
-| ----------- | ------------------------------------------------------ | --------- |
-| **high**    | At next Open — picode finishes current tool call first | Yes       |
-| **Suspend** | At next Open — picode finishes current turn cleanly    | Yes       |
-| **Abort**   | Immediate (harness-level, not a message)               | No        |
+| Level         | Delivery                                                         | Resumable |
+| ------------- | ---------------------------------------------------------------- | --------- |
+| **low**       | At the next Open — waits for the receiver to go idle             | Yes       |
+| **high**      | At the next Open — picode finishes its in-flight tool call first | Yes       |
+| **interrupt** | Before the next model request — unstarted tool calls are refused | Yes       |
+| **Suspend**   | At next Open — picode finishes current turn cleanly              | Yes       |
+| **Abort**     | Immediate (harness-level, not a message)                         | No        |
 
-No hard interrupt mid-Thinking or mid-Working. Messages queue for the next Open.
+No level cancels a tool call that is already running, and nothing here aborts a run: pi's abort contract returns every queued message to the editor (`docs/how-pi-works.md`, "Agent loop"), which an autonomous pane never submits and which can strand picode traffic in an input box. `interrupt` is the strongest safe stop — `src/core/interrupt.ts` carries the reasoning.
 
 ---
 
@@ -204,7 +206,7 @@ The last hop — from a drained mailbox into this session's own conversation via
 - While pi is _idle_, each injection starts a **new agent run** after an async preflight; two of those racing means the loser is dropped by pi with `"Agent is already processing"`.
 - During auto-compaction the agent _looks_ idle, so an unguarded injection starts a run that races the compaction's own context rewrite (pi's TUI holds user input during compaction for exactly this reason; extensions get no such guard for free).
 
-So `canInject()` returns `false` (and every drain call is a no-op — envelopes stay durably claimed-but-undelivered on disk, or simply undrained) while: (a) `compactingSince` is set and less than `COMPACTION_HOLD_MAX_MS` (180s) old — set by `session_before_compact`, cleared by `session_compact` (compaction failures emit no end event, hence the timeout fallback rather than waiting forever); or (b) `inFlightSince` is set and less than `INJECTION_GRACE_MS` (3s) old — set the instant an idle-time injection fires, cleared by `turn_start` (or the 3s fallback if `turn_start` never lands). Each drain that _does_ proceed coalesces every pending envelope's `Injection` into exactly **one** `pi.sendUserMessage` call (`inject()`), steering (`deliverAs: "steer"`) if any part is `urgency: "high"`, else `deliverAs: "followUp"`. Retries for gated messages come from the watcher, `turn_end`, and the heartbeat — a hold delays delivery, never loses it.
+So `canInject()` returns `false` (and every drain call is a no-op — envelopes stay durably claimed-but-undelivered on disk, or simply undrained) while: (a) `compactingSince` is set and less than `COMPACTION_HOLD_MAX_MS` (180s) old — set by `session_before_compact`, cleared by `session_compact` (compaction failures emit no end event, hence the timeout fallback rather than waiting forever); or (b) `inFlightSince` is set and less than `INJECTION_GRACE_MS` (3s) old — set the instant an idle-time injection fires, cleared by `turn_start` (or the 3s fallback if `turn_start` never lands). Each drain that _does_ proceed coalesces every pending envelope's `Injection` into exactly **one** send (`inject()`) — a `picode-envelope` CustomMessage for the coordinator, so the quiet operator screen can collapse it, and a plain `pi.sendUserMessage` for workers, whose incoming envelope is their task. Either way it steers (`deliverAs: "steer"`) if any part is above `low`, else `deliverAs: "followUp"`. A part at `interrupt` additionally arms the tool-call gate (`src/core/interrupt.ts`), which refuses the receiver's not-yet-started tool calls until the next `turn_start` pulls the message into context. Retries for gated messages come from the watcher, `turn_end`, and the heartbeat — a hold delays delivery, never loses it.
 
 ---
 

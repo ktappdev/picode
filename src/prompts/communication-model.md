@@ -23,7 +23,13 @@ There is ONE message shape. Two optional fields give it meaning:
 - Both together — a reply that asks a follow-up (settles the old debt, opens a new one the other way). Use this to "pass the ball" when you can't answer without more information: reply with what you need, expects=true.
 - Neither — a plain _note_ (fire-and-forget).
 
-**urgency** ("high"/"low", default low) controls when it lands: high interrupts the receiver at its next opening; low waits until it is idle.
+**urgency** ("low" | "high" | "interrupt", default low) controls when it lands:
+
+- **low** — the default. Waits until the receiver is idle (the end of its current run). Correct for routine news.
+- **high** — _steers_: the receiver reads it at its next opening, before its next model request. It still finishes the tool calls it already started.
+- **interrupt** — _steers and preempts_: the receiver's tool calls that have not started yet are cancelled, the batch ends early, and it reads you before its next model request. This is how you change direction mid-task ("stop that, do this instead"). It cannot cancel a tool call already running — a long build still has to return first. Reserve it for genuine redirection; it throws away the receiver's unstarted work.
+
+An interrupt says so in the header — `[interrupt request from <sender> #<id>]` — so the receiver knows the message cancelled work on the way in.
 
 ### Incoming messages
 
@@ -33,24 +39,26 @@ Messages arrive as `[<kind> from <sender> #<id>]` followed by the body — kind 
 
 ### Pattern → Call Map
 
-| Pattern                                            | Call                                                                                                                                         |
-| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| Give someone work / ask a question                 | picode_send(expects=true) — optionally deadlineSeconds                                                                                       |
-| Reply to a request you received                    | picode_send(re=<the #id you received>)                                                                                                       |
-| Can't answer yet — missing info from the requester | picode_send(re=<id>, expects=true, body="what you need") — passes the ball                                                                   |
-| Give guidance or a suggestion                      | picode_send (plain note)                                                                                                                     |
-| Broadcast info to many                             | picode_send(to="*" or "a,b" or "role:<role>")                                                                                                |
-| Escalate an assigned request when blocked          | picode_send(re=<id>, expects=true, to=parent, urgency="high"); otherwise send a high-urgency note                                            |
-| Send and wait for the reply in one step            | picode_send(expects=true, wait=true)                                                                                                         |
-| Fan out work, then wait                            | picode_send(expects=true) per target, then picode_wait([ids])                                                                                |
-| Wait for several replies at once                   | picode_wait(ids, mode="all" or "any") — optional message payload injected on resolution                                                      |
-| Have a live back-and-forth (a "meeting")           | request "meet?" → they reply ok/busy → exchange urgency="high" notes → note "closing". If they say busy, try later — exclusivity is advisory |
-| Wake yourself up at a future time                  | picode_send(to=<your own id>, deliverAfterSeconds=N)                                                                                         |
-| Pause yourself gracefully                          | picode_suspend(reason) — inbox queues until resume                                                                                           |
-| Wake up after being On Hold                        | picode_resume                                                                                                                                |
+| Pattern                                            | Call                                                                                                                                                            |
+| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Give someone work / ask a question                 | picode_send(expects=true) — optionally deadlineSeconds                                                                                                          |
+| Reply to a request you received                    | picode_send(re=<the #id you received>)                                                                                                                          |
+| Can't answer yet — missing info from the requester | picode_send(re=<id>, expects=true, body="what you need") — passes the ball                                                                                      |
+| Give guidance or a suggestion                      | picode_send (plain note)                                                                                                                                        |
+| Change a worker's direction mid-task               | picode_send(to=<worker>, urgency="interrupt", body="stop <X>; do <Y> instead") — cancels its unstarted tool calls so it reads you before its next model request |
+| Broadcast info to many                             | picode_send(to="*" or "a,b" or "role:<role>")                                                                                                                   |
+| Escalate an assigned request when blocked          | picode_send(re=<id>, expects=true, to=parent, urgency="high"); otherwise send a high-urgency note                                                               |
+| Send and wait for the reply in one step            | picode_send(expects=true, wait=true)                                                                                                                            |
+| Fan out work, then wait                            | picode_send(expects=true) per target, then picode_wait([ids])                                                                                                   |
+| Wait for several replies at once                   | picode_wait(ids, mode="all" or "any") — optional message payload injected on resolution                                                                         |
+| Have a live back-and-forth (a "meeting")           | request "meet?" → they reply ok/busy → exchange urgency="high" notes → note "closing". If they say busy, try later — exclusivity is advisory                    |
+| Wake yourself up at a future time                  | picode_send(to=<your own id>, deliverAfterSeconds=N)                                                                                                            |
+| Pause yourself gracefully                          | picode_suspend(reason) — inbox queues until resume                                                                                                              |
+| Wake up after being On Hold                        | picode_resume                                                                                                                                                   |
 
 ### Anti-patterns
 
+- ❌ Using `urgency="interrupt"` for anything but a genuine direction change — it cancels work in flight. News, hints, and suggestions are plain notes.
 - ❌ Writing "Hey link, here's the plan..." in plain text — this only reaches the user. Use picode_send.
 - ❌ Announcing what you're about to do before doing it — just call the tool.
 - ❌ Replying without re — a reply that doesn't echo the #id settles nothing; the sender keeps waiting.
@@ -75,5 +83,5 @@ If the system reminds you about an owed reply while you are still legitimately w
 
 ### Key Rules
 
-1. Messages only land at Open — finish your current tool call first, then drain
+1. Messages land at the next opening — finish your current tool call first, then drain. An `urgency="interrupt"` message arrives the same way, but it also cancels tool calls that had not started.
 2. A debt is settled ONLY by a reply carrying the right re — plain text settles nothing

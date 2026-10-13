@@ -2,6 +2,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import type { PicodeStore, Envelope, Urgency } from "./core/types";
 import { STALE_MS, DEFAULT_OBLIGATION_DEADLINE_MS } from "./core/types";
 import { mintEnvelopeId } from "./core/ids";
+import { armInterruptPreempt } from "./core/interrupt";
 import { nowIso } from "./core/time";
 
 /** The messaging engine (PROTOCOL-FORMALISM.md §§6–9): envelope sends and
@@ -94,7 +95,7 @@ export interface Inbox {
   checkDeadlines(ctx: ExtensionContext, batch?: InjectBatch): Promise<void>;
   /** Push parts into this session as ONE coalesced message — a custom message
    *  for the coordinator, a user message for workers (steer if any part is
-   *  urgency=high). Returns true only after the send API queues the batch;
+   *  above `low`). Returns true only after the send API queues the batch;
    *  a held batch stays in memory until the gate opens and is not durable.
    *  `onDelivered` runs at most once, only after an actual send. */
   inject(parts: Injection[], ctx: ExtensionContext, onDelivered?: () => Promise<void>): boolean;
@@ -188,11 +189,19 @@ export function createInbox(store: PicodeStore, pi: ExtensionAPI): Inbox {
     const batch = pendingParts.length > 0 ? [...pendingParts, ...parts] : parts;
     const batchCtx = pendingCtx ?? ctx;
     const delivered = onDelivered ? [...pendingDelivered, onDelivered] : pendingDelivered;
-    // One coalesced message per batch (§7.5): a high-urgency part anywhere
-    // makes the whole batch steer; low parts just arrive a little earlier
-    // than they had to, which is harmless.
-    const steer = batch.some(p => p.urgency === "high");
-    if (batchCtx.isIdle?.() ?? false) inFlightSince = Date.now();
+    // One coalesced message per batch (§7.5): anything above `low` makes the
+    // whole batch steer; `low` parts just arrive a little earlier than they
+    // had to, which is harmless.
+    const steer = batch.some(p => p.urgency !== "low");
+    const interrupt = batch.some(p => p.urgency === "interrupt");
+    const idle = batchCtx.isIdle?.() ?? false;
+    // Preemption (src/core/interrupt.ts) only means something mid-run: an
+    // idle delivery already starts a fresh run, so there is no in-flight
+    // batch to cut short, and arming there would refuse the first tool call of
+    // the new run instead. Armed below, after the send actually queues — an
+    // armed gate must always have its message waiting at the next boundary.
+    const preempt = interrupt && !idle;
+    if (idle) inFlightSince = Date.now();
     const body = batch.map(p => p.text).join("\n\n");
     // Coordinator traffic rides as a picode-envelope CustomMessage so the quiet
     // operator screen can collapse the body (src/renderers.ts). Pi fires
@@ -208,7 +217,7 @@ export function createInbox(store: PicodeStore, pi: ExtensionAPI): Inbox {
             customType: "picode-envelope",
             content: body,
             display: true,
-            details: { count: batch.length, highUrgency: steer },
+            details: { count: batch.length, highUrgency: steer, interrupt },
           },
           { triggerTurn: true, deliverAs: steer ? "steer" : "followUp" },
         );
@@ -237,6 +246,7 @@ export function createInbox(store: PicodeStore, pi: ExtensionAPI): Inbox {
     pendingDelivered = [];
     if (pendingRetry) clearTimeout(pendingRetry);
     pendingRetry = undefined;
+    if (preempt) armInterruptPreempt();
     _onInjected?.(batch);
     _onInject?.(batch, batchCtx);
     for (const commit of delivered) {
@@ -303,8 +313,8 @@ export function createInbox(store: PicodeStore, pi: ExtensionAPI): Inbox {
       sentAt: nowIso(),
       ...(opts.re ? { re: opts.re } : {}),
       ...(opts.expects ? { expects: true as const } : {}),
-      // Absence means "low" on the wire (§6) — only high is written.
-      ...(opts.urgency === "high" ? { urgency: "high" as const } : {}),
+      // Absence means "low" on the wire (§6) — only elevated levels are written.
+      ...(opts.urgency && opts.urgency !== "low" ? { urgency: opts.urgency } : {}),
       ...(opts.deliverAfter ? { deliverAfter: opts.deliverAfter } : {}),
       ...(opts.expiresAt ? { expiresAt: opts.expiresAt } : {}),
     };
@@ -398,7 +408,10 @@ export function createInbox(store: PicodeStore, pi: ExtensionAPI): Inbox {
     const kind =
       msg.expects && msg.re ? "reply+request" : msg.expects ? "request" : msg.re ? "reply" : "note";
     const reTag = msg.re ? ` re #${msg.re}` : "";
-    const header = `[${kind} from ${msg.from} #${msg.id}${reTag}]`;
+    // An interrupt names itself in the header. It is the one envelope that
+    // cancelled work on the way in, so it must not read as one more queued
+    // note; the `interrupt` prefix is documented in the communication model.
+    const header = `[${msg.urgency === "interrupt" ? `interrupt ${kind}` : kind} from ${msg.from} #${msg.id}${reTag}]`;
     const hint = msg.expects
       ? `\n(this expects a reply — send it with: picode_send to="${msg.from}" re="${msg.id}")`
       : "";

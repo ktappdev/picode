@@ -296,8 +296,10 @@ function toolPicodeSend(params) {
   if (!body || typeof body !== "string") {
     return errorResult('picode_send: "body" is required');
   }
-  if (urgency !== undefined && urgency !== "high" && urgency !== "low") {
-    return errorResult(`picode_send: unknown urgency "${urgency}" — use "high" or "low"`);
+  if (urgency !== undefined && urgency !== "interrupt" && urgency !== "high" && urgency !== "low") {
+    return errorResult(
+      `picode_send: unknown urgency "${urgency}" — use "interrupt", "high", or "low"`,
+    );
   }
 
   const sentAt = nowIso();
@@ -340,7 +342,7 @@ function toolPicodeSend(params) {
       sentAt,
       ...(re ? { re } : {}),
       ...(expects ? { expects: true } : {}),
-      ...(urgency === "high" ? { urgency } : {}),
+      ...(urgency && urgency !== "low" ? { urgency } : {}),
       ...(deliverAfter ? { deliverAfter } : {}),
       ...(expiresAt ? { expiresAt } : {}),
     };
@@ -500,8 +502,9 @@ const TOOLS = [
         },
         urgency: {
           type: "string",
-          enum: ["high", "low"],
-          description: 'Delivery priority hint for the recipient. Default "low".',
+          enum: ["interrupt", "high", "low"],
+          description:
+            'Delivery priority hint for the recipient. Default "low". "interrupt" preempts a pi picode mid-task; other clients deliver it no later than "high".',
         },
         deliverAfterSeconds: {
           type: "number",
