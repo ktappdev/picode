@@ -27,6 +27,7 @@ import { spawn } from "node:child_process";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { createLocalFsAdapter } from "../src/adapter/local-fs";
 import type { Envelope, StateFile } from "../src/core/types";
+import { readIssues, solveIssue } from "../bin/issue-journal.mjs";
 
 const SERVER = join(dirname(fileURLToPath(import.meta.url)), "..", "bin", "postbox-mcp.mjs");
 
@@ -130,19 +131,19 @@ async function connect(
 }
 
 function readState(dir: string, id: string): StateFile | null {
-  const f = join(dir, ".picode", "threads", id, "state.json");
+  const f = join(dir, ".picode", "picodes", id, "state.json");
   return existsSync(f) ? (JSON.parse(readFileSync(f, "utf8")) as StateFile) : null;
 }
 
 function inboxFiles(dir: string, id: string, sub: "" | "processed" = ""): string[] {
-  const d = join(dir, ".picode", "threads", id, "inbox", sub);
+  const d = join(dir, ".picode", "picodes", id, "inbox", sub);
   return existsSync(d) ? readdirSync(d).filter(f => f.endsWith(".json")) : [];
 }
 
 /** Write an envelope straight into a mailbox the way bin/picode-cli.mjs would —
  *  inbox.tmp staging + rename — with no MCP server involved on the send side. */
 function enqueueRaw(dir: string, to: string, msg: Envelope): void {
-  const base = join(dir, ".picode", "threads", to);
+  const base = join(dir, ".picode", "picodes", to);
   mkdirSync(join(base, "inbox"), { recursive: true });
   mkdirSync(join(base, "inbox.tmp"), { recursive: true });
   const tail = msg.id.includes("/") ? msg.id.slice(msg.id.lastIndexOf("/") + 1) : msg.id;
@@ -216,10 +217,10 @@ describe("unit: postbox-mcp server", () => {
     assert.equal(files.length, 1, "exactly one envelope written to b's inbox");
     // Staging dir must be left empty after the rename (Appendix B enqueue).
     assert.equal(inboxFiles(dir, "b").length + inboxFiles(dir, "b", "processed").length, 1);
-    assert.equal(readdirSync(join(dir, ".picode", "threads", "b", "inbox.tmp")).length, 0);
+    assert.equal(readdirSync(join(dir, ".picode", "picodes", "b", "inbox.tmp")).length, 0);
 
     const env = JSON.parse(
-      readFileSync(join(dir, ".picode", "threads", "b", "inbox", files[0]), "utf8"),
+      readFileSync(join(dir, ".picode", "picodes", "b", "inbox", files[0]), "utf8"),
     ) as Envelope;
     assert.ok(env.id.startsWith("a/"), `id is <from>/<ulid>, got ${env.id}`);
     assert.equal(env.from, "a");
@@ -411,7 +412,7 @@ describe("unit: postbox-mcp server", () => {
   it("picode_list applies the liveness rule to a stale peer", async () => {
     const c = await spawnClient("a");
     // A peer whose lastSeen is old must read as stopped regardless of status.
-    const staleDir = join(dir, ".picode", "threads", "ghost");
+    const staleDir = join(dir, ".picode", "picodes", "ghost");
     mkdirSync(staleDir, { recursive: true });
     const old = new Date(Date.now() - 120_000).toISOString();
     writeFileSync(
@@ -437,13 +438,41 @@ describe("unit: postbox-mcp server", () => {
     const none = await c.call("picode_journal", { id: "a" });
     assert.equal(none.text, "(no journal)");
 
-    writeFileSync(join(dir, ".picode", "threads", "a", "journal.md"), "<!-- e --> hello\n");
+    writeFileSync(join(dir, ".picode", "picodes", "a", "journal.md"), "<!-- e --> hello\n");
     const some = await c.call("picode_journal", { id: "a" });
     assert.match(some.text, /hello/);
 
     const missing = await c.call("picode_journal", { id: "nope" });
     assert.ok(missing.isError);
     assert.match(missing.text, /unknown picode/);
+  });
+
+  it("picode_journal reports into the shared log and respects operator resolution", async () => {
+    const builder = await spawnClient("builder", { POSTBOX_ROLE: "builder" });
+    const coordinator = await spawnClient("coordinator");
+    await builder.call("picode_journal", {
+      action: "report",
+      title: "Unavailable tool",
+      area: "tools",
+      problem: "Tool not found",
+      impact: "Blocked",
+      help: "Enable it",
+    });
+    const listed = await coordinator.call("picode_journal");
+    assert.match(listed.text, /PC-001 — Unavailable tool/);
+    const issues = readIssues(dir);
+    await solveIssue(dir, issues[0].id, "Enabled");
+    const open = await builder.call("picode_journal");
+    assert.equal(open.text, "(no matching issues)");
+    const detail = await coordinator.call("picode_journal", { id: issues[0].id, compact: false });
+    assert.match(detail.text, /Resolution: .*Enabled/);
+  });
+
+  it("invalid papercut reports return a tool error without changing the log", async () => {
+    const client = await spawnClient("builder");
+    const result = await client.call("picode_journal", { action: "report", title: "Incomplete" });
+    assert.equal(result.isError, true);
+    assert.equal(readIssues(dir).length, 0);
   });
 
   it("picode_wait times out with a clear message when nothing is due", async () => {

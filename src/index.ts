@@ -29,10 +29,6 @@ export default function (pi: ExtensionAPI) {
     description:
       "Role label for this picode (e.g. dev, qa) — targetable via picode_send role:<role>",
   });
-  pi.registerFlag("picode-round-table", {
-    type: "boolean",
-    description: "Start a resumed, read-only Recall Round Table consultation.",
-  });
   pi.registerFlag("picode-revived", {
     type: "string",
     description:
@@ -41,12 +37,11 @@ export default function (pi: ExtensionAPI) {
   pi.registerFlag("picode-journal", {
     type: "string",
     description:
-      'Journal cadence: "turn", "done" (default, one entry per run at agent_end), or "off". Overrides merged global/project Picode model config "journal-cadence" key.',
+      "Deprecated, ignored: automatic work journaling has been replaced by explicit papercut reporting.",
   });
   pi.registerFlag("picode-journal-model", {
     type: "string",
-    description:
-      'Model for journal fork entries (e.g. deepseek/deepseek-chat). Overrides merged global/project Picode model config "journal" key. Default: the picode\'s own model — a pinned model must resolve on this machine or journaling fails.',
+    description: "Deprecated, ignored: papercut reporting makes no separate model calls.",
   });
   pi.registerFlag("picode-storage", {
     type: "string",

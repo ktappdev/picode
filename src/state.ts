@@ -5,11 +5,9 @@ import * as path from "node:path";
 import type { PicodeStore, PicodeState, PicodeSummary, StateFile } from "./core/types";
 import { HEARTBEAT_MS, CLIENT_CAPABILITIES } from "./core/types";
 import { nowIso } from "./core/time";
-import { forkJournalEntry, compactJournal as compactJournalFn } from "./journal";
 import { detectWorkerRole, roleEmoji } from "./core/roles";
 import type { PicodeAdapter } from "./adapter/types";
 import { createLocalFsAdapter } from "./adapter/local-fs";
-import { loadModelsJson } from "./tools/spawn";
 
 /** The PicodeStore: this picode's identity and mutable coordination state,
  *  restored from the storage adapter at init, persisted on every change, kept
@@ -68,9 +66,6 @@ export function createPicodeStore(
     barriers: [],
     owedNudgePending: false,
     owedSilentStreak: 0,
-    lastJournalSignature: null,
-    lastJournalAt: 0,
-    journalDebt: false,
 
     // --- operations ---
 
@@ -330,22 +325,6 @@ export function createPicodeStore(
       // The journal channel is an optional backend extension (§5) —
       // undefined on backends without it.
       return store.adapter.readJournal?.(picodeId);
-    },
-
-    forkJournal(prompt: string, fallbackModel?: string) {
-      const flag = pi.getFlag("picode-journal-model");
-      const m =
-        (typeof flag === "string" && flag) ||
-        loadModelsJson()["journal"] ||
-        fallbackModel ||
-        undefined;
-      forkJournalEntry(store, prompt, m);
-    },
-
-    compactJournal() {
-      const flag = pi.getFlag("picode-journal-model");
-      const m = (typeof flag === "string" && flag) || loadModelsJson()["journal"] || undefined;
-      compactJournalFn(store, m);
     },
 
     startHeartbeat(onTick?: () => void | Promise<void>) {

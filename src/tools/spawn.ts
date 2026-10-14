@@ -113,7 +113,6 @@ export function buildWorkerLaunchCommand(options: {
   model: string | null;
   theme: string | null;
   sessionFile?: string;
-  roundTable?: boolean;
   /** ISO timestamp of this worker's last heartbeat before it stopped. Set by
    *  revive_closed_session so the resumed session is told its context may be
    *  stale rather than silently trusting an old view of the tree. */
@@ -126,9 +125,6 @@ export function buildWorkerLaunchCommand(options: {
   if (thinking) parts.push(`--thinking ${thinking}`);
   if (options.sessionFile) parts.push(`--session ${shellQuote(options.sessionFile)}`);
   if (options.revivedAt) parts.push(`--picode-revived ${shellQuote(options.revivedAt)}`);
-  if (options.roundTable) {
-    parts.push("--picode-round-table", "--tools picode_round_table_reply");
-  }
   parts.push(`--picode-id ${shellQuote(options.picodeId)}`);
   return parts.join(" ");
 }

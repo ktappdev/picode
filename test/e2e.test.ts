@@ -1,10 +1,10 @@
 /**
  * Curated end-to-end tests — each spawns a real `pi` subprocess with a real
- * DeepSeek model call. Every test here exists because it proves something
+ * model call. Every test here exists because it proves something
  * a unit test (test/unit.test.ts) structurally cannot: genuine ambiguity
  * resolution by the model, comprehension of rendered structured text, or a
- * real subprocess/cross-process boundary (lifecycle hooks, `pi --fork`
- * journal spawning, two independently-started processes sharing a
+ * real subprocess/cross-process boundary (lifecycle hooks,
+ * papercut tool discovery, two independently-started processes sharing a
  * filesystem). See TESTING.md before adding a case here — if the prompt is
  * fully scripted ("call X with params Y"), the thing it exercises probably
  * already has (or belongs in) a unit test instead.
@@ -35,19 +35,16 @@ import { spawnSync } from "node:child_process";
 const EXT = join(import.meta.dirname!, "..", "src", "index.ts");
 const TIMEOUT = 120_000;
 
-// Volta refuses to resolve `pi` outside a project that declares it, and its
-// shim uses the pinned Node. Use node 22.21.1 + pi binary directly.
-const HOME = process.env.HOME ?? "";
-const PI_NODE = join(HOME, ".volta/tools/image/node/22.21.1/bin/node");
-const PI_SCRIPT = join(HOME, ".volta/tools/image/packages/@earendil-works/pi-coding-agent/bin/pi");
+// Use the installed Pi CLI (or an explicitly supplied binary), not a
+// machine-specific Volta path. Child sessions must never inherit live panes.
+const PI_BINARY = process.env.PI_E2E_BINARY ?? "pi";
 
 function runPi(
   prompt: string,
   cwd: string,
   opts: { session?: boolean; picodeId?: string; parent?: string } = {},
 ): { stdout: string; stderr: string; ok: boolean } {
-  // --no-session means getSessionFile() returns undefined, blocking journal forks.
-  // Use a real session dir when the test needs the journal to be written.
+  // Tests opt into persisted conversations only when needed.
   const sessionArgs = opts.session
     ? ["--session-dir", join(cwd, ".sessions"), "--session-id", "test-session"]
     : ["--no-session"];
@@ -56,13 +53,13 @@ function runPi(
     ...(opts.parent ? ["--picode-parent", opts.parent] : []),
   ];
   const result = spawnSync(
-    PI_NODE,
+    PI_BINARY,
     [
-      PI_SCRIPT,
+      "--no-extensions",
       "--extension",
       EXT,
       "--model",
-      process.env.PI_E2E_MODEL ?? "deepseek/deepseek-chat",
+      process.env.PI_E2E_MODEL ?? "deepseek/deepseek-v4-flash",
       "--thinking",
       "off",
       ...sessionArgs,
@@ -70,7 +67,20 @@ function runPi(
       "--print",
       prompt,
     ],
-    { cwd, timeout: TIMEOUT, encoding: "utf8" },
+    {
+      cwd,
+      timeout: TIMEOUT,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        HERDR_ENV: "",
+        HERDR_WORKSPACE_ID: "",
+        HERDR_PANE_ID: "",
+        HERDR_TAB_ID: "",
+        HERDR_SOCKET_PATH: "",
+        PICODE_RUNTIME: "none",
+      },
+    },
   );
   return {
     stdout: result.stdout ?? "",
@@ -80,18 +90,13 @@ function runPi(
 }
 
 function readState(dir: string, picodeId: string) {
-  const f = join(dir, ".picode", "threads", picodeId, "state.json");
+  const f = join(dir, ".picode", "picodes", picodeId, "state.json");
   if (!existsSync(f)) return null;
   return JSON.parse(readFileSync(f, "utf8"));
 }
 
-function readJournal(dir: string, picodeId: string): string {
-  const f = join(dir, ".picode", "threads", picodeId, "journal.md");
-  return existsSync(f) ? readFileSync(f, "utf8") : "";
-}
-
 function inboxFiles(dir: string, picodeId: string, sub: "" | "processed" = ""): string[] {
-  const d = join(dir, ".picode", "threads", picodeId, "inbox", sub);
+  const d = join(dir, ".picode", "picodes", picodeId, "inbox", sub);
   if (!existsSync(d)) return [];
   return readdirSync(d).filter(f => f.endsWith(".json"));
 }
@@ -99,7 +104,7 @@ function inboxFiles(dir: string, picodeId: string, sub: "" | "processed" = ""): 
 // The system prompt tells agents to check picode_list and avoid dead threads,
 // so fictional partners must exist with a fresh lastSeen or the model refuses.
 function seedThread(dir: string, id: string, opts: { stale?: boolean } = {}) {
-  const threadDir = join(dir, ".picode", "threads", id);
+  const threadDir = join(dir, ".picode", "picodes", id);
   mkdirSync(join(threadDir, "inbox", "processed"), { recursive: true });
   const now = opts.stale
     ? new Date(Date.now() - 5 * 60_000).toISOString()
@@ -133,7 +138,7 @@ function seedEnvelope(
   msg: { from: string; body: string; id?: string; re?: string; expects?: true; urgency?: "high" },
   name = `${Date.now()}-seed.json`,
 ) {
-  const inboxDir = join(dir, ".picode", "threads", ownerThreadId, "inbox");
+  const inboxDir = join(dir, ".picode", "picodes", ownerThreadId, "inbox");
   mkdirSync(inboxDir, { recursive: true });
   const envelope = {
     id: msg.id ?? `${msg.from}/${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
@@ -167,19 +172,18 @@ describe("lifecycle", () => {
 });
 
 describe("journal", () => {
-  it("a turn that uses a tool produces a forked journal entry", { timeout: TIMEOUT }, () => {
-    // Must use a real session: --no-session makes getSessionFile() return undefined,
-    // which blocks forkJournal. The forked child keeps the parent alive until done,
-    // so spawnSync already waits for the journal to be written — no sleep needed.
-    // Needs the real `pi --fork` subprocess spawn — not reachable from a unit test.
-    runPi("List the files in the current directory using the bash tool. Then say done.", tmpDir, {
-      session: true,
-      picodeId: "t1",
-    });
-
-    const journal = readJournal(tmpDir, "t1");
-    assert.ok(journal.length > 10);
-    assert.match(journal, /Working on:/i);
+  it("records reported setup friction rather than a work summary", { timeout: TIMEOUT }, () => {
+    const result = runPi(
+      "During my last task the documentation advertised a tool called example_inspect, but invoking it returned 'Tool not found'. I had to use bash instead, costing an extra step. Please record this papercut for the operator to fix the tool setup. Do not investigate or implement a fix; just record it.",
+      tmpDir,
+      { picodeId: "builder-smoke" },
+    );
+    assert.ok(result.ok, result.stderr);
+    const file = join(tmpDir, ".picode", "issues.md");
+    assert.ok(existsSync(file), "the model must discover the papercut reporting action");
+    const issues = readFileSync(file, "utf8");
+    assert.match(issues, /example_inspect/);
+    assert.doesNotMatch(issues, /Working on:/);
   });
 });
 
@@ -218,7 +222,7 @@ describe("cross-process durability", () => {
       const files = inboxFiles(tmpDir, "picode-a");
       assert.strictEqual(files.length, 1);
       const delivered = JSON.parse(
-        readFileSync(join(tmpDir, ".picode", "threads", "picode-a", "inbox", files[0]), "utf8"),
+        readFileSync(join(tmpDir, ".picode", "picodes", "picode-a", "inbox", files[0]), "utf8"),
       );
       // "Let them know" is a note or a request — either is defensible; what
       // matters is the envelope is well-formed and correctly attributed.
@@ -305,7 +309,7 @@ describe("envelope comprehension", () => {
       const bossInbox = inboxFiles(tmpDir, "boss");
       assert.strictEqual(bossInbox.length, 1);
       const reply = JSON.parse(
-        readFileSync(join(tmpDir, ".picode", "threads", "boss", "inbox", bossInbox[0]), "utf8"),
+        readFileSync(join(tmpDir, ".picode", "picodes", "boss", "inbox", bossInbox[0]), "utf8"),
       );
       assert.strictEqual(reply.re, "boss/QTEST42");
       assert.strictEqual(reply.from, "t1");
@@ -398,7 +402,7 @@ describe("scheduled self-wake", () => {
       // The wake is a durable self-addressed envelope, held until due.
       const pending = inboxFiles(tmpDir, "t1");
       assert.strictEqual(pending.length, 1);
-      const envelopePath = join(tmpDir, ".picode", "threads", "t1", "inbox", pending[0]);
+      const envelopePath = join(tmpDir, ".picode", "picodes", "t1", "inbox", pending[0]);
       const msg = JSON.parse(readFileSync(envelopePath, "utf8"));
       assert.strictEqual(msg.to, "t1");
       assert.strictEqual(msg.from, "t1");

@@ -15,6 +15,7 @@ import process from "node:process";
 import readline from "node:readline";
 import { setInterval, clearInterval } from "node:timers";
 import { setTimeout as delay } from "node:timers/promises";
+import { formatIssues, issueSummary, readIssues, reportIssue } from "./issue-journal.mjs";
 
 const STALE_MS = 60_000; // §8.2 liveness rule
 const HEARTBEAT_MS = 20_000; // matches core/types.ts HEARTBEAT_MS
@@ -421,17 +422,7 @@ function toolPicodeStatus() {
   for (const o of state.owed) {
     lines.push(`  you owe a reply to ${o.from} for #${o.id} — reply with re="${o.id}"`);
   }
-  try {
-    const journal = fs.readFileSync(path.join(THREAD_DIR, "journal.md"), "utf8").trim();
-    const entries = journal.split(/\n(?=<!--)/).filter(Boolean);
-    const last = entries[entries.length - 1];
-    if (last) {
-      lines.push("", "Last journal entry:");
-      for (const l of last.trim().split("\n")) lines.push("  " + l);
-    }
-  } catch {
-    // no journal yet
-  }
+  lines.push("", `${issueSummary(WORKSPACE)} (picode_journal to view).`);
   return textResult(lines.join("\n"));
 }
 
@@ -458,20 +449,41 @@ function toolPicodeList() {
   return textResult(lines.join("\n"));
 }
 
-function toolPicodeJournal(params) {
-  const id = params?.id;
-  if (!id || typeof id !== "string") return errorResult('picode_journal: "id" is required');
-  const dir = picodeDirOf(id);
-  if (!fs.existsSync(statePathOf(dir)))
-    return errorResult(`picode_journal: unknown picode "${id}"`);
-  let content = "";
+async function toolPicodeJournal(params) {
   try {
-    content = fs.readFileSync(path.join(dir, "journal.md"), "utf8").trim();
-  } catch {
-    content = "";
+    const action = params.action ?? (params.id && !/^PC-\d+$/.test(params.id) ? "archive" : "list");
+    if (action === "report") {
+      const result = await reportIssue(WORKSPACE, params, `${ROLE ?? "external"} · ${THREAD_ID}`);
+      return textResult(
+        `${result.repeated ? "Recorded repeat of" : "Reported"} ${result.id} in .picode/issues.md. If blocked, also request help from your coordinator/operator.`,
+      );
+    }
+    if (action === "list")
+      return textResult(
+        formatIssues(readIssues(WORKSPACE), {
+          ...params,
+          status: params.status ?? (params.id ? "all" : "open"),
+        }),
+      );
+    if (action !== "archive")
+      return errorResult("picode_journal: action must be list, report, or archive");
+    const id = params.id;
+    if (!id || typeof id !== "string") return errorResult('picode_journal: archive requires "id"');
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(id))
+      return errorResult("picode_journal: invalid picode id");
+    const dir = picodeDirOf(id);
+    if (!fs.existsSync(statePathOf(dir)))
+      return errorResult(`picode_journal: unknown picode "${id}"`);
+    let content = "";
+    try {
+      content = fs.readFileSync(path.join(dir, "journal.md"), "utf8").trim();
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+    return textResult(content.slice(0, 24_000) || "(no journal)");
+  } catch (error) {
+    return errorResult(error.message ?? String(error));
   }
-  if (!content) return textResult("(no journal)");
-  return textResult(content);
 }
 
 const TOOLS = [
@@ -548,7 +560,7 @@ const TOOLS = [
     description:
       "This picode's own coordination state: obligations (messages you sent that expect a reply, " +
       "still open), owed replies (messages sent to you that expect a reply, not yet answered), and " +
-      "the last journal entry if one exists.",
+      "the shared open papercut count.",
     inputSchema: { type: "object", properties: {} },
   },
   {
@@ -562,12 +574,23 @@ const TOOLS = [
   {
     name: "picode_journal",
     description:
-      "Read a picode's journal — an append-only history stream it writes about itself. Works on " +
-      "any picode id, including your own.",
+      "Report or list tool, harness, and setup papercuts in shared .picode/issues.md. Default: open issues. Reports require title, area, problem, and impact; never include secrets or task progress. Reuse an open issue's title/area for repeats. Only the operator marks solved. Blockers must also be escalated via picode_send. action=archive (or legacy id-only calls) reads old work journals.",
     inputSchema: {
       type: "object",
-      properties: { id: { type: "string", description: "Picode id whose journal to read." } },
-      required: ["id"],
+      properties: {
+        action: { type: "string", enum: ["list", "report", "archive"] },
+        id: { type: "string", description: "Issue id for list, old picode id for archive." },
+        status: { type: "string", enum: ["open", "solved", "all"] },
+        title: { type: "string", minLength: 1, maxLength: 200 },
+        area: { type: "string", minLength: 1, maxLength: 100 },
+        problem: { type: "string", minLength: 1, maxLength: 2000 },
+        impact: { type: "string", minLength: 1, maxLength: 2000 },
+        workaround: { type: "string", minLength: 1, maxLength: 2000 },
+        help: { type: "string", minLength: 1, maxLength: 2000 },
+        compact: { type: "boolean" },
+        tail: { type: "integer", minimum: 0 },
+        lookbackMinutes: { type: "number", exclusiveMinimum: 0 },
+      },
     },
   },
 ];

@@ -7,6 +7,13 @@ import path from "node:path";
 import crypto from "node:crypto";
 import process from "node:process";
 import { setTimeout } from "node:timers";
+import {
+  formatIssues,
+  issueJournalPath,
+  issueSummary,
+  readIssues,
+  solveIssue,
+} from "./issue-journal.mjs";
 
 const STALE_MS = 60000;
 
@@ -24,7 +31,7 @@ Commands:
     --json                     Print raw JSON array instead of a table
 
   status <id>                Full coordination state of one picode: obligations,
-                             owed replies, barriers, pending inbox, last journal entry
+                             owed replies, barriers, pending inbox, open papercut count
     --json                     Print raw state.json + pending inbox as JSON
 
   send <to> <body...>        Send an envelope into a picode's inbox
@@ -41,7 +48,10 @@ Commands:
 
   inbox <id>                 Show pending and recent processed messages for a picode
 
-  tail <id>                  Follow a picode's state/journal/inbox changes live (Ctrl-C to stop)
+  journal [open|solved|all|show <issue-id>|solve <issue-id> [note]|status]
+                             View shared papercuts or mark one solved
+
+  tail <id>                  Follow state/inbox and shared papercut changes (Ctrl-C to stop)
 
   watch                      Live coordination board: picode table, obligations,
                              owed replies, barriers, queued inbox (Ctrl-C to stop)
@@ -337,19 +347,7 @@ function cmdStatus(args) {
   );
   section("Inbox pending", pending, m => formatMsgLine(m, 80));
 
-  try {
-    const journal = fs
-      .readFileSync(path.join(picodesDir(args.dir), id, "journal.md"), "utf8")
-      .trim();
-    const entries = journal.split(/\n(?=<!--)/).filter(Boolean);
-    const last = entries[entries.length - 1];
-    if (last) {
-      lines.push("", "Last journal entry:");
-      for (const l of last.trim().split("\n")) lines.push("  " + l);
-    }
-  } catch {
-    // no journal yet
-  }
+  lines.push("", `${issueSummary(args.dir)} (journal to view).`);
   process.stdout.write(lines.join("\n") + "\n");
   return 0;
 }
@@ -530,9 +528,14 @@ async function cmdTail(args) {
   }
   setupSigintExit();
   const picodeDir = path.join(picodesDir(args.dir), id);
-  const journalFile = path.join(picodeDir, "journal.md");
+  const journalFile = issueJournalPath(args.dir);
   let lastState = null;
-  let lastJournalLen = -1;
+  let lastJournal = "";
+  try {
+    lastJournal = fs.readFileSync(journalFile, "utf8");
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
   let seenInbox = new Set();
   let seenProcessed = new Set();
   let notedMissing = false;
@@ -575,12 +578,12 @@ async function cmdTail(args) {
 
     try {
       const content = fs.readFileSync(journalFile, "utf8");
-      if (lastJournalLen === -1) {
-        lastJournalLen = content.length;
-      } else if (content.length > lastJournalLen) {
-        process.stdout.write(content.slice(lastJournalLen));
-        lastJournalLen = content.length;
+      if (content !== lastJournal) {
+        process.stdout.write(
+          `Papercut journal updated:\n${formatIssues(readIssues(args.dir), { status: "all" })}\n`,
+        );
       }
+      lastJournal = content;
     } catch {
       // journal not present yet
     }
@@ -597,7 +600,7 @@ async function cmdTail(args) {
       for (const f of files) {
         if (seen.has(f)) continue;
         seen.add(f);
-        if (seen.size === files.length && lastJournalLen === -1) continue;
+        if (seen.size === files.length && lastJournal === "") continue;
         const m = readJsonSafe(path.join(dirPath, f));
         if (m) process.stdout.write(`${sub}: ` + formatMsgLine(m, 80) + "\n");
       }
@@ -718,6 +721,36 @@ function cmdDelete(args) {
   return deleted > 0 ? 0 : 1;
 }
 
+async function cmdJournal(args) {
+  const [command = "open", id, ...words] = args._;
+  if (command === "solve") {
+    if (!id) throw new Error("usage: picode-cli.mjs journal solve PC-001 [note]");
+    const result = await solveIssue(args.dir, id, words.join(" "));
+    process.stdout.write(`${id}: ${result.alreadySolved ? "already solved" : "marked solved"}.\n`);
+    return 0;
+  }
+  const issues = readIssues(args.dir);
+  if (command === "status") {
+    const open = issues.filter(issue => !issue.solved).length;
+    process.stdout.write(
+      `Papercuts: ${open} open, ${issues.length - open} solved.\n${issueJournalPath(args.dir)}\n`,
+    );
+    return 0;
+  }
+  if (command === "show") {
+    if (!id || !issues.some(issue => issue.id === id))
+      throw new Error("usage: picode-cli.mjs journal show <existing issue-id>");
+    process.stdout.write(formatIssues(issues, { id, status: "all", compact: false }) + "\n");
+    return 0;
+  }
+  if (!["open", "solved", "all"].includes(command))
+    throw new Error(
+      "usage: picode-cli.mjs journal [open|solved|all|show PC-001|solve PC-001 [note]|status]",
+    );
+  process.stdout.write(formatIssues(issues, { status: command, tail: 0 }) + "\n");
+  return 0;
+}
+
 async function main() {
   const argv = process.argv.slice(2);
   if (argv.length === 0 || argv.includes("--help") || argv.includes("-h")) {
@@ -738,6 +771,8 @@ async function main() {
       return cmdList(args);
     case "status":
       return cmdStatus(args);
+    case "journal":
+      return await cmdJournal(args);
     case "send":
       return cmdSend(args);
     case "inbox":

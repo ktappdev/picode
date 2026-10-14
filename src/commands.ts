@@ -1,5 +1,12 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { PicodeStore } from "./core/types";
+import {
+  formatIssues,
+  issueJournalPath,
+  issueSummary,
+  readIssues,
+  solveIssue,
+} from "../bin/issue-journal.mjs";
 import { formatThreadLine } from "./core/format";
 import { resumeThread, suspendThread } from "./core/picode-ops";
 import type { Inbox } from "./inbox";
@@ -49,13 +56,12 @@ export function registerCommands(
   agentDir?: string,
 ) {
   pi.registerCommand("/picode-status", {
-    description: "Show this picode's own state and latest journal entry",
+    description: "Show this picode's coordination state and open papercut count",
     async handler(_args, ctx) {
       if (!checkActive(store, ctx)) return;
       try {
         await ctx.waitForIdle();
-        const journal = await store.readJournal(store.picodeId);
-        const lines = journal ? journal.split("\n").slice(-12).join("\n") : "(no journal yet)";
+        const lines = `${issueSummary(ctx.cwd)} (/picode-journal to view).`;
         ctx.ui.notify(
           `Id: ${store.picodeId} | State: ${store.state} | Status: ${store.status} | Obligations: ${store.obligations.length} | Owed: ${store.owed.length} | Barriers: ${store.barriers.length}\n\n${lines}`,
           "info",
@@ -68,91 +74,59 @@ export function registerCommands(
 
   pi.registerCommand("/picode-journal", {
     description:
-      "View, trim, clear, or compact the journal: /picode-journal [status|tail N|trim N|clear|compact]",
+      "Papercuts: /picode-journal [open|solved|all|show PC-001|solve PC-001 [note]|status]",
     getArgumentCompletions(argumentPrefix: string) {
-      const SUBCOMMANDS = [
-        { value: "status", label: "status", description: "Entry count, size, oldest/newest" },
-        { value: "tail", label: "tail N", description: "Show the last N entries" },
-        { value: "trim", label: "trim N", description: "Keep only the last N entries" },
-        { value: "clear", label: "clear", description: "Delete the journal entirely" },
-        { value: "compact", label: "compact", description: "Summarize old entries into one block" },
-      ];
-      return SUBCOMMANDS.filter(s => s.value.startsWith(argumentPrefix.trim()));
+      return [
+        { value: "open", label: "open", description: "List open papercuts (default)" },
+        { value: "solved", label: "solved", description: "List solved papercuts" },
+        { value: "all", label: "all", description: "List all papercuts" },
+        { value: "show", label: "show PC-001", description: "Show an issue in full" },
+        { value: "solve", label: "solve PC-001 [note]", description: "Mark an issue solved" },
+        { value: "status", label: "status", description: "Open and solved counts, file location" },
+      ].filter(item => item.value.startsWith(argumentPrefix.trim()));
     },
     async handler(args, ctx) {
       if (!checkActive(store, ctx)) return;
       try {
         await ctx.waitForIdle();
-        const trimmed = args.trim();
-        const subcommand = trimmed.split(/\s+/)[0] ?? "";
-
-        const journal = await store.readJournal(store.picodeId);
-        const entries = journal ? journal.split(/\n(?=<!--)/).filter(Boolean) : [];
-
-        // No args → last 12 entries
-        if (!subcommand) {
-          const lines = entries.slice(-12).join("\n") || "(no journal yet)";
-          ctx.ui.notify(lines, "info");
-          return;
-        }
-
-        if (subcommand === "status") {
-          const size = journal ? journal.length : 0;
-          const tsRe = /^<!--\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}|COMPACTION)/;
-          const oldest = entries[0]?.match(tsRe)?.[1] ?? "(none)";
-          const newest = entries[entries.length - 1]?.match(tsRe)?.[1] ?? "(none)";
+        const [command = "open", id, ...words] = args.trim().split(/\s+/).filter(Boolean);
+        if (command === "solve") {
+          if (!id) throw new Error("Usage: /picode-journal solve PC-001 [resolution note]");
+          const result = await solveIssue(ctx.cwd, id, words.join(" "));
           ctx.ui.notify(
-            `Journal: ${entries.length} entries, ${size} bytes\noldest: ${oldest}\nnewest: ${newest}`,
+            `${id}: ${result.alreadySolved ? "already solved" : "marked solved"}.`,
             "info",
           );
           return;
         }
-
-        if (subcommand === "tail") {
-          const n = parseInt(trimmed.split(/\s+/)[1] ?? "12", 10);
-          if (!Number.isFinite(n) || n < 1) {
-            ctx.ui.notify("Usage: /picode-journal tail N", "warning");
-            return;
-          }
-          const lines = entries.slice(-n).join("\n") || "(no journal yet)";
-          ctx.ui.notify(lines, "info");
+        const issues = readIssues(ctx.cwd);
+        if (command === "status") {
+          const open = issues.filter(issue => !issue.solved).length;
+          ctx.ui.notify(
+            `Papercuts: ${open} open, ${issues.length - open} solved.\n${issueJournalPath(ctx.cwd)}`,
+            "info",
+          );
           return;
         }
-
-        if (subcommand === "trim") {
-          const n = parseInt(trimmed.split(/\s+/)[1] ?? "100", 10);
-          if (!Number.isFinite(n) || n < 1) {
-            ctx.ui.notify("Usage: /picode-journal trim N", "warning");
-            return;
-          }
-          if (entries.length <= n) {
-            ctx.ui.notify(`Journal already at ${entries.length} entries (≤ ${n}).`, "info");
-            return;
-          }
-          const kept = entries.slice(-n);
-          const newContent = kept.join("\n") + "\n";
-          // setJournal acquires its own lock internally — no double-acquire.
-          await store.adapter.setJournal?.(store.picodeId, newContent);
-          ctx.ui.notify(`Trimmed: ${entries.length} → ${kept.length} entries.`, "info");
+        if (command === "show") {
+          if (!id || !issues.some(issue => issue.id === id))
+            throw new Error(
+              `No issue ${id ?? "(id required)"} found. Usage: /picode-journal show PC-001`,
+            );
+          ctx.ui.notify(formatIssues(issues, { id, status: "all", compact: false }), "info");
           return;
         }
-
-        if (subcommand === "clear") {
-          // deleteJournal acquires its own lock internally.
-          await store.adapter.deleteJournal?.(store.picodeId);
-          ctx.ui.notify("Journal deleted.", "info");
-          return;
+        if (command !== "open" && command !== "solved" && command !== "all") {
+          throw new Error(
+            "Usage: /picode-journal [open|solved|all|show PC-001|solve PC-001 [note]|status]. Old trim/clear/compact actions were removed to preserve issues.",
+          );
         }
-
-        if (subcommand === "compact") {
-          store.compactJournal();
-          ctx.ui.notify("Compact triggered (fire-and-forget).", "info");
-          return;
-        }
-
-        ctx.ui.notify("Usage: /picode-journal [status|tail N|trim N|clear|compact]", "warning");
-      } catch (e) {
-        ctx.ui.notify(e instanceof Error ? e.message : String(e), "error");
+        ctx.ui.notify(
+          formatIssues(issues, { status: command, tail: 0 }) + `\n\n${issueJournalPath(ctx.cwd)}`,
+          "info",
+        );
+      } catch (error) {
+        ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
       }
     },
   });
@@ -573,6 +547,13 @@ export function registerCommands(
           return;
         }
         const [role, model] = parts;
+        if (role === "journal" || role.startsWith("journal-")) {
+          ctx.ui.notify(
+            "Automatic journal models/cadence were removed. Use /picode-journal for papercuts; no separate model is needed.",
+            "warning",
+          );
+          return;
+        }
         const modelsPath = paths[scope];
         let models: Record<string, string>;
         try {
@@ -603,7 +584,9 @@ export function registerCommands(
           const project = readModelsConfig(paths.project);
           const format = (config: Record<string, string>) =>
             Object.entries(config)
-              .filter(([key]) => key !== "theme")
+              .filter(
+                ([key]) => key !== "theme" && key !== "journal" && !key.startsWith("journal-"),
+              )
               .map(([role, model]) => `  ${role}: ${model}`);
           const projectLines = format(project);
           const lines = [

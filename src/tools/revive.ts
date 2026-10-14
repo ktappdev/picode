@@ -105,13 +105,10 @@ function findDeadPane(
 }
 
 /** Revive a stopped worker: split (or reclaim) a pane, resume its own Pi
- *  session, and hand it the continuation.
+ *  session, and hand it the continuation with full tools, its mailbox, its
+ *  handoff note, and whatever replies it still owed.
  *
- *  This is not `picode_round_table` — that resumes a session read-only for one
- *  question and shuts down. This puts the same agent back on duty with full
- *  tools, its mailbox, its journal, and whatever replies it still owed.
- *
- *  It is also not the Restate `deliverDue` wake (`restate/wake-launch.ts`),
+ *  It is not the Restate `deliverDue` wake (`restate/wake-launch.ts`),
  *  which boots a *blank* agent that only has the due envelope. Reviving a
  *  session is strictly riskier than both: the resumed context is a snapshot
  *  of the tree at the moment the worker stopped, and a confident edit against
@@ -122,7 +119,7 @@ export function registerReviveTool(pi: ExtensionAPI, store: PicodeStore, inbox: 
     name: "revive_closed_session",
     label: "Revive Closed Session",
     description:
-      "Bring a stopped worker back on duty in its own resumed Pi session — full tools, its journal, and its mailbox — and hand it the continuation. Use when new work lands in territory a specific stopped worker already mapped and its knowledge still holds. Prefer spawn_worker for anything a fresh worker could do from a brief, and picode_round_table when you only need its knowledge without it acting. Pass dry_run=true to inspect a candidate first.",
+      "Bring a stopped worker back on duty in its own resumed Pi session — full tools, its handoff note, and its mailbox — and hand it the continuation. Use when new work lands in territory a specific stopped worker already mapped and its knowledge still holds. Prefer spawn_worker for anything a fresh worker could do from a brief. Pass dry_run=true to inspect a candidate first.",
     promptSnippet:
       "Revive a stopped worker with its session intact and give it the continuation (coordinator only).",
     parameters: Type.Object({
@@ -338,8 +335,8 @@ export function registerReviveTool(pi: ExtensionAPI, store: PicodeStore, inbox: 
           const splitPane = (split.result as Record<string, unknown>)?.pane as
             Record<string, unknown> | undefined;
           newPaneId = splitPane?.pane_id as string;
-          // Same validation round-table.ts does: the id goes straight into
-          // `herdr pane rename`/`run` args, so a malformed value must not be
+          // The id goes straight into `herdr pane rename`/`run` args, so a
+          // malformed value must not be
           // interpolated just because herdr returned it.
           if (!newPaneId || !isValidPaneId(newPaneId)) {
             return err(`herdr pane split returned no usable pane_id: ${JSON.stringify(split)}`);

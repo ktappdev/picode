@@ -19,7 +19,6 @@ SESSION="teams"
 LEAD_MODEL="minimax/minimax-m3"
 A_DEV_MODEL="deepseek/deepseek-v4-pro"
 B_DEV_MODEL="moonshotai/kimi-k2.6"
-JOURNAL_MODEL="google/gemini-2.5-flash-lite"
 
 if tmux has-session -t "$SESSION" 2>/dev/null; then
   echo "tmux session '$SESSION' already exists — attach with: tmux attach -t $SESSION" >&2
@@ -33,7 +32,6 @@ launch() {
     pi --provider openrouter --model "$model" \
     --extension "$EXT" \
     --picode-id "$id" --picode-role "$role" --picode-parent "$parent" \
-    --picode-journal-model "$JOURNAL_MODEL" \
     --append-system-prompt "$brief" \
     --append-system-prompt "$roster"
 }

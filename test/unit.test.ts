@@ -24,7 +24,8 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
+import { promisify } from "node:util";
 import { createServer } from "node:net";
 import type {
   AgentToolResult,
@@ -75,24 +76,12 @@ import {
   writeModelsConfig,
 } from "../src/commands-models";
 import {
-  journalFingerprint,
-  isDuplicateOfLastEntry,
-  journalForkArgs,
-  journalMode,
-  journalSignature,
-  piSelfCommand,
-  shouldJournal,
-  buildJournalPrompt,
-  renderJournalMessage,
-  JOURNAL_CONTEXT_MAX_MESSAGES,
-  JOURNAL_CONTEXT_MAX_CHARS,
-  JOURNAL_MIN_INTERVAL_MS,
-  isCompactionEntry,
-  decideCompaction,
-  JOURNAL_COMPACT_THRESHOLD,
-  JOURNAL_COMPACT_KEEP_RECENT,
-  JOURNAL_COMPACT_COOLDOWN_MS,
-} from "../src/journal";
+  formatIssues,
+  issueJournalPath,
+  readIssues,
+  reportIssue,
+  solveIssue,
+} from "../bin/issue-journal.mjs";
 import { buildWakeLaunch } from "../src/restate/wake-launch";
 import {
   advanceSitrep,
@@ -335,9 +324,7 @@ function owedRecord(from: string, id: string, summary = "?") {
 // handler. This one goes through the real pi.on(...) wiring instead.
 type CustomEntry = { type: "custom"; customType: string; data?: unknown };
 
-/** An entry as far as lifecycle is concerned. Identity/résumé tests only need
- *  `custom`; the journal-fork path builds its slice from `message` entries, so
- *  tests that drive a real fork have to supply those. */
+/** The session entries lifecycle tests supply for identity/context recovery. */
 type LifecycleEntry =
   CustomEntry | { type: "message"; message: { role: string; [key: string]: unknown } };
 
@@ -1253,44 +1240,17 @@ describe("tools: picode_status", () => {
     assert.doesNotMatch(r.content[0].text, /Owed replies:/);
   });
 
-  it("defaults tail to 15 entries for journal (compact one-liners)", async () => {
+  it("shows open papercut count instead of archived work summaries", async () => {
     const h = makeHarness(tmpDir);
-    // Write 60 entries
-    const entries = Array.from({ length: 60 }, (_, i) =>
-      journalEntry(nowStamp(), `task ${i}`),
-    ).join("");
-    writeJournal(h, h.store.picodeId, entries);
-    const r = await callTool(h, "picode_status");
-    // Compact mode: one line per entry, no "Working on:" prefix
-    assert.doesNotMatch(r.content[0].text, /task 0\b/);
-    assert.doesNotMatch(r.content[0].text, /task 44\b/);
-    assert.match(r.content[0].text, /task 45/);
-    assert.match(r.content[0].text, /task 59/);
-    // Should NOT contain full multi-line entry bodies
-    assert.doesNotMatch(r.content[0].text, /Working on: task/);
-  });
-
-  it("tail=0 + compact=false returns full multi-line journal", async () => {
-    const h = makeHarness(tmpDir);
-    const entries = Array.from({ length: 10 }, (_, i) =>
-      journalEntry(nowStamp(), `task ${i}`),
-    ).join("");
-    writeJournal(h, h.store.picodeId, entries);
-    const r = await callTool(h, "picode_status", { tail: 0, compact: false });
-    assert.match(r.content[0].text, /Working on: task 0/);
-    assert.match(r.content[0].text, /Working on: task 9/);
-  });
-
-  it("explicit tail overrides default (compact one-liners)", async () => {
-    const h = makeHarness(tmpDir);
-    const entries = Array.from({ length: 20 }, (_, i) =>
-      journalEntry(nowStamp(), `task ${i}`),
-    ).join("");
-    writeJournal(h, h.store.picodeId, entries);
-    const r = await callTool(h, "picode_status", { tail: 5 });
-    assert.doesNotMatch(r.content[0].text, /task 14\b/);
-    assert.match(r.content[0].text, /task 15/);
-    assert.match(r.content[0].text, /task 19/);
+    writeJournal(h, h.store.picodeId, journalEntry(nowStamp(), "old work"));
+    await reportIssue(
+      tmpDir,
+      { title: "Missing tool", area: "tools", problem: "Not found", impact: "Blocked" },
+      "builder",
+    );
+    const result = await callTool(h, "picode_status");
+    assert.match(result.content[0].text, /Papercuts: 1 open/);
+    assert.doesNotMatch(result.content[0].text, /old work/);
   });
 });
 
@@ -1380,6 +1340,151 @@ describe("tools: picode_journal", () => {
     const h = makeHarness(tmpDir);
     const r = await callTool(h, "picode_journal", { id: "ghost" });
     assert.strictEqual(r.details.ok, false);
+  });
+});
+
+describe("papercut journal: shared Markdown storage", () => {
+  const report = {
+    title: "Missing tool",
+    area: "tools",
+    problem: "Tool not found",
+    impact: "Blocked the task",
+    workaround: "Used bash",
+    help: "Enable the tool",
+  };
+
+  it("workers report into one workspace log visible to the coordinator", async () => {
+    const worker = makeHarness(tmpDir, "builder-1");
+    worker.store.role = "builder";
+    await callTool(worker, "picode_journal", { action: "report", ...report });
+    const coordinator = makeHarness(tmpDir, "coordinator");
+    const result = await callTool(coordinator, "picode_journal", { compact: false });
+    assert.match(result.content[0].text, /Reported: .*builder · builder-1/);
+    assert.match(result.content[0].text, /Help needed: Enable the tool/);
+  });
+
+  it("invalid reports fail without creating the journal", async () => {
+    const h = makeHarness(tmpDir);
+    const result = await callTool(h, "picode_journal", { action: "report", title: "Missing tool" });
+    assert.equal(result.details.ok, false);
+    assert.ok(!existsSync(issueJournalPath(tmpDir)));
+  });
+
+  it("repeated open issues accumulate evidence without losing manual notes", async () => {
+    const first = await reportIssue(tmpDir, report, "builder");
+    const file = issueJournalPath(tmpDir);
+    writeFileSync(file, readFileSync(file, "utf8") + "\nOperator note: investigate credentials.\n");
+    const again = await reportIssue(
+      tmpDir,
+      { ...report, title: "missing TOOL", problem: "Still unavailable" },
+      "coordinator",
+    );
+    assert.equal(again.id, first.id);
+    const issues = readIssues(tmpDir);
+    assert.equal(issues.length, 1);
+    assert.equal(issues[0].reports, 2);
+    assert.match(issues[0].markdown, /Operator note: investigate credentials/);
+    assert.match(issues[0].markdown, /Still unavailable/);
+  });
+
+  it("manual checkbox edits count as solved, and recurrence gets a fresh id", async () => {
+    const first = await reportIssue(tmpDir, report, "builder");
+    const file = issueJournalPath(tmpDir);
+    writeFileSync(file, readFileSync(file, "utf8").replace("- [ ] Solved", "- [x] Solved"));
+    assert.equal(formatIssues(readIssues(tmpDir)), "(no matching issues)");
+    const recurrence = await reportIssue(tmpDir, report, "builder");
+    assert.notEqual(recurrence.id, first.id);
+    assert.equal(readIssues(tmpDir)[0].solved, true);
+  });
+
+  it("solving one issue preserves the rest of the log and is idempotent", async () => {
+    const first = await reportIssue(tmpDir, report, "builder");
+    const second = await reportIssue(tmpDir, { ...report, title: "Wrong instructions" }, "scout");
+    const before = readIssues(tmpDir).find(issue => issue.id === second.id)!.markdown;
+    await solveIssue(tmpDir, first.id, "Tool enabled");
+    assert.equal(readIssues(tmpDir).find(issue => issue.id === second.id)!.markdown, before);
+    assert.equal((await solveIssue(tmpDir, first.id)).alreadySolved, true);
+    assert.match(readIssues(tmpDir)[0].markdown, /Area: tools/);
+  });
+
+  it("malformed entries are never silently rewritten", async () => {
+    const file = issueJournalPath(tmpDir);
+    mkdirSync(dirname(file), { recursive: true });
+    const malformed = "# Picode papercuts\n\n## PC-001 — Broken entry\nNo Solved checkbox\n";
+    writeFileSync(file, malformed);
+    await assert.rejects(reportIssue(tmpDir, report, "builder"), /Invalid or duplicate issue/);
+    assert.equal(readFileSync(file, "utf8"), malformed);
+  });
+
+  it("a malformed optional journal cannot hide coordination status", async () => {
+    const h = makeHarness(tmpDir);
+    h.store.owed.push(owedRecord("boss", "boss/q1"));
+    writeFileSync(issueJournalPath(tmpDir), "## PC-001 — Broken\nMissing checkbox\n");
+    const result = await callTool(h, "picode_status");
+    assert.match(result.content[0].text, /boss\/q1/);
+    assert.match(result.content[0].text, /Papercut journal unavailable/);
+  });
+
+  it("concurrent processes never lose reports or allocate duplicate ids", async () => {
+    const run = promisify(execFile);
+    const moduleUrl = new URL("../bin/issue-journal.mjs", import.meta.url).href;
+    await Promise.all(
+      Array.from({ length: 6 }, (_, worker) =>
+        run(process.execPath, [
+          "--input-type=module",
+          "-e",
+          `import { reportIssue } from ${JSON.stringify(moduleUrl)}; for (let i=0;i<8;i++) await reportIssue(${JSON.stringify(tmpDir)}, { title: "Worker ${worker} issue " + i, area: "tools", problem: "Not found", impact: "Blocked" }, "worker-${worker}");`,
+        ]),
+      ),
+    );
+    const issues = readIssues(tmpDir);
+    assert.equal(issues.length, 48);
+    assert.equal(new Set(issues.map(issue => issue.id)).size, 48);
+  });
+
+  it("a dead owner's lock is recovered without deleting the log", async () => {
+    const file = issueJournalPath(tmpDir);
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file + ".lock", JSON.stringify({ pid: 2147483647, token: "dead-owner" }));
+    await reportIssue(tmpDir, report, "builder");
+    assert.equal(readIssues(tmpDir).length, 1);
+  });
+
+  it("an old lock held by a live process is not stolen and waiting can be cancelled", async () => {
+    const file = issueJournalPath(tmpDir);
+    mkdirSync(dirname(file), { recursive: true });
+    const lock = file + ".lock";
+    const owner = JSON.stringify({ pid: process.pid, token: "live-owner" });
+    writeFileSync(lock, owner);
+    const past = new Date(Date.now() - 60_000);
+    utimesSync(lock, past, past);
+    await assert.rejects(reportIssue(tmpDir, report, "builder", AbortSignal.timeout(80)), /abort/i);
+    assert.equal(readFileSync(lock, "utf8"), owner);
+  });
+
+  it("purging a worker directory cannot erase the project log", async () => {
+    const h = makeHarness(tmpDir, "worker");
+    await reportIssue(tmpDir, report, "worker");
+    rmSync(h.store.picodeDir, { recursive: true });
+    assert.equal(readIssues(tmpDir).length, 1);
+  });
+
+  it("the monitoring CLI can solve issues without a running agent", async () => {
+    const first = await reportIssue(tmpDir, report, "builder");
+    execFileSync(
+      process.execPath,
+      ["bin/picode-cli.mjs", "journal", "solve", first.id, "Enabled tool", "--dir", tmpDir],
+      { cwd: process.cwd() },
+    );
+    assert.equal(readIssues(tmpDir)[0].solved, true);
+  });
+
+  it("agents cannot mark issues solved through the report/list tool", async () => {
+    const h = makeHarness(tmpDir);
+    const first = await reportIssue(tmpDir, report, "builder");
+    const result = await callTool(h, "picode_journal", { action: "solve", id: first.id });
+    assert.equal(result.details.ok, false);
+    assert.equal(readIssues(tmpDir)[0].solved, false);
   });
 });
 
@@ -2080,180 +2185,6 @@ describe("Errata 3: heartbeat coalesces its sources into one inject (§7.5)", ()
   });
 });
 
-describe("state: journal gating", () => {
-  it("journalFingerprint keeps only Working on / Done lines, case/whitespace-insensitive", () => {
-    const a = "Working on: X\nDone: y\nDoing: whatever\nNext: n1\nBlockers: none";
-    const b = "working on:  X\ndone: y\nDoing: different\nNext: n2\nBlockers: some";
-    assert.strictEqual(journalFingerprint(a), journalFingerprint(b));
-  });
-
-  it("isDuplicateOfLastEntry matches when Working on/Done are identical to the last entry", () => {
-    const journal = journalEntry(nowStamp(), "task A", "step 1");
-    const dupe = "Working on: task A\nDone: step 1\nDoing: x\nNext: y\nBlockers: none";
-    assert.strictEqual(isDuplicateOfLastEntry(journal, dupe), true);
-  });
-
-  it("isDuplicateOfLastEntry does not match genuinely different content", () => {
-    const journal = journalEntry(nowStamp(), "task A", "step 1");
-    const fresh = "Working on: task B\nDone: step 2\nDoing: x\nNext: y\nBlockers: none";
-    assert.strictEqual(isDuplicateOfLastEntry(journal, fresh), false);
-  });
-
-  it("isDuplicateOfLastEntry returns false when no journal content exists yet", () => {
-    assert.strictEqual(isDuplicateOfLastEntry(undefined, "Working on: x\nDone: y"), false);
-  });
-});
-
-describe("lifecycle: journalSignature / shouldJournal", () => {
-  function bareStore() {
-    const h = makeHarness(tmpDir);
-    return h.store;
-  }
-
-  it("an unchanged signature with no tool call skips journaling after the first check", () => {
-    const store = bareStore();
-    assert.strictEqual(shouldJournal(store, true), true); // first: signature unset
-    assert.strictEqual(shouldJournal(store, false), false);
-  });
-
-  it("a tool-using turn inside the rate-limit window defers to a run-end wrap-up", () => {
-    const store = bareStore();
-    assert.strictEqual(shouldJournal(store, true), true);
-    assert.strictEqual(shouldJournal(store, true), false); // rate-limited, records debt
-    assert.strictEqual(store.journalDebt, true);
-    assert.strictEqual(shouldJournal(store, false, "run-end"), true); // debt repaid
-    assert.strictEqual(store.journalDebt, false);
-  });
-
-  it("a tool-using turn past the rate-limit window journals immediately", () => {
-    const store = bareStore();
-    assert.strictEqual(shouldJournal(store, true), true);
-    store.lastJournalAt = Date.now() - JOURNAL_MIN_INTERVAL_MS - 1;
-    assert.strictEqual(shouldJournal(store, true), true);
-  });
-
-  it("a changed signature journals even without a tool call, ignoring the rate limit", () => {
-    const store = bareStore();
-    assert.strictEqual(shouldJournal(store, true), true);
-    store.obligations.push({
-      id: "t1/new",
-      to: "alice",
-      summary: "x",
-      sentAt: new Date().toISOString(),
-    });
-    assert.strictEqual(shouldJournal(store, false), true);
-  });
-
-  it('phase "done" journals a run that used tools, exactly once', () => {
-    const store = bareStore();
-    assert.strictEqual(shouldJournal(store, true, "done"), true);
-    assert.strictEqual(shouldJournal(store, false, "done"), false);
-  });
-
-  it('phase "done" journals an operator-only conversation run — decisions made in plain text must not be lost', () => {
-    const store = bareStore();
-    assert.strictEqual(shouldJournal(store, true, "done"), true); // baseline entry
-    // User answers a question, coordinator replies in text: no tools, no
-    // structural change. Without this write, the stale "awaiting decision"
-    // entry resurfaces on every startup resume.
-    assert.strictEqual(shouldJournal(store, false, "done", true), true);
-    assert.strictEqual(shouldJournal(store, false, "done"), false); // flag is per-run
-  });
-
-  it("journalSignature changes when an obligation is added", () => {
-    const store = bareStore();
-    const before = journalSignature(store);
-    store.obligations.push({
-      id: "t1/x",
-      to: "alice",
-      summary: "s",
-      sentAt: new Date().toISOString(),
-    });
-    assert.notStrictEqual(journalSignature(store), before);
-  });
-
-  it("the journal fork loads extensions and runs on the bounded prompt, not the session", () => {
-    const args = journalForkArgs("/tmp/x", "summarize this");
-    assert.ok(!args.includes("--no-extensions"), "extensions load so journal model can resolve");
-    assert.ok(!args.includes("--fork"), "forking the session would send its whole transcript");
-    assert.ok(args.includes("--print"));
-    assert.strictEqual(args[args.indexOf("--print") + 1], "summarize this");
-    assert.ok(!args.includes("--model"), "no model pinned unless configured");
-  });
-
-  it("piSelfCommand re-invokes pi the way this process was started", () => {
-    const nodeLaunch = piSelfCommand(["--print", "x"], "/usr/bin/node", "/opt/pi/cli.js");
-    assert.deepStrictEqual(nodeLaunch, {
-      cmd: "/usr/bin/node",
-      args: ["/opt/pi/cli.js", "--print", "x"],
-    });
-    const standalone = piSelfCommand(["--print", "x"], "/opt/pi/bin/pi", undefined);
-    assert.deepStrictEqual(standalone, { cmd: "/opt/pi/bin/pi", args: ["--print", "x"] });
-  });
-
-  it("the journal fork pins a model only when one is configured", () => {
-    assert.ok(!journalForkArgs("/tmp/x", "p").includes("--model"));
-    const pinned = journalForkArgs("/tmp/x", "p", "deepseek/deepseek-chat");
-    assert.ok(pinned.includes("--model"));
-    assert.ok(pinned.includes("deepseek/deepseek-chat"));
-  });
-
-  it("renderJournalMessage clips tool results hard and marks errors", () => {
-    const toolResult = renderJournalMessage({
-      role: "toolResult",
-      toolName: "picode_pane_read",
-      content: [{ type: "text", text: "x".repeat(5_000) }],
-      isError: false,
-    });
-    assert.match(toolResult!, /^Tool result picode_pane_read: /);
-    assert.ok(toolResult!.length < 500, "tool results are clipped to a gist");
-    const failed = renderJournalMessage({
-      role: "toolResult",
-      toolName: "spawn_worker",
-      content: [{ type: "text", text: "boom" }],
-      isError: true,
-    });
-    assert.match(failed!, /\(error\)/);
-  });
-
-  it("renderJournalMessage drops images and unknown roles, summarizes tool calls", () => {
-    assert.strictEqual(
-      renderJournalMessage({ role: "branchSummary", summary: "s" }),
-      null,
-      "summaries are anchored via the previous entry, not re-rendered",
-    );
-    const imageOnly = renderJournalMessage({
-      role: "user",
-      content: [{ type: "image", data: "abc", mimeType: "image/png" }],
-    });
-    assert.match(imageOnly!, /^User: $/, "images never reach the fork prompt");
-    const assistant = renderJournalMessage({
-      role: "assistant",
-      content: [
-        { type: "text", text: "Running the build." },
-        { type: "toolCall", id: "1", name: "picode_run", arguments: {} },
-      ],
-    });
-    assert.match(assistant!, /Running the build\./);
-    assert.match(assistant!, /\[calls picode_run\]/);
-  });
-
-  it("buildJournalPrompt bounds messages, total chars, and anchors on the previous entry", () => {
-    const many = Array.from({ length: JOURNAL_CONTEXT_MAX_MESSAGES + 10 }, (_, i) => ({
-      role: "user",
-      content: `msg ${i}`,
-    }));
-    const prompt = buildJournalPrompt(many, "<!-- 2026-08-22 12:00 -->\nWorking on: old task");
-    assert.doesNotMatch(prompt, /msg 9\n/, "only the most recent messages are included");
-    assert.match(prompt, /msg 49/);
-    assert.match(prompt, /Working on: old task/, "previous entry rides along for continuity");
-
-    const huge = buildJournalPrompt([{ role: "user", content: "y".repeat(80_000) }], undefined);
-    assert.ok(huge.length < JOURNAL_CONTEXT_MAX_CHARS + 3_000, "total size is hard-capped");
-    assert.match(huge, /…earlier activity clipped…|…$/, "clipping is visible to the fork model");
-  });
-});
-
 describe("lifecycle: opt-in gate (§2.3)", () => {
   it("no --picode-id and no prior identity: stays inactive, never touches disk, hides picode_* tools", async () => {
     const h = makeLifecycleHarness(tmpDir);
@@ -2263,36 +2194,24 @@ describe("lifecycle: opt-in gate (§2.3)", () => {
     assert.deepStrictEqual(h.activeTools, ["bash", "read_file", "write", "edit"]);
   });
 
-  it("--picode-id passed: activates, creates .picode/, hides picode_journal from the worker", async () => {
+  it("--picode-id passed: activates, creates .picode/, retains worker papercut reporting", async () => {
     const h = makeLifecycleHarness(tmpDir);
     h.setFlag("picode-id", "t9");
     await h.fire("session_start", h.makeCtx());
     assert.ok(existsSync(join(tmpDir, ".picode", "picodes", "t9", "state.json")));
-    // worker role → picode_journal hidden; the READ_ONLY set may also filter
-    assert.ok(!h.activeTools.includes("picode_journal"));
+    assert.ok(h.activeTools.includes("picode_journal"));
     h.store.stopHeartbeat();
     h.store.stopWatcher();
   });
 
-  it("Recall Round Table exposes only its reply tool and title", async () => {
-    const h = makeLifecycleHarness(tmpDir);
-    h.setFlag("picode-id", "builder");
-    h.setFlag("picode-round-table", true);
-    await h.fire("session_start", h.makeCtx());
-    assert.deepStrictEqual(h.activeTools, ["picode_round_table_reply"]);
-    assert.match(h.titles.at(-1) ?? "", /🗣️ Round Table · builder/);
-    h.store.stopHeartbeat();
-    h.store.stopWatcher();
-  });
-
-  it("designer retains implementation tools while losing journal access", async () => {
+  it("designer retains implementation tools and papercut reporting", async () => {
     const h = makeLifecycleHarness(tmpDir);
     h.setFlag("picode-id", "designer");
     await h.fire("session_start", h.makeCtx());
     assert.ok(h.activeTools.includes("write"));
     assert.ok(h.activeTools.includes("edit"));
     assert.ok(h.activeTools.includes("picode_run"));
-    assert.ok(!h.activeTools.includes("picode_journal"));
+    assert.ok(h.activeTools.includes("picode_journal"));
     h.store.stopHeartbeat();
     h.store.stopWatcher();
   });
@@ -2333,12 +2252,12 @@ describe("lifecycle: opt-in gate (§2.3)", () => {
     assert.strictEqual(h.store.picodeId, "");
   });
 
-  it("workers get picode_journal hidden from active tools", async () => {
+  it("workers retain picode_journal alongside coordination recovery", async () => {
     const h = makeLifecycleHarness(tmpDir);
     h.setFlag("picode-id", "builder");
     h.setFlag("picode-role", "builder");
     await h.fire("session_start", h.makeCtx());
-    assert.ok(!h.activeTools.includes("picode_journal"), "worker must not see picode_journal");
+    assert.ok(h.activeTools.includes("picode_journal"), "workers can report papercuts");
     assert.ok(
       h.activeTools.includes("picode_status"),
       "worker keeps picode_status for owed-reply recovery",
@@ -2347,7 +2266,7 @@ describe("lifecycle: opt-in gate (§2.3)", () => {
     h.store.stopWatcher();
   });
 
-  it("coordinator startup appends resume context without waking (journal + obligations)", async () => {
+  it("coordinator startup restores obligations without replaying archived work", async () => {
     const prev = process.env.HERDR_ENV;
     process.env.HERDR_ENV = "1";
     process.env.HERDR_PANE_ID = "test-pane";
@@ -2373,15 +2292,8 @@ describe("lifecycle: opt-in gate (§2.3)", () => {
       assert.strictEqual(h.sentMessages.length, 1);
       assert.strictEqual(h.sentMessages[0].customType, "picode-system");
       const context = h.sentMessages[0].content;
-      assert.match(context, /Startup resume/);
-      assert.match(context, /ship the lexer/);
+      assert.doesNotMatch(context, /ship the lexer/);
       assert.match(context, /coord\/o1/);
-      // …including the reading rules that stop stale decision re-asks
-      // and keep open questions to a single line.
-      assert.match(context, /Never re-ask the user/);
-      assert.match(context, /LAST entry is the current state/);
-      assert.match(context, /ONE short line/);
-      assert.match(context, /do not re-present analysis/);
       // Startup context is passive; the coordinator waits for an operator prompt.
       assert.strictEqual(h.userMessages.length, 0);
       assert.strictEqual(h.sentMessages[0].options?.triggerTurn, false);
@@ -2410,7 +2322,7 @@ describe("lifecycle: opt-in gate (§2.3)", () => {
     h.store.stopWatcher();
   });
 
-  it("startup resume context is a passive append — it never triggers or steers a turn", async () => {
+  it("archived work alone never injects or wakes a coordinator", async () => {
     const prev = process.env.HERDR_ENV;
     process.env.HERDR_ENV = "1";
     process.env.HERDR_PANE_ID = "test-pane";
@@ -2427,9 +2339,7 @@ describe("lifecycle: opt-in gate (§2.3)", () => {
       await h.fire("session_start", h.makeCtx());
       await new Promise(r => setImmediate(r));
       // No startup primer: the coordinator waits for an operator prompt.
-      assert.strictEqual(h.sentMessages.length, 1);
-      assert.strictEqual(h.sentMessages[0].options?.triggerTurn, false);
-      assert.strictEqual(h.sentMessages[0].options?.deliverAs, undefined);
+      assert.strictEqual(h.sentMessages.length, 0);
       assert.strictEqual(h.userMessages.length, 0, "startup must not wake coordinator");
       h.store.stopHeartbeat();
       h.store.stopWatcher();
@@ -2643,7 +2553,6 @@ describe("lifecycle: bounded sit-reps", () => {
     const h = makeLifecycleHarness(tmpDir);
     h.setFlag("picode-id", "coordinator");
     h.setFlag("picode-role", "coordinator");
-    h.setFlag("picode-journal", "done"); // independent of the developer's global models.json
     await h.fire("session_start", h.makeCtx());
     getListenerHandle()?.stop();
     setListenerHandle({
@@ -2716,42 +2625,18 @@ describe("lifecycle: bounded sit-reps", () => {
     }
   });
 
-  it("skips the journal fork for a sit-rep run that changed nothing, keeps it for real work", async () => {
+  it("sit-reps and normal runs never create automatic work summaries", async () => {
     mock.timers.enable({ apis: ["setInterval"] });
     const h = await sitrepHarness(3);
-    const forked: string[] = [];
-    h.store.forkJournal = prompt => forked.push(prompt);
-    // One ctx over a shared entries array: the fork slices off messages it has
-    // already summarized, so a second run needs new entries to be fork-worthy.
-    const entries: LifecycleEntry[] = [];
-    const runCtx = () => h.makeCtx(entries);
     try {
       mock.timers.tick(1000);
-      assert.strictEqual(
-        h.sentMessages.filter(m => m.customType === "picode-system").length,
-        1,
-        "sit-rep injected",
+      await h.fire("tool_execution_start", h.makeCtx(), {});
+      await h.fire("agent_end", h.makeCtx());
+      assert.ok(!existsSync(join(h.store.picodeDir, "journal.md")));
+      assert.ok(
+        !existsSync(issueJournalPath(tmpDir)),
+        "papercuts are explicit, not auto-generated",
       );
-
-      // The sit-rep run: tools ran, the run settled (open → done), and the
-      // picture did not otherwise move.
-      entries.push({ type: "message", message: { role: "user", content: "check the workers" } });
-      await h.fire("tool_execution_start", runCtx(), {});
-      await h.fire("agent_end", runCtx());
-      assert.strictEqual(forked.length, 0, "a no-op check must not buy a second model call");
-
-      // Same shape again, but this run actually moved something.
-      mock.timers.tick(1000);
-      entries.push({ type: "message", message: { role: "user", content: "builder replied" } });
-      await h.fire("tool_execution_start", runCtx(), {});
-      h.store.obligations.push({
-        id: "coord/o9",
-        to: "builder",
-        summary: "build the lexer",
-        sentAt: new Date().toISOString(),
-      });
-      await h.fire("agent_end", runCtx());
-      assert.strictEqual(forked.length, 1, "a run that changed state still journals");
       closeSitrepHarness(h);
     } finally {
       mock.timers.reset();
@@ -3126,11 +3011,11 @@ describe("commands-models: pure helpers", () => {
   it("buildRoleItems includes standard roles in order", () => {
     const items = buildRoleItems({});
     const labels = items.map(i => i.label);
-    // default first, then journal, then builder, reviewer, tester, …
+    // Automatic journal models are retired; only worker roles follow default.
     assert.equal(labels[0], "default");
-    assert.equal(labels[1], "journal");
-    assert.equal(labels[2], "builder");
-    assert.equal(labels[3], "reviewer");
+    assert.equal(labels[1], "builder");
+    assert.equal(labels[2], "reviewer");
+    assert.equal(labels[3], "tester");
     assert.ok(labels.includes("visionary"));
     assert.ok(labels.includes("(reset all)"));
     assert.ok(labels.includes("(done)"));
@@ -3214,32 +3099,11 @@ describe("commands-models: pure helpers", () => {
     assert.equal(clearItem.description, "inherit global/default (currently global/scout)");
   });
 
-  it("buildRoleItems includes journal role after default", () => {
-    const items = buildRoleItems({});
-    const labels = items.map(i => i.label);
-    assert.equal(labels[0], "default");
-    assert.equal(labels[1], "journal");
-    const journal = items.find(i => i.label === "journal")!;
-    assert.equal(journal.description, "(inherits coordinator model)");
-  });
-
-  it("buildRoleItems shows journal model as description when set", () => {
-    const items = buildRoleItems({ journal: "deepseek/deepseek-v4-flash" });
-    const journal = items.find(i => i.label === "journal")!;
-    assert.equal(journal.description, "deepseek/deepseek-v4-flash");
-  });
-
-  it("buildRoleItems includes (journal cadence) entry", () => {
-    const items = buildRoleItems({ "journal-cadence": "done" });
-    const cadence = items.find(i => i.label === "(journal cadence)")!;
-    assert.ok(cadence);
-    assert.equal(cadence.description, "done");
-  });
-
-  it("buildRoleItems (journal cadence) shows done (default) when unset", () => {
-    const items = buildRoleItems({});
-    const cadence = items.find(i => i.label === "(journal cadence)")!;
-    assert.equal(cadence.description, "done (default)");
+  it("buildRoleItems hides retired journal model and cadence configuration", () => {
+    const labels = buildRoleItems({ journal: "old/model", "journal-cadence": "turn" }).map(
+      item => item.label,
+    );
+    assert.ok(!labels.some(label => label.includes("journal")));
   });
 
   it("buildRoleItems filters journal-cadence from custom role keys", () => {
@@ -3307,107 +3171,6 @@ describe("model-config: global and project precedence", () => {
       assert.equal(config.scout, "global/scout");
       assert.equal(config.builder, "project/builder");
       assert.equal(config.reviewer, "global/default");
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-});
-
-describe("journal: journalMode with modelsPath", () => {
-  function makePi(flag?: string) {
-    const flags: Record<string, string | boolean | undefined> = {};
-    if (flag !== undefined) flags["picode-journal"] = flag;
-    return { getFlag: (name: string) => flags[name] } as unknown as ExtensionAPI;
-  }
-
-  it("returns done when models.json has journal-cadence done and no CLI flag", () => {
-    const dir = mkdtempSync(join(tmpdir(), "picode-jm-"));
-    try {
-      const p = join(dir, "models.json");
-      writeFileSync(p, JSON.stringify({ "journal-cadence": "done" }));
-      assert.equal(journalMode(makePi(), p), "done");
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it("returns turn when models.json explicitly sets journal-cadence turn", () => {
-    const dir = mkdtempSync(join(tmpdir(), "picode-jm-"));
-    try {
-      const p = join(dir, "models.json");
-      writeFileSync(p, JSON.stringify({ "journal-cadence": "turn" }));
-      assert.equal(journalMode(makePi(), p), "turn");
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it("global cadence applies and project cadence overrides it", () => {
-    const dir = mkdtempSync(join(tmpdir(), "picode-jm-"));
-    try {
-      const globalPath = join(dir, "global.json");
-      const projectPath = join(dir, "project.json");
-      writeFileSync(globalPath, JSON.stringify({ "journal-cadence": "turn" }));
-      assert.equal(journalMode(makePi(), projectPath, undefined, globalPath), "turn");
-      writeFileSync(projectPath, JSON.stringify({ "journal-cadence": "off" }));
-      assert.equal(journalMode(makePi(), projectPath, undefined, globalPath), "off");
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it("CLI flag wins over models.json", () => {
-    const dir = mkdtempSync(join(tmpdir(), "picode-jm-"));
-    try {
-      const p = join(dir, "models.json");
-      writeFileSync(p, JSON.stringify({ "journal-cadence": "done" }));
-      assert.equal(journalMode(makePi("off"), p), "off");
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it("falls through to done on invalid JSON", () => {
-    const dir = mkdtempSync(join(tmpdir(), "picode-jm-"));
-    try {
-      const p = join(dir, "models.json");
-      writeFileSync(p, "{not valid json");
-      assert.equal(journalMode(makePi(), p), "done");
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it("returns done when models.json absent", () => {
-    const dir = mkdtempSync(join(tmpdir(), "picode-jm-"));
-    try {
-      assert.equal(journalMode(makePi(), join(dir, "models.json")), "done");
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it("worker roles never journal — role gate wins over cadence", () => {
-    const dir = mkdtempSync(join(tmpdir(), "picode-jm-"));
-    try {
-      const p = join(dir, "models.json");
-      writeFileSync(p, JSON.stringify({ "journal-cadence": "done" }));
-      assert.equal(journalMode(makePi(), p, "builder"), "off");
-      assert.equal(journalMode(makePi(), p, "scout"), "off");
-      assert.equal(journalMode(makePi("turn"), p, "visionary"), "off");
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it("coordinator role honors cadence and CLI flag", () => {
-    const dir = mkdtempSync(join(tmpdir(), "picode-jm-"));
-    try {
-      const p = join(dir, "models.json");
-      writeFileSync(p, JSON.stringify({ "journal-cadence": "done" }));
-      assert.equal(journalMode(makePi(), p, "coordinator"), "done");
-      assert.equal(journalMode(makePi("turn"), p, "coordinator"), "turn");
-      assert.equal(journalMode(makePi("off"), p, "coordinator"), "off");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -4315,68 +4078,6 @@ describe("state: watcher idempotency", () => {
   });
 });
 
-describe("journal: compaction (auto at 200 entries)", () => {
-  it("JOURNAL_COMPACT_THRESHOLD is 200", () => {
-    assert.strictEqual(JOURNAL_COMPACT_THRESHOLD, 200);
-  });
-  it("JOURNAL_COMPACT_KEEP_RECENT is 50", () => {
-    assert.strictEqual(JOURNAL_COMPACT_KEEP_RECENT, 50);
-  });
-  it("JOURNAL_COMPACT_COOLDOWN_MS is 24h", () => {
-    assert.strictEqual(JOURNAL_COMPACT_COOLDOWN_MS, 24 * 60 * 60 * 1000);
-  });
-
-  it("isCompactionEntry detects the marker at the start of an entry", () => {
-    assert.strictEqual(isCompactionEntry("<!-- COMPACTION 2026-01-15 10:30 -->\nsummary"), true);
-    assert.strictEqual(isCompactionEntry("\n<!-- COMPACTION 2026-01-15 10:30 -->"), true);
-  });
-  it("isCompactionEntry returns false for regular journal entries", () => {
-    assert.strictEqual(isCompactionEntry("<!-- 2026-01-15 10:30 -->\nWorking on: x"), false);
-    assert.strictEqual(isCompactionEntry("Working on: x\nDone: y"), false);
-  });
-
-  it("decideCompaction returns null when entries are under the threshold", () => {
-    const entries = Array.from({ length: 100 }, (_, i) => `<!-- ${i} -->\nentry ${i}`);
-    const content = entries.join("\n");
-    assert.strictEqual(decideCompaction(content), null);
-  });
-
-  it("decideCompaction splits oldest from newest when over the threshold", () => {
-    const entries = Array.from({ length: 210 }, (_, i) => `<!-- ${i} -->\nentry ${i}`);
-    const content = entries.join("\n");
-    const plan = decideCompaction(content, Date.now());
-    assert.ok(plan);
-    assert.strictEqual(plan.toSummarize.length, 210 - JOURNAL_COMPACT_KEEP_RECENT);
-    assert.strictEqual(plan.toKeep.length, JOURNAL_COMPACT_KEEP_RECENT);
-    // First summarized entry is index 0; first kept is the boundary.
-    assert.ok(plan.toSummarize[0].startsWith("<!-- 0 -->"));
-    assert.ok(plan.toKeep[0].startsWith(`<!-- ${210 - JOURNAL_COMPACT_KEEP_RECENT} -->`));
-    assert.ok(plan.toKeep[plan.toKeep.length - 1].startsWith("<!-- 209 -->"));
-  });
-
-  it("decideCompaction returns null when a recent COMPACTION marker is within cooldown", () => {
-    const recent = new Date(Date.now() - 60_000); // 1 minute ago
-    const ts = recent.toISOString().slice(0, 16).replace("T", " ");
-    const entries = [
-      ...Array.from({ length: 209 }, (_, i) => `<!-- ${i} -->\nentry ${i}`),
-      `<!-- COMPACTION ${ts} -->\nold summary`,
-    ];
-    const plan = decideCompaction(entries.join("\n"), Date.now());
-    assert.strictEqual(plan, null, "cooldown must suppress back-to-back compactions");
-  });
-
-  it("decideCompaction returns a plan when the last COMPACTION marker is older than cooldown", () => {
-    const longAgo = new Date(Date.now() - JOURNAL_COMPACT_COOLDOWN_MS - 60_000);
-    const ts = longAgo.toISOString().slice(0, 16).replace("T", " ");
-    const entries = [
-      ...Array.from({ length: 209 }, (_, i) => `<!-- ${i} -->\nentry ${i}`),
-      `<!-- COMPACTION ${ts} -->\nancient summary`,
-    ];
-    const plan = decideCompaction(entries.join("\n"), Date.now());
-    assert.ok(plan, "cooldown expired — must compact again");
-  });
-});
-
 describe("local-fs: journal lock and setJournal", () => {
   it("acquireJournalLock succeeds on a free picode dir", async () => {
     const adapter = createLocalFsAdapter();
@@ -4433,57 +4134,48 @@ describe("local-fs: journal lock and setJournal", () => {
 });
 
 describe("commands: /picode-journal", () => {
-  it("no args shows the last 12 entries", async () => {
+  const report = { title: "Missing tool", area: "tools", problem: "Not found", impact: "Blocked" };
+
+  it("defaults to open issues and keeps solved history available", async () => {
     const h = makeHarness(tmpDir);
-    const entries = Array.from({ length: 20 }, (_, i) => journalEntry(nowStamp(), `task ${i}`));
-    writeJournal(h, "t1", entries.join(""));
+    const { id } = await reportIssue(tmpDir, report, "builder");
+    await callCommand(h, "/picode-journal", `solve ${id} Enabled the tool`);
     await callCommand(h, "/picode-journal");
-    const text = h.notifications.at(-1)!.text;
-    // Last entry must be visible, first must not.
-    assert.match(text, /Working on: task 19/);
-    assert.doesNotMatch(text, /Working on: task 0/);
+    assert.doesNotMatch(h.notifications.at(-1)!.text, /Missing tool/);
+    await callCommand(h, "/picode-journal", "solved");
+    assert.match(h.notifications.at(-1)!.text, /Missing tool/);
   });
 
-  it("status reports entry count, size, oldest and newest timestamps", async () => {
+  it("show includes the operator's resolution note", async () => {
     const h = makeHarness(tmpDir);
-    writeJournal(h, "t1", journalEntry(nowStamp(), "first") + journalEntry(nowStamp(), "last"));
+    const { id } = await reportIssue(tmpDir, report, "builder");
+    await callCommand(h, "/picode-journal", `solve ${id} Enabled the tool`);
+    await callCommand(h, "/picode-journal", `show ${id}`);
+    assert.match(h.notifications.at(-1)!.text, /Resolution: .*Enabled the tool/);
+  });
+
+  it("status reports open and solved counts", async () => {
+    const h = makeHarness(tmpDir);
+    await reportIssue(tmpDir, report, "builder");
     await callCommand(h, "/picode-journal", "status");
-    const text = h.notifications.at(-1)!.text;
-    assert.match(text, /2 entries/);
-    assert.match(text, /bytes/);
-    assert.match(text, /oldest/);
-    assert.match(text, /newest/);
+    assert.match(h.notifications.at(-1)!.text, /1 open, 0 solved/);
   });
 
-  it("tail N shows exactly N most-recent entries", async () => {
+  it("unknown solve ids do not modify the journal", async () => {
     const h = makeHarness(tmpDir);
-    const entries = Array.from({ length: 5 }, (_, i) => journalEntry(nowStamp(), `t${i}`));
-    writeJournal(h, "t1", entries.join(""));
-    await callCommand(h, "/picode-journal", "tail 2");
-    const text = h.notifications.at(-1)!.text;
-    assert.match(text, /Working on: t4/);
-    assert.doesNotMatch(text, /Working on: t0/);
+    await reportIssue(tmpDir, report, "builder");
+    const before = readFileSync(issueJournalPath(tmpDir), "utf8");
+    await callCommand(h, "/picode-journal", "solve PC-999");
+    assert.match(h.notifications.at(-1)!.text, /No issue PC-999/);
+    assert.equal(readFileSync(issueJournalPath(tmpDir), "utf8"), before);
   });
 
-  it("trim N keeps only the last N entries (no fork)", async () => {
+  it("retired destructive commands cannot delete open issues", async () => {
     const h = makeHarness(tmpDir);
-    const entries = Array.from({ length: 10 }, (_, i) => journalEntry(nowStamp(), `task ${i}`));
-    writeJournal(h, "t1", entries.join(""));
-    await callCommand(h, "/picode-journal", "trim 3");
-    const content = await h.store.adapter.readJournal!("t1");
-    assert.match(h.notifications.at(-1)!.text, /Trimmed: 10 → 3/);
-    // Most recent 3 must survive.
-    assert.match(content!, /Working on: task 9/);
-    assert.match(content!, /Working on: task 7/);
-    assert.doesNotMatch(content!, /Working on: task 0/);
-  });
-
-  it("clear deletes the journal", async () => {
-    const h = makeHarness(tmpDir);
-    writeJournal(h, "t1", journalEntry(nowStamp(), "stuff"));
-    assert.ok(existsSync(join(h.store.picodeDir, "journal.md")));
-    await callCommand(h, "/picode-journal", "clear");
-    assert.ok(!existsSync(join(h.store.picodeDir, "journal.md")));
+    await reportIssue(tmpDir, report, "builder");
+    for (const command of ["trim 1", "clear", "compact"])
+      await callCommand(h, "/picode-journal", command);
+    assert.equal(readIssues(tmpDir).length, 1);
   });
 
   it("refuses to run when the picode never activated (opt-in gate)", async () => {
@@ -4624,9 +4316,6 @@ describe("role and prompt contracts", () => {
       barriers: [],
       owedNudgePending: false,
       owedSilentStreak: 0,
-      lastJournalSignature: null,
-      lastJournalAt: 0,
-      journalDebt: false,
     });
     assert.match(prompt, /Ken Taylor\.\n\n### Role: Worker/);
     assert.match(prompt, /work lost\.\n\n### Subtype: Planner/);
@@ -4648,16 +4337,13 @@ describe("role and prompt contracts", () => {
       barriers: [],
       owedNudgePending: false,
       owedSilentStreak: 0,
-      lastJournalSignature: null,
-      lastJournalAt: 0,
-      journalDebt: false,
     });
     assert.match(prompt, /visual evidence specialist/);
     assert.match(prompt, /multimodal model/);
     assert.match(prompt, /Plain-text output reaches only the human operator/);
   });
 
-  it("workers get no journal-recovery guidance; coordinator does", () => {
+  it("workers and coordinator share the papercut contract, not work-memory guidance", () => {
     const worker = threadModelPrompt({
       picodeId: "builder",
       picodeDir: "",
@@ -4674,12 +4360,9 @@ describe("role and prompt contracts", () => {
       barriers: [],
       owedNudgePending: false,
       owedSilentStreak: 0,
-      lastJournalSignature: null,
-      lastJournalAt: 0,
-      journalDebt: false,
     });
-    assert.match(worker, /Your journal is disabled/);
-    assert.doesNotMatch(worker, /picode_journal\(id\)/);
+    assert.match(worker, /shared papercut log/);
+    assert.match(worker, /only the operator marks issues solved/);
     assert.doesNotMatch(
       worker,
       /recover your identity, obligations, owed replies, and recent journal/,
@@ -4700,12 +4383,9 @@ describe("role and prompt contracts", () => {
       barriers: [],
       owedNudgePending: false,
       owedSilentStreak: 0,
-      lastJournalSignature: null,
-      lastJournalAt: 0,
-      journalDebt: false,
     });
-    assert.match(coord, /recover your identity, obligations, owed replies, and recent journal/);
-    assert.match(coord, /picode_journal\(id\)/);
+    assert.match(coord, /shared papercut log/);
+    assert.match(coord, /recover task context .* not the journal/);
   });
 });
 
@@ -5588,12 +5268,12 @@ describe("slash command argument completions", () => {
     const all = (await cmd.getArgumentCompletions?.("")) ?? [];
     assert.deepStrictEqual(
       all.map(i => i.value),
-      ["status", "tail", "trim", "clear", "compact"],
+      ["open", "solved", "all", "show", "solve", "status"],
     );
-    const filtered = (await cmd.getArgumentCompletions?.("cl")) ?? [];
+    const filtered = (await cmd.getArgumentCompletions?.("solv")) ?? [];
     assert.deepStrictEqual(
       filtered.map(i => i.value),
-      ["clear"],
+      ["solved", "solve"],
     );
     assert.deepStrictEqual((await cmd.getArgumentCompletions?.("zzz")) ?? [], []);
   });

@@ -17,8 +17,6 @@ export const DEFAULT_MODELS: Readonly<ModelConfig> = Object.freeze({
   "bug-hunter": "deepseek/deepseek-v4-pro",
   scout: "deepseek/deepseek-v4-flash",
   default: "deepseek/deepseek-v4-flash",
-  journal: "deepseek/deepseek-v4-flash",
-  "journal-cadence": "done",
 });
 
 const PROJECT_CONFIG_DIR = ".picode";

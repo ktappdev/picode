@@ -3,63 +3,28 @@ import { Type } from "typebox";
 import type { PicodeStore } from "../core/types";
 import { formatWorkerDigest, recentWorkers } from "../core/worker-ledger";
 import { barrierLines, formatThreadLine, obligationLines, owedLines } from "../core/format";
-import { splitJournalEntries, compactEntry } from "../journal";
-import { err, quietCallRenderer, quietToolResult } from "./shared";
+import { issueSummary } from "../../bin/issue-journal.mjs";
+import { registerJournalTool } from "./journal";
+import { quietCallRenderer, quietToolResult } from "./shared";
 /** Read-only tools: this picode's status, the workspace roster, journals. */
 export function registerIntrospectionTools(pi: ExtensionAPI, store: PicodeStore) {
   pi.registerTool({
     name: "picode_status",
     label: "Picode Status",
     description:
-      "Read this picode's own state and journal. Use this to understand what you were doing before a compaction, and to recover the envelope ids you owe replies to.",
+      "Read this picode's coordination state, owed-reply ids, and open papercut count. Recover coordination context after compaction; the journal is not a work diary.",
     promptSnippet:
-      "Read this picode's own state, journal, and owed-reply ids (recover context after compaction).",
+      "Read this picode's coordination state, owed-reply ids, and open papercut count.",
     parameters: Type.Object({
-      tail: Type.Optional(
-        Type.Number({
-          description:
-            "Only return the last N journal entries. Default: 15. Set 0 for full journal.",
-        }),
-      ),
+      // Accept old callers without making archival work summaries live again.
+      tail: Type.Optional(Type.Number({ description: "Deprecated; use picode_journal." })),
       lookbackMinutes: Type.Optional(
-        Type.Number({
-          description:
-            "Only return entries timestamped within the last N minutes. Combine with tail to cap both age and count.",
-        }),
+        Type.Number({ description: "Deprecated; use picode_journal." }),
       ),
-      compact: Type.Optional(
-        Type.Boolean({
-          description:
-            "Compact each journal entry to a one-line summary (default true). Set false to see full multi-line entries.",
-        }),
-      ),
+      compact: Type.Optional(Type.Boolean({ description: "Deprecated; use picode_journal." })),
     }),
-    async execute(_id, params) {
-      let journal =
-        (await store.readJournal(store.picodeId)) ?? "(no journal yet — this is the first turn)";
-      const compact = params.compact !== false;
-      // Apply filters if specified, or default tail=15 to cap context
-      const tail = params.tail !== undefined ? params.tail : 15;
-      if ((tail > 0 || params.lookbackMinutes) && journal) {
-        let entries = splitJournalEntries(journal);
-        if (params.lookbackMinutes) {
-          const cutoff = Date.now() - params.lookbackMinutes * 60_000;
-          entries = entries.filter(e => {
-            const m = /^<!--\s*(.+?)\s*-->/.exec(e);
-            if (!m) return true; // no timestamp — keep rather than silently drop
-            const ts = new Date(m[1].replace(" ", "T") + ":00Z").getTime();
-            return !Number.isFinite(ts) || ts >= cutoff;
-          });
-        }
-        if (tail > 0) entries = entries.slice(-tail);
-        journal = compact
-          ? entries.map(compactEntry).join("\n") || "(no entries in range)"
-          : entries.join("\n") || "(no entries in range)";
-      } else if (compact && journal) {
-        // tail=0 + compact → still compact the full journal
-        const entries = splitJournalEntries(journal);
-        journal = entries.map(compactEntry).join("\n") || "(no entries)";
-      }
+    async execute(_id, _params, _signal, _onUpdate, ctx) {
+      const papercuts = issueSummary(ctx.cwd);
       // Build status header — only include sections that have content, so
       // an idle picode doesn't get six "none" lines of noise.
       const sections: string[] = [
@@ -76,7 +41,7 @@ export function registerIntrospectionTools(pi: ExtensionAPI, store: PicodeStore)
         content: [
           {
             type: "text" as const,
-            text: `${sections.join("\n")}\n\n${journal}`,
+            text: `${sections.join("\n")}\n\n${papercuts} (picode_journal to view).`,
           },
         ],
         details: {
@@ -135,72 +100,5 @@ export function registerIntrospectionTools(pi: ExtensionAPI, store: PicodeStore)
     renderResult: quietToolResult,
   });
 
-  pi.registerTool({
-    name: "picode_journal",
-    label: "Picode Journal",
-    description:
-      "Read another picode's journal (or your own) without messaging it — the self-written status trail visible via picode_status, but for anyone. Use to check what a teammate has been doing before deciding whether to interrupt them.",
-    promptSnippet:
-      "Read any picode's journal without messaging it (check a teammate's progress before interrupting).",
-    parameters: Type.Object({
-      id: Type.String({
-        description: "Picode id to read (see picode_list). Use your own id for your own journal.",
-      }),
-      tail: Type.Optional(
-        Type.Number({
-          description:
-            "Only return the last N journal entries (each entry is one turn/session). Default: 15. Set 0 for full journal.",
-        }),
-      ),
-      lookbackMinutes: Type.Optional(
-        Type.Number({
-          description:
-            "Only return entries timestamped within the last N minutes. Combine with tail to cap both age and count.",
-        }),
-      ),
-      compact: Type.Optional(
-        Type.Boolean({
-          description:
-            "Compact each entry to a one-line summary (default true). Set false to see full multi-line entries.",
-        }),
-      ),
-    }),
-    async execute(_id, params) {
-      if (!store.adapter.readJournal) {
-        return err("This storage backend has no journal channel (optional extension, §5).");
-      }
-      if (!(await store.threadExists(params.id))) {
-        return err(`No picode "${params.id}" found. Call picode_list to see known ids.`);
-      }
-      let journal = (await store.readJournal(params.id)) ?? "(no journal entries yet)";
-      const compact = params.compact !== false;
-      // Apply filters if specified, or default tail=15 to cap context
-      const tail = params.tail !== undefined ? params.tail : 15;
-      if ((tail > 0 || params.lookbackMinutes) && journal) {
-        let entries = splitJournalEntries(journal);
-        if (params.lookbackMinutes) {
-          const cutoff = Date.now() - params.lookbackMinutes * 60_000;
-          entries = entries.filter(e => {
-            const m = /^<!--\s*(.+?)\s*-->/.exec(e);
-            if (!m) return true; // no timestamp — keep rather than silently drop
-            const ts = new Date(m[1].replace(" ", "T") + ":00Z").getTime();
-            return !Number.isFinite(ts) || ts >= cutoff;
-          });
-        }
-        if (tail > 0) entries = entries.slice(-tail);
-        journal = compact
-          ? entries.map(compactEntry).join("\n") || "(no entries in range)"
-          : entries.join("\n") || "(no entries in range)";
-      } else if (compact && journal) {
-        const entries = splitJournalEntries(journal);
-        journal = entries.map(compactEntry).join("\n") || "(no entries)";
-      }
-      return {
-        content: [{ type: "text" as const, text: `Journal for ${params.id}:\n\n${journal}` }],
-        details: { ok: true, id: params.id, journal },
-      };
-    },
-    renderCall: quietCallRenderer("picode_journal"),
-    renderResult: quietToolResult,
-  });
+  registerJournalTool(pi, store);
 }

@@ -8,7 +8,7 @@
 
 - Picode-based multi-agent coordination (coordinator + worker roles)
 - Durable per-picode mailboxes with envelope message model
-- Auto-journaling with compaction
+- Explicit shared Markdown papercut journal with operator resolution
 - Read-only coordinator mode with auto-spawned workers
 - Pluggable storage backends (local filesystem, Restate)
 - Per-project prompt overrides with global/project worker model configuration
@@ -30,11 +30,12 @@ picode/
 │   ├── commands.ts       # Slash commands (/picode-status, /picode-journal, etc.)
 │   ├── inbox.ts          # Envelope delivery, barriers, obligations, injection gate
 │   ├── index.ts          # Extension entry point (registers all tools/commands)
-│   ├── journal.ts        # Auto-journaling with compaction (turn/done/off modes, default done)
+│   ├── journal.ts        # Read-only legacy work-journal formatting
 │   ├── lifecycle.ts      # Picode lifecycle (startup, footer, widget, state machine, auto-purge)
 │   └── state.ts          # Picode state management, heartbeats, watcher
 ├── bin/
-│   ├── picode-cli.mjs    # Human monitoring CLI (list, status, watch, tail, send)
+│   ├── issue-journal.mjs # Shared papercut storage (Pi, CLI, MCP); issues.md is source of truth
+│   ├── picode-cli.mjs    # Human monitoring CLI (list, status, journal, watch, tail, send)
 │   └── postbox-mcp.mjs  # MCP server for external agents (Claude Code, Codex)
 ├── themes/               # Bundled TUI themes (7 themes)
 ├── skills/               # Bundled skills (herdr, cleanup-panes)
@@ -44,7 +45,6 @@ picode/
 │   └── two-teams.sh      # Multi-team setup script
 ├── test/
 │   ├── unit.test.ts      # ~333 unit tests
-│   ├── round-table.test.ts # ~5 recall consultation tests
 │   ├── revive.test.ts    # ~31 handoff, worker-ledger and revive tests
 │   ├── e2e.test.ts       # ~10 end-to-end tests (real model calls)
 │   └── e2e-restate.test.ts # Restate backend tests
@@ -65,9 +65,9 @@ picode/
 | `src/core/system-prompt.ts` | Prompt loader — reads from `src/prompts/`, adds dynamic context (picodeId, role) |
 | `src/inbox.ts`              | Envelope delivery, barrier resolution, obligation tracking                       |
 | `src/lifecycle.ts`          | Picode startup, state machine, footer rendering, widget injection                |
-| `src/state.ts`              | Picode state persistence, heartbeats, journal storage                            |
+| `src/state.ts`              | Picode state persistence, heartbeats, legacy archive reads                       |
 | `src/commands.ts`           | Slash command handlers                                                           |
-| `src/journal.ts`            | Auto-journaling, compaction logic                                                |
+| `src/journal.ts`            | Read-only legacy work-journal formatting                                         |
 | `src/adapter/local-fs.ts`   | Local filesystem storage backend                                                 |
 
 ## Development Commands
@@ -153,7 +153,7 @@ If `npm run test:unit` prints all tests green and then hangs, check for inherite
 
 - **Files:** kebab-case for multi-word (`local-fs.ts`, `system-prompt.ts`)
 - **Functions:** camelCase (`loadPromptOverride`, `checkDeadlines`)
-- **Constants:** UPPER_SNAKE_CASE (`MAX_BODY_BYTES`, `JOURNAL_COMPACT_THRESHOLD`)
+- **Constants:** UPPER_SNAKE_CASE (`MAX_BODY_BYTES`, `HEARTBEAT_MS`)
 - **Types/Interfaces:** PascalCase (`StorageAdapter`, `Envelope`, `PicodeState`)
 - **Role constants:** SCREAMING_SNAKE with `_RULES` suffix (`BUILDER_RULES`, `COORDINATOR_RULES`)
 
@@ -186,9 +186,9 @@ If `npm run test:unit` prints all tests green and then hangs, check for inherite
 | `src/inbox.ts`                     | Envelope delivery, barrier resolution, obligation tracking, dead-letter handling. **Injection gate blocks during compaction. Arms the interrupt preempt gate when a batch carries `urgency="interrupt"`**                                                         |
 | `src/core/interrupt.ts`            | Interrupt preempt gate (`urgency="interrupt"`). Arms a `tool_call` refusal so the receiver's **unstarted** tool calls are cancelled and the correction is read before its next model request. **Never aborts — pi's abort returns queued messages to the editor** |
 | `src/lifecycle.ts`                 | Picode startup, state machine, footer rendering, widget injection. **Auto-purges stale threads on coordinator startup. Footer shows model, ctx usage, io, t/s**                                                                                                   |
-| `src/state.ts`                     | Picode state persistence, heartbeats, journal storage. **Heartbeat re-attempts inbox drain**                                                                                                                                                                      |
+| `src/state.ts`                     | Picode state persistence, heartbeats, legacy archive reads. **Heartbeat re-attempts inbox drain**                                                                                                                                                                 |
 | `src/commands.ts`                  | Slash command handlers (status, journal, send, models, suspend, resume, quiet)                                                                                                                                                                                    |
-| `src/journal.ts`                   | Auto-journaling, compaction logic, duplicate suppression. **Fires at turn_end or agent_end depending on mode**                                                                                                                                                    |
+| `src/journal.ts`                   | Read-only formatting for legacy work archives. **No automatic journaling or compaction; current papercuts live in `.picode/issues.md`**                                                                                                                           |
 | `src/tools/spawn.ts`               | spawn_worker tool — splits pane, launches pi, waits for idle. **Reuses dead panes, validates role, multi-tab via `tab` param, returns `tab_full` signal**                                                                                                         |
 | `src/tools/tab-create.ts`          | picode_tab_create tool — opens new Herdr tab in current workspace. **Coordinator-only, returns tab_id + root_pane_id**                                                                                                                                            |
 | `src/tools/tab-close.ts`           | picode_tab_close tool — closes empty/stale Herdr tab. **Refuses coordinator tab, protects working panes, force=true for idle**                                                                                                                                    |
@@ -212,11 +212,12 @@ If `npm run test:unit` prints all tests green and then hangs, check for inherite
 
 ### CLI & Integration
 
-| File                   | Responsibility                           |
-| ---------------------- | ---------------------------------------- |
-| `bin/picode-cli.mjs`   | Human monitoring CLI (zero dependencies) |
-| `bin/postbox-mcp.mjs`  | MCP server for external agents           |
-| `bin/postbox-hook.mjs` | Claude Code hook integration             |
+| File                    | Responsibility                                                                |
+| ----------------------- | ----------------------------------------------------------------------------- |
+| `bin/issue-journal.mjs` | Shared Markdown papercut log; full-transaction locking and atomic replacement |
+| `bin/picode-cli.mjs`    | Human monitoring CLI (zero dependencies)                                      |
+| `bin/postbox-mcp.mjs`   | MCP server for external agents                                                |
+| `bin/postbox-hook.mjs`  | Claude Code hook integration                                                  |
 
 ## Safety Rules
 

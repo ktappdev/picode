@@ -1,0 +1,3112 @@
+{
+  "schema_version": 2,
+  "root_path": "/Users/kentaylor/developer/picode",
+  "generated_at": "2026-10-11T05:30:23.784361Z",
+  "model": "deepseek/deepseek-v4.1-flash",
+  "tree": {
+    "full_path": "/Users/kentaylor/developer/picode",
+    "type": "directory",
+    "children": {
+      ".prettierrc": {
+        "synonym_key": ".prettierrc",
+        "full_path": "/Users/kentaylor/developer/picode/.prettierrc",
+        "type": "file",
+        "synonyms": [
+          "configure code formatting rules",
+          "set prettier options for the project",
+          "enforce consistent code style",
+          "adjust print width and semicolon settings",
+          "editor integration for format on save",
+          "override formatting for specific file types",
+          "code formatter configuration",
+          "trailing comma and quote style preferences",
+          "picode",
+          "prettierrc"
+        ],
+        "size": 133,
+        "mod_time": 1784226734577405792
+      },
+      "AGENT-TOOL-AUDIT.md": {
+        "synonym_key": "AGENT-TOOL-AUDIT.md",
+        "full_path": "/Users/kentaylor/developer/picode/AGENT-TOOL-AUDIT.md",
+        "type": "file",
+        "synonyms": [
+          "audit ai agent tool usage",
+          "review agent tool permissions",
+          "inventory available agent tools",
+          "assess security of agent tools",
+          "document findings from agent tool audit",
+          "evaluate agent tool access controls",
+          "agent tooling risk assessment",
+          "tool usage compliance review",
+          "picode",
+          "agent",
+          "tool",
+          "audit"
+        ],
+        "size": 9667,
+        "mod_time": 1785075173445964623
+      },
+      "AGENTS.md": {
+        "synonym_key": "AGENTS.md",
+        "full_path": "/Users/kentaylor/developer/picode/AGENTS.md",
+        "type": "file",
+        "synonyms": [
+          "instructions for ai coding agents",
+          "agent contribution guidelines",
+          "how autonomous agents should work in this repo",
+          "repository rules for agent tools",
+          "agent behavior and constraints",
+          "setup guide for coding assistants",
+          "agent workflow conventions",
+          "picode",
+          "agents",
+          "md"
+        ],
+        "size": 23445,
+        "mod_time": 1791246464924678273
+      },
+      "CACHE-DIAGNOSTICS.md": {
+        "synonym_key": "CACHE-DIAGNOSTICS.md",
+        "full_path": "/Users/kentaylor/developer/picode/CACHE-DIAGNOSTICS.md",
+        "type": "file",
+        "synonyms": [
+          "troubleshoot cache problems",
+          "diagnose cache misses",
+          "cache performance debugging",
+          "inspect cache hit and miss rates",
+          "analyze cache eviction behavior",
+          "monitor cache health",
+          "investigate stale cache entries",
+          "resolve cache inconsistency",
+          "picode",
+          "cache",
+          "diagnostics",
+          "md"
+        ],
+        "size": 49310,
+        "mod_time": 1790490210499989282
+      },
+      "CACHE-PREFIX-INCIDENTS.md": {
+        "synonym_key": "CACHE-PREFIX-INCIDENTS.md",
+        "full_path": "/Users/kentaylor/developer/picode/CACHE-PREFIX-INCIDENTS.md",
+        "type": "file",
+        "synonyms": [
+          "cache key prefix outage reports",
+          "incident history for cache prefixes",
+          "investigate prefix collision failures",
+          "postmortem for cache namespace issues",
+          "cache prefix misconfiguration timeline",
+          "root cause of prefix-related cache incidents",
+          "review past cache prefix bugs",
+          "cache key namespace incident log",
+          "lessons learned from cache prefix outages",
+          "picode",
+          "cache",
+          "prefix"
+        ],
+        "size": 15629,
+        "mod_time": 1790281370938239438
+      },
+      "CHANGELOG.md": {
+        "synonym_key": "CHANGELOG.md",
+        "full_path": "/Users/kentaylor/developer/picode/CHANGELOG.md",
+        "type": "file",
+        "synonyms": [
+          "release notes and version history",
+          "track changes between releases",
+          "list of project updates",
+          "breaking changes by version",
+          "what changed in each version",
+          "historical record of feature additions",
+          "bug fix history",
+          "deprecation notices by release",
+          "upgrade notes for new versions",
+          "picode",
+          "changelog",
+          "md"
+        ],
+        "size": 12189,
+        "mod_time": 1791246152969446002
+      },
+      "README.md": {
+        "synonym_key": "README.md",
+        "full_path": "/Users/kentaylor/developer/picode/README.md",
+        "type": "file",
+        "synonyms": [
+          "project overview and purpose",
+          "getting started instructions",
+          "installation and setup guide",
+          "usage examples for the project",
+          "how to run the application",
+          "repository introduction",
+          "quick start steps",
+          "configuration and dependencies overview",
+          "contributing and license information",
+          "picode",
+          "readme",
+          "md"
+        ],
+        "size": 39944,
+        "mod_time": 1791639280223634761
+      },
+      "TESTING.md": {
+        "synonym_key": "TESTING.md",
+        "full_path": "/Users/kentaylor/developer/picode/TESTING.md",
+        "type": "file",
+        "synonyms": [
+          "how to run the test suite",
+          "testing setup and prerequisites",
+          "writing new tests",
+          "test conventions and organization",
+          "mocking and fixture guidelines",
+          "code coverage requirements",
+          "debugging failing tests",
+          "unit and integration test instructions",
+          "test data management",
+          "continuous integration test commands",
+          "picode",
+          "testing"
+        ],
+        "size": 7311,
+        "mod_time": 1784385377919389274
+      },
+      "THREAD-MODEL.md": {
+        "synonym_key": "THREAD-MODEL.md",
+        "full_path": "/Users/kentaylor/developer/picode/THREAD-MODEL.md",
+        "type": "file",
+        "synonyms": [
+          "thread model documentation",
+          "explain thread architecture",
+          "thread lifecycle reference",
+          "threading design notes",
+          "thread model overview",
+          "document thread behavior",
+          "thread model reference",
+          "picode",
+          "thread",
+          "model",
+          "md"
+        ],
+        "size": 40538,
+        "mod_time": 1784385448374482446
+      },
+      "bin": {
+        "synonym_key": "bin",
+        "full_path": "/Users/kentaylor/developer/picode/bin",
+        "type": "directory",
+        "synonyms": [
+          "command line entry points",
+          "executable node scripts",
+          "cli utilities folder",
+          "postbox and picode binaries",
+          "mcp server executable",
+          "postbox hook executable",
+          "picode command line tool",
+          "script binaries directory",
+          "bin"
+        ],
+        "size": 160,
+        "mod_time": 1784385487447566244,
+        "children": {
+          "picode-cli.mjs": {
+            "synonym_key": "bin/picode-cli.mjs",
+            "full_path": "/Users/kentaylor/developer/picode/bin/picode-cli.mjs",
+            "type": "file",
+            "synonyms": [
+              "send picode message",
+              "list picodes",
+              "check picode status",
+              "watch picode inbox",
+              "tail picode messages",
+              "delete picode",
+              "count pending inbox",
+              "collect obligations",
+              "picode command line interface",
+              "manage picode inbox",
+              "monitor picode activity",
+              "picode cli commands"
+            ],
+            "symbols": [
+              "usage",
+              "parseArgs",
+              "picodesDir",
+              "warn",
+              "readJsonSafe",
+              "listPicodeIds",
+              "loadPicodeState",
+              "countInboxPending",
+              "effectiveStatus",
+              "isGhost",
+              "relTime",
+              "dueIn",
+              "truncate",
+              "collectPicodes",
+              "padCol",
+              "renderTable",
+              "cmdList",
+              "cmdStatus",
+              "section",
+              "ulid",
+              "writeMessageAtomic",
+              "cmdSend",
+              "readInboxMessages",
+              "formatMsgLine",
+              "cmdInbox",
+              "sleep",
+              "setupSigintExit",
+              "cmdTail",
+              "diffIds",
+              "collectObligations",
+              "cmdWatch",
+              "cmdDelete",
+              "main"
+            ],
+            "size": 23801,
+            "mod_time": 1784833274719460032
+          },
+          "postbox-hook.mjs": {
+            "synonym_key": "bin/postbox-hook.mjs",
+            "full_path": "/Users/kentaylor/developer/picode/bin/postbox-hook.mjs",
+            "type": "file",
+            "synonyms": [
+              "postbox hook",
+              "drain postbox messages",
+              "emit context hook",
+              "render message envelope",
+              "update message ledger",
+              "check due messages",
+              "read stdin json hook",
+              "postbox integration hook",
+              "postbox message drain",
+              "render postbox envelope",
+              "bin",
+              "postbox"
+            ],
+            "symbols": [
+              "readStdinJson",
+              "readJsonSafe",
+              "isDue",
+              "drain",
+              "updateLedger",
+              "renderEnvelope",
+              "render",
+              "emitContext"
+            ],
+            "size": 6716,
+            "mod_time": 1784385483734262889
+          },
+          "postbox-mcp.mjs": {
+            "synonym_key": "bin/postbox-mcp.mjs",
+            "full_path": "/Users/kentaylor/developer/picode/bin/postbox-mcp.mjs",
+            "type": "file",
+            "synonyms": [
+              "postbox mcp server",
+              "handle mcp tool calls",
+              "drain and render postbox",
+              "check due messages",
+              "inbox directory helper",
+              "effective status",
+              "picode directory resolution",
+              "mcp request handler",
+              "call postbox tool",
+              "has due message",
+              "now iso timestamp",
+              "bin"
+            ],
+            "symbols": [
+              "nowIso",
+              "ulid",
+              "picodeDirOf",
+              "statePathOf",
+              "inboxDir",
+              "processedDir",
+              "readJsonSafe",
+              "saveStateSync",
+              "writeMessageAtomic",
+              "effectiveStatus",
+              "shutdown",
+              "renderEnvelope",
+              "isDue",
+              "hasDueMessage",
+              "drainAndRender",
+              "errorResult",
+              "textResult",
+              "toolPicodeSend",
+              "toolPicodeInbox",
+              "toolPicodeWait",
+              "toolPicodeStatus",
+              "toolPicodeList",
+              "toolPicodeJournal",
+              "callTool",
+              "reply",
+              "handleRequest"
+            ],
+            "size": 22383,
+            "mod_time": 1784385487447308992
+          }
+        }
+      },
+      "eslint.config.js": {
+        "synonym_key": "eslint.config.js",
+        "full_path": "/Users/kentaylor/developer/picode/eslint.config.js",
+        "type": "file",
+        "synonyms": [
+          "eslint configuration",
+          "linting rules",
+          "typescript eslint setup",
+          "prettier integration with eslint",
+          "javascript lint config",
+          "code style enforcement",
+          "flat config for eslint",
+          "eslint config file",
+          "typescript-eslint configuration",
+          "disable formatting rules with prettier",
+          "picode",
+          "eslint"
+        ],
+        "size": 540,
+        "mod_time": 1784226734578257181
+      },
+      "examples": {
+        "synonym_key": "examples",
+        "full_path": "/Users/kentaylor/developer/picode/examples",
+        "type": "directory",
+        "synonyms": [
+          "example files",
+          "sample briefs",
+          "usage examples",
+          "demo inputs",
+          "reference examples",
+          "example brief documents",
+          "demonstration directory",
+          "sample use cases",
+          "examples"
+        ],
+        "size": 160,
+        "mod_time": 1784385377985876768,
+        "children": {
+          "briefs": {
+            "synonym_key": "examples/briefs",
+            "full_path": "/Users/kentaylor/developer/picode/examples/briefs",
+            "type": "directory",
+            "synonyms": [
+              "example briefs",
+              "sample brief documents",
+              "brief templates",
+              "demo brief inputs",
+              "reference brief files",
+              "brief examples",
+              "brief examples for picode",
+              "sample brief folder",
+              "briefs"
+            ],
+            "size": 128,
+            "mod_time": 1784385377993154906,
+            "children": {
+              "dev.md": {
+                "synonym_key": "examples/briefs/dev.md",
+                "full_path": "/Users/kentaylor/developer/picode/examples/briefs/dev.md",
+                "type": "file",
+                "synonyms": [
+                  "example developer brief",
+                  "sample dev brief",
+                  "dev brief markdown example",
+                  "developer briefing example",
+                  "brief for dev role example",
+                  "examples briefs dev",
+                  "briefs",
+                  "dev",
+                  "md"
+                ],
+                "size": 1534,
+                "mod_time": 1784385377993100947
+              },
+              "lead.md": {
+                "synonym_key": "examples/briefs/lead.md",
+                "full_path": "/Users/kentaylor/developer/picode/examples/briefs/lead.md",
+                "type": "file",
+                "synonyms": [
+                  "example lead brief",
+                  "sample team lead brief",
+                  "lead brief markdown example",
+                  "team lead briefing example",
+                  "brief for lead role example",
+                  "examples briefs lead",
+                  "briefs",
+                  "lead",
+                  "md"
+                ],
+                "size": 1646,
+                "mod_time": 1784385377989394919
+              }
+            }
+          },
+          "prompts": {
+            "synonym_key": "examples/prompts",
+            "full_path": "/Users/kentaylor/developer/picode/examples/prompts",
+            "type": "directory",
+            "synonyms": [
+              "example prompts folder",
+              "prompt examples directory",
+              "sample prompt collection",
+              "prompt templates in examples",
+              "prompts examples folder",
+              "example prompt files",
+              "prompts"
+            ],
+            "size": 160,
+            "mod_time": 1784385377982069032,
+            "children": {
+              "builder.md": {
+                "synonym_key": "examples/prompts/builder.md",
+                "full_path": "/Users/kentaylor/developer/picode/examples/prompts/builder.md",
+                "type": "file",
+                "synonyms": [
+                  "builder prompt example",
+                  "sample builder prompt",
+                  "example prompt for builder role",
+                  "builder instructions example",
+                  "builder prompt template example",
+                  "examples prompts builder",
+                  "prompts",
+                  "builder",
+                  "md"
+                ],
+                "size": 796,
+                "mod_time": 1784385377974836895
+              },
+              "coordinator.md": {
+                "synonym_key": "examples/prompts/coordinator.md",
+                "full_path": "/Users/kentaylor/developer/picode/examples/prompts/coordinator.md",
+                "type": "file",
+                "synonyms": [
+                  "coordinator prompt example",
+                  "sample coordinator prompt",
+                  "example prompt for coordinator role",
+                  "coordinator instructions example",
+                  "coordinator prompt template example",
+                  "examples prompts coordinator",
+                  "prompts",
+                  "coordinator",
+                  "md"
+                ],
+                "size": 1619,
+                "mod_time": 1784385377982020281
+              },
+              "worker.md": {
+                "synonym_key": "examples/prompts/worker.md",
+                "full_path": "/Users/kentaylor/developer/picode/examples/prompts/worker.md",
+                "type": "file",
+                "synonyms": [
+                  "worker prompt example",
+                  "sample worker prompt",
+                  "example prompt for worker role",
+                  "worker instructions example",
+                  "worker prompt template example",
+                  "examples prompts worker",
+                  "prompts",
+                  "worker",
+                  "md"
+                ],
+                "size": 1425,
+                "mod_time": 1784385377978421296
+              }
+            }
+          },
+          "two-teams.sh": {
+            "synonym_key": "examples/two-teams.sh",
+            "full_path": "/Users/kentaylor/developer/picode/examples/two-teams.sh",
+            "type": "file",
+            "synonyms": [
+              "two teams shell script example",
+              "example script for two teams",
+              "two-team setup script",
+              "bash script demonstrating two teams",
+              "two teams demo script",
+              "sample script with two teams",
+              "examples",
+              "two",
+              "teams",
+              "sh"
+            ],
+            "size": 2823,
+            "mod_time": 1784385377985826685
+          }
+        }
+      },
+      "integrations": {
+        "synonym_key": "integrations",
+        "full_path": "/Users/kentaylor/developer/picode/integrations",
+        "type": "directory",
+        "synonyms": [
+          "integrations folder",
+          "integration modules directory",
+          "third-party integrations folder",
+          "external service integrations",
+          "integration implementations directory",
+          "integrations package",
+          "integrations"
+        ],
+        "size": 160,
+        "mod_time": 1784226734579005360,
+        "children": {
+          "claude": {
+            "synonym_key": "integrations/claude",
+            "full_path": "/Users/kentaylor/developer/picode/integrations/claude",
+            "type": "directory",
+            "synonyms": [
+              "claude integration",
+              "anthropic claude setup",
+              "claude code configuration",
+              "integrate claude with project",
+              "claude ai provider setup",
+              "claude integration folder",
+              "configure claude integration",
+              "claude"
+            ],
+            "size": 192,
+            "mod_time": 1784385439442332420,
+            "children": {
+              "README.md": {
+                "synonym_key": "integrations/claude/README.md",
+                "full_path": "/Users/kentaylor/developer/picode/integrations/claude/README.md",
+                "type": "file",
+                "synonyms": [
+                  "claude integration documentation",
+                  "how to set up claude",
+                  "claude integration guide",
+                  "claude readme",
+                  "instructions for claude integration",
+                  "claude setup instructions",
+                  "claude integration readme",
+                  "claude",
+                  "readme",
+                  "md"
+                ],
+                "size": 2353,
+                "mod_time": 1784385439442268837
+              },
+              "hooks": {
+                "synonym_key": "integrations/claude/hooks",
+                "full_path": "/Users/kentaylor/developer/picode/integrations/claude/hooks",
+                "type": "directory",
+                "synonyms": [
+                  "claude hooks",
+                  "claude code hooks",
+                  "hook scripts for claude",
+                  "claude event hooks",
+                  "claude automation hooks",
+                  "claude hook configuration",
+                  "claude hooks folder",
+                  "hooks"
+                ],
+                "size": 96,
+                "mod_time": 1784385377935852563,
+                "children": {
+                  "hooks.json": {
+                    "synonym_key": "integrations/claude/hooks/hooks.json",
+                    "full_path": "/Users/kentaylor/developer/picode/integrations/claude/hooks/hooks.json",
+                    "type": "file",
+                    "synonyms": [
+                      "claude hooks configuration",
+                      "hooks.json for claude",
+                      "define claude hooks",
+                      "claude hook settings",
+                      "configure claude event hooks",
+                      "claude code hooks json",
+                      "claude hooks file",
+                      "hooks",
+                      "json"
+                    ],
+                    "size": 891,
+                    "mod_time": 1784385377935801854
+                  }
+                }
+              }
+            }
+          },
+          "codex": {
+            "synonym_key": "integrations/codex",
+            "full_path": "/Users/kentaylor/developer/picode/integrations/codex",
+            "type": "directory",
+            "synonyms": [
+              "codex integration",
+              "openai codex setup",
+              "codex cli integration",
+              "integrate codex with project",
+              "codex configuration",
+              "codex integration folder",
+              "set up codex",
+              "codex"
+            ],
+            "size": 128,
+            "mod_time": 1784385445012157950,
+            "children": {
+              "AGENTS-snippet.md": {
+                "synonym_key": "integrations/codex/AGENTS-snippet.md",
+                "full_path": "/Users/kentaylor/developer/picode/integrations/codex/AGENTS-snippet.md",
+                "type": "file",
+                "synonyms": [
+                  "agents.md snippet for codex",
+                  "codex agent instructions snippet",
+                  "add codex guidelines to agents",
+                  "agents snippet for codex integration",
+                  "codex agent configuration snippet",
+                  "copy snippet into agents.md",
+                  "codex agents.md template",
+                  "codex",
+                  "agents",
+                  "snippet",
+                  "md"
+                ],
+                "size": 1139,
+                "mod_time": 1784385445012010366
+              },
+              "README.md": {
+                "synonym_key": "integrations/codex/README.md",
+                "full_path": "/Users/kentaylor/developer/picode/integrations/codex/README.md",
+                "type": "file",
+                "synonyms": [
+                  "codex integration documentation",
+                  "how to set up codex",
+                  "codex integration guide",
+                  "codex readme",
+                  "instructions for codex integration",
+                  "codex setup instructions",
+                  "codex integration readme",
+                  "codex",
+                  "readme",
+                  "md"
+                ],
+                "size": 1826,
+                "mod_time": 1784385439442729006
+              }
+            }
+          }
+        }
+      },
+      "live.sh": {
+        "synonym_key": "live.sh",
+        "full_path": "/Users/kentaylor/developer/picode/live.sh",
+        "type": "file",
+        "synonyms": [
+          "run live script",
+          "execute live script",
+          "live shell script",
+          "start live development server",
+          "live reload script",
+          "live mode script",
+          "bash live script",
+          "live environment script",
+          "picode",
+          "live",
+          "sh"
+        ],
+        "size": 1435,
+        "mod_time": 1787974455276779794
+      },
+      "package.json": {
+        "synonym_key": "package.json",
+        "full_path": "/Users/kentaylor/developer/picode/package.json",
+        "type": "file",
+        "synonyms": [
+          "project dependencies",
+          "npm scripts",
+          "package metadata",
+          "version and name configuration",
+          "build and test scripts",
+          "dependency versions",
+          "entry point configuration",
+          "picode",
+          "package",
+          "json"
+        ],
+        "size": 2010,
+        "mod_time": 1791245072683366377
+      },
+      "skills": {
+        "synonym_key": "skills",
+        "full_path": "/Users/kentaylor/developer/picode/skills",
+        "type": "directory",
+        "synonyms": [
+          "agent skills",
+          "skill definitions",
+          "custom capabilities",
+          "skill modules",
+          "skill implementations",
+          "skill plugins",
+          "skills"
+        ],
+        "size": 96,
+        "mod_time": 1784383438570778548,
+        "children": {
+          "herdr": {
+            "synonym_key": "skills/herdr",
+            "full_path": "/Users/kentaylor/developer/picode/skills/herdr",
+            "type": "directory",
+            "synonyms": [
+              "herd management skill",
+              "agent herding",
+              "multi-agent coordination",
+              "herdr skill",
+              "herdr module",
+              "orchestrate agents",
+              "herdr"
+            ],
+            "size": 96,
+            "mod_time": 1784385378001089881,
+            "children": {
+              "SKILL.md": {
+                "synonym_key": "skills/herdr/SKILL.md",
+                "full_path": "/Users/kentaylor/developer/picode/skills/herdr/SKILL.md",
+                "type": "file",
+                "synonyms": [
+                  "herdr skill documentation",
+                  "herdr skill readme",
+                  "herdr skill guide",
+                  "herdr instructions",
+                  "how to use herdr skill",
+                  "herdr skill usage",
+                  "herdr",
+                  "skill",
+                  "md"
+                ],
+                "size": 9269,
+                "mod_time": 1784385378001008922
+              }
+            }
+          }
+        }
+      },
+      "src": {
+        "synonym_key": "src",
+        "full_path": "/Users/kentaylor/developer/picode/src",
+        "type": "directory",
+        "synonyms": [
+          "source code",
+          "implementation files",
+          "project source root",
+          "application code",
+          "main codebase",
+          "where is the source code",
+          "src"
+        ],
+        "size": 576,
+        "mod_time": 1790540989548815706,
+        "children": {
+          "adapter": {
+            "synonym_key": "src/adapter",
+            "full_path": "/Users/kentaylor/developer/picode/src/adapter",
+            "type": "directory",
+            "synonyms": [
+              "adapter implementations",
+              "adapter modules",
+              "adapter factory",
+              "adapter registry",
+              "adapter layer",
+              "adapter plugins",
+              "storage adapters",
+              "adapter"
+            ],
+            "size": 160,
+            "mod_time": 1785937099923763945,
+            "children": {
+              "local-fs.ts": {
+                "synonym_key": "src/adapter/local-fs.ts",
+                "full_path": "/Users/kentaylor/developer/picode/src/adapter/local-fs.ts",
+                "type": "file",
+                "synonyms": [
+                  "local filesystem adapter",
+                  "file-based message queue",
+                  "append journal entries",
+                  "acquire journal lock",
+                  "drain inbox messages",
+                  "enqueue message to local fs",
+                  "count queued messages",
+                  "create local fs adapter",
+                  "delete journal file",
+                  "finalize drain process",
+                  "manage message envelopes",
+                  "adapter"
+                ],
+                "symbols": [
+                  "pruneProcessed",
+                  "envelopeFileName",
+                  "createLocalFsAdapter",
+                  "threadDir",
+                  "statePath",
+                  "journalPath",
+                  "journalLockPath",
+                  "inboxDir",
+                  "stagingDir",
+                  "configure",
+                  "loadPicodeState",
+                  "savePicodeState",
+                  "appendJournal",
+                  "setJournal",
+                  "deleteJournal",
+                  "acquireJournalLock",
+                  "releaseJournalLock",
+                  "readJournal",
+                  "listPcodes",
+                  "threadExists",
+                  "countQueued",
+                  "enqueueMessage",
+                  "drainInbox",
+                  "finalizeDrain",
+                  "watchInbox"
+                ],
+                "size": 12703,
+                "mod_time": 1785937099924112779
+              },
+              "registry.ts": {
+                "synonym_key": "src/adapter/registry.ts",
+                "full_path": "/Users/kentaylor/developer/picode/src/adapter/registry.ts",
+                "type": "file",
+                "synonyms": [
+                  "adapter factory",
+                  "create configured adapter",
+                  "adapter registry",
+                  "configure adapter options",
+                  "select adapter implementation",
+                  "register adapters",
+                  "restate adapter integration",
+                  "local fs adapter registration",
+                  "adapter creation logic",
+                  "adapter configuration management",
+                  "adapter for pi coding agent",
+                  "adapter"
+                ],
+                "symbols": [
+                  "AdapterOptions",
+                  "AdapterFactory",
+                  "createConfiguredAdapter"
+                ],
+                "size": 1458,
+                "mod_time": 1784385378142088221
+              },
+              "types.ts": {
+                "synonym_key": "src/adapter/types.ts",
+                "full_path": "/Users/kentaylor/developer/picode/src/adapter/types.ts",
+                "type": "file",
+                "synonyms": [
+                  "adapter interface definitions",
+                  "journal adapter contract",
+                  "picode adapter contract",
+                  "storage adapter contract",
+                  "adapter abstraction types",
+                  "shared adapter typings",
+                  "type signatures for adapter implementations",
+                  "core types imported by adapters",
+                  "adapter",
+                  "types",
+                  "ts"
+                ],
+                "symbols": [
+                  "StorageAdapter",
+                  "JournalAdapter",
+                  "PicodeAdapter"
+                ],
+                "size": 3708,
+                "mod_time": 1784665507458412971
+              }
+            }
+          },
+          "cache-diagnostics.ts": {
+            "synonym_key": "src/cache-diagnostics.ts",
+            "full_path": "/Users/kentaylor/developer/picode/src/cache-diagnostics.ts",
+            "type": "file",
+            "synonyms": [
+              "register cache diagnostics with coding agent",
+              "record prompt for cache analysis",
+              "explain cache miss",
+              "reset cache diagnostics state",
+              "instrument prompt caching",
+              "collect cache usage diagnostics",
+              "integrate core cache diagnostic records",
+              "cache diagnostics plugin for pi coding agent",
+              "src",
+              "cache",
+              "diagnostics",
+              "ts"
+            ],
+            "symbols": [
+              "explainMiss",
+              "registerCacheDiagnostics",
+              "reset",
+              "recordPrompt"
+            ],
+            "size": 6762,
+            "mod_time": 1790268462992821119
+          },
+          "commands-models.ts": {
+            "synonym_key": "src/commands-models.ts",
+            "full_path": "/Users/kentaylor/developer/picode/src/commands-models.ts",
+            "type": "file",
+            "synonyms": [
+              "model selection command ui",
+              "filterable list of available models",
+              "build model items for command",
+              "format context window size",
+              "add model role",
+              "apply model filter",
+              "role selection list",
+              "model description formatting",
+              "available model type",
+              "command model picker",
+              "src",
+              "commands"
+            ],
+            "symbols": [
+              "AvailableModel",
+              "formatContextWindow",
+              "formatModelDescription",
+              "buildRoleItems",
+              "addRole",
+              "buildModelItems",
+              "themedSelectList",
+              "FilterableSelectList",
+              "constructor",
+              "focused",
+              "applyFilter",
+              "render",
+              "invalidate",
+              "handleInput",
+              "showRoleSelector",
+              "showModelSelector",
+              "interactiveModelSelector"
+            ],
+            "size": 18224,
+            "mod_time": 1787582850269551454
+          },
+          "commands.ts": {
+            "synonym_key": "src/commands.ts",
+            "full_path": "/Users/kentaylor/developer/picode/src/commands.ts",
+            "type": "file",
+            "synonyms": [
+              "register cli commands",
+              "command argument completions",
+              "check active command state",
+              "command handler dispatch",
+              "format command output",
+              "picode command operations",
+              "quiet tui command integration",
+              "model command registration",
+              "src",
+              "commands",
+              "ts"
+            ],
+            "symbols": [
+              "checkActive",
+              "registerCommands",
+              "handler",
+              "getArgumentCompletions",
+              "format"
+            ],
+            "size": 21374,
+            "mod_time": 1790068100363590736
+          },
+          "core": {
+            "synonym_key": "src/core",
+            "full_path": "/Users/kentaylor/developer/picode/src/core",
+            "type": "directory",
+            "synonyms": [
+              "core domain logic",
+              "shared core modules",
+              "internal core implementation",
+              "central picode logic",
+              "core types and utilities",
+              "handoff and formatting core",
+              "cache diagnostics core",
+              "core model config and ops",
+              "system prompt core",
+              "agent core package",
+              "core"
+            ],
+            "size": 512,
+            "mod_time": 1790490145676887103,
+            "children": {
+              "cache-diagnostics.ts": {
+                "synonym_key": "src/core/cache-diagnostics.ts",
+                "full_path": "/Users/kentaylor/developer/picode/src/core/cache-diagnostics.ts",
+                "type": "file",
+                "synonyms": [
+                  "assess prompt cache usage",
+                  "append cache diagnostic record",
+                  "cache assessment types",
+                  "prompt snapshot for caching",
+                  "payload segment snapshot",
+                  "previous cache request comparison",
+                  "picode prompt transport cache",
+                  "record cache usage samples",
+                  "persist cache diagnostics to file",
+                  "diagnose prompt cache misses",
+                  "cache diagnostic record schema",
+                  "core"
+                ],
+                "symbols": [
+                  "CachePromptSnapshot",
+                  "CacheUsageSample",
+                  "PreviousCacheRequest",
+                  "PayloadSegment",
+                  "PayloadSnapshot",
+                  "CacheAssessment",
+                  "CacheDiagnosticRecord",
+                  "fingerprint",
+                  "hashCacheSessionId",
+                  "PicodePromptTransport",
+                  "wrapSection",
+                  "renderLeadingPrompt",
+                  "snapshotCachePrompt",
+                  "changedPromptComponents",
+                  "object",
+                  "finiteNumber",
+                  "timestampMs",
+                  "promptTokens",
+                  "totalCost",
+                  "findPreviousCacheRequest",
+                  "assessCacheUsage",
+                  "segment",
+                  "safeJson",
+                  "payloadItems",
+                  "snapshotCachePayload",
+                  "changedPayloadSegments",
+                  "tracePath",
+                  "trimTrace",
+                  "appendCacheDiagnostic",
+                  "findPreviousPromptSnapshot"
+                ],
+                "size": 19204,
+                "mod_time": 1790175112498806016
+              },
+              "format.ts": {
+                "synonym_key": "src/core/format.ts",
+                "full_path": "/Users/kentaylor/developer/picode/src/core/format.ts",
+                "type": "file",
+                "synonyms": [
+                  "format thread line",
+                  "barrier lines output",
+                  "itemize obligations",
+                  "obligation lines formatting",
+                  "owed lines display",
+                  "thread formatting helpers",
+                  "format owed and obligation lists",
+                  "barrier separators for threads",
+                  "format handoff obligations",
+                  "core",
+                  "format",
+                  "ts"
+                ],
+                "symbols": [
+                  "formatThreadLine",
+                  "itemize",
+                  "obligationLines",
+                  "barrierLines",
+                  "owedLines"
+                ],
+                "size": 1829,
+                "mod_time": 1784833206273445200
+              },
+              "handoff.ts": {
+                "synonym_key": "src/core/handoff.ts",
+                "full_path": "/Users/kentaylor/developer/picode/src/core/handoff.ts",
+                "type": "file",
+                "synonyms": [
+                  "read handoff note",
+                  "write handoff note",
+                  "handoff file path",
+                  "validate handoff data",
+                  "handoff outcome type",
+                  "persist handoff notes",
+                  "load handoff from disk",
+                  "create handoff note",
+                  "check if handoff",
+                  "handoff note schema",
+                  "core",
+                  "handoff"
+                ],
+                "symbols": [
+                  "HandoffNote",
+                  "HandoffOutcome",
+                  "handoffPath",
+                  "isString",
+                  "isHandoff",
+                  "readHandoff",
+                  "writeHandoff"
+                ],
+                "size": 3092,
+                "mod_time": 1789571330057213816
+              },
+              "ids.ts": {
+                "synonym_key": "src/core/ids.ts",
+                "full_path": "/Users/kentaylor/developer/picode/src/core/ids.ts",
+                "type": "file",
+                "synonyms": [
+                  "mint unique envelope identifier",
+                  "generate cryptographic random id",
+                  "create id for message envelope",
+                  "produce unique identifier for thread",
+                  "assign random identifier using node crypto",
+                  "mint id for core message",
+                  "core",
+                  "ids",
+                  "ts"
+                ],
+                "symbols": [
+                  "mintId",
+                  "mintEnvelopeId"
+                ],
+                "size": 1805,
+                "mod_time": 1784385378082641613
+              },
+              "model-config.ts": {
+                "synonym_key": "src/core/model-config.ts",
+                "full_path": "/Users/kentaylor/developer/picode/src/core/model-config.ts",
+                "type": "file",
+                "synonyms": [
+                  "load model configuration from project",
+                  "merge model overrides into config",
+                  "resolve configured model name",
+                  "write models config file",
+                  "find project root for model config",
+                  "read model config scopes",
+                  "manage model config paths",
+                  "determine effective model from configs",
+                  "read model overrides",
+                  "core",
+                  "model",
+                  "config"
+                ],
+                "symbols": [
+                  "ModelConfig",
+                  "ModelConfigScope",
+                  "ModelConfigPaths",
+                  "projectRoot",
+                  "readModelsConfig",
+                  "writeModelsConfig",
+                  "readOverrides",
+                  "mergeModelsConfig",
+                  "resolveConfiguredModel",
+                  "resolveModelFromConfigs"
+                ],
+                "size": 4866,
+                "mod_time": 1790067792878208206
+              },
+              "picode-ops.ts": {
+                "synonym_key": "src/core/picode-ops.ts",
+                "full_path": "/Users/kentaylor/developer/picode/src/core/picode-ops.ts",
+                "type": "file",
+                "synonyms": [
+                  "suspend worker thread",
+                  "resume suspended thread",
+                  "pause coding agent thread",
+                  "continue stopped thread execution",
+                  "control thread lifecycle",
+                  "stop active thread",
+                  "core",
+                  "picode",
+                  "ops",
+                  "ts"
+                ],
+                "symbols": [
+                  "suspendThread",
+                  "resumeThread"
+                ],
+                "size": 978,
+                "mod_time": 1784385378100071867
+              },
+              "quiet-tui.ts": {
+                "synonym_key": "src/core/quiet-tui.ts",
+                "full_path": "/Users/kentaylor/developer/picode/src/core/quiet-tui.ts",
+                "type": "file",
+                "synonyms": [
+                  "check if quiet tui is enabled",
+                  "read quiet mode file",
+                  "set quiet tui preference",
+                  "configure quiet scope",
+                  "determine quiet source",
+                  "persist quiet terminal ui setting",
+                  "toggle quiet tui",
+                  "core",
+                  "quiet",
+                  "tui",
+                  "ts"
+                ],
+                "symbols": [
+                  "QuietSource",
+                  "QuietScope",
+                  "isQuietTui",
+                  "setQuietTui",
+                  "readQuietFile"
+                ],
+                "size": 3462,
+                "mod_time": 1790067792877911623
+              },
+              "recall-registry.ts": {
+                "synonym_key": "src/core/recall-registry.ts",
+                "full_path": "/Users/kentaylor/developer/picode/src/core/recall-registry.ts",
+                "type": "file",
+                "synonyms": [
+                  "load recall participant",
+                  "save recall participant",
+                  "read recall catalog",
+                  "check if recall participant exists",
+                  "locate recall catalog path",
+                  "register recall participant",
+                  "manage recall catalog file",
+                  "core",
+                  "recall",
+                  "registry",
+                  "ts"
+                ],
+                "symbols": [
+                  "RecallParticipant",
+                  "RecallCatalog",
+                  "catalogPath",
+                  "isParticipant",
+                  "readCatalog",
+                  "loadRecallParticipant",
+                  "saveRecallParticipant"
+                ],
+                "size": 1795,
+                "mod_time": 1787776486700166849
+              },
+              "roles.ts": {
+                "synonym_key": "src/core/roles.ts",
+                "full_path": "/Users/kentaylor/developer/picode/src/core/roles.ts",
+                "type": "file",
+                "synonyms": [
+                  "detect worker role",
+                  "assign role emoji",
+                  "identify coordinator or worker role",
+                  "determine agent role from context",
+                  "map role to emoji",
+                  "core",
+                  "roles",
+                  "ts"
+                ],
+                "symbols": [
+                  "detectWorkerRole",
+                  "roleEmoji"
+                ],
+                "size": 1493,
+                "mod_time": 1787405236166146040
+              },
+              "sitrep.ts": {
+                "synonym_key": "src/core/sitrep.ts",
+                "full_path": "/Users/kentaylor/developer/picode/src/core/sitrep.ts",
+                "type": "file",
+                "synonyms": [
+                  "advance sitrep streak",
+                  "initialize sitrep streak",
+                  "resolve max idle for sitrep",
+                  "generate sitrep signature",
+                  "decide sitrep action",
+                  "track consecutive sitrep reports",
+                  "compute sitrep inputs",
+                  "core",
+                  "sitrep",
+                  "ts"
+                ],
+                "symbols": [
+                  "resolveSitrepMaxIdle",
+                  "SitrepInputs",
+                  "sitrepSignature",
+                  "ids",
+                  "SitrepStreak",
+                  "initialSitrepStreak",
+                  "SitrepDecision",
+                  "advanceSitrep"
+                ],
+                "size": 4086,
+                "mod_time": 1789610573602564515
+              },
+              "system-prompt.ts": {
+                "synonym_key": "src/core/system-prompt.ts",
+                "full_path": "/Users/kentaylor/developer/picode/src/core/system-prompt.ts",
+                "type": "file",
+                "synonyms": [
+                  "build system prompt for worker",
+                  "load prompt override file",
+                  "parse override mode",
+                  "get coordinator rules",
+                  "journal guidance for worker",
+                  "find project root for prompt",
+                  "generate revived notice",
+                  "construct communication model",
+                  "load default prompt file",
+                  "configure thread prompt options",
+                  "core",
+                  "system"
+                ],
+                "symbols": [
+                  "WorkerSubtype",
+                  "workerSubtype",
+                  "loadPromptFile",
+                  "coordinatorRules",
+                  "findProjectRoot",
+                  "loadPromptOverride",
+                  "parseOverrideMode",
+                  "stripFrontmatter",
+                  "buildCommunicationModel",
+                  "journalGuidanceFor",
+                  "ThreadPromptOptions",
+                  "revivedNotice",
+                  "splitPicodeRoster"
+                ],
+                "size": 12969,
+                "mod_time": 1791245055195120901
+              },
+              "time.ts": {
+                "synonym_key": "src/core/time.ts",
+                "full_path": "/Users/kentaylor/developer/picode/src/core/time.ts",
+                "type": "file",
+                "synonyms": [
+                  "calculate deadline from seconds",
+                  "convert duration to deadline",
+                  "get current timestamp in iso format",
+                  "generate iso 8601 time string",
+                  "time utility for deadlines",
+                  "compute expiration time from seconds",
+                  "produce iso timestamp for now",
+                  "core",
+                  "time",
+                  "ts"
+                ],
+                "symbols": [
+                  "nowIso",
+                  "deadlineFromSeconds"
+                ],
+                "size": 1074,
+                "mod_time": 1784385378108292678
+              },
+              "types.ts": {
+                "synonym_key": "src/core/types.ts",
+                "full_path": "/Users/kentaylor/developer/picode/src/core/types.ts",
+                "type": "file",
+                "synonyms": [
+                  "core type definitions",
+                  "picode state and store types",
+                  "obligation and owed reply interfaces",
+                  "envelope and barrier type definitions",
+                  "urgency level type",
+                  "picode data structure types",
+                  "state file type definition",
+                  "shared types for picode system",
+                  "core",
+                  "types",
+                  "ts"
+                ],
+                "symbols": [
+                  "PicodeState",
+                  "Urgency",
+                  "Envelope",
+                  "Obligation",
+                  "OwedReply",
+                  "Barrier",
+                  "StateFile",
+                  "PicodeSummary",
+                  "toSummary",
+                  "PicodeStore",
+                  "PicodeData"
+                ],
+                "size": 9988,
+                "mod_time": 1790212330050670496
+              },
+              "worker-ledger.ts": {
+                "synonym_key": "src/core/worker-ledger.ts",
+                "full_path": "/Users/kentaylor/developer/picode/src/core/worker-ledger.ts",
+                "type": "file",
+                "synonyms": [
+                  "construct worker ledger row",
+                  "derive area for worker",
+                  "format worker digest",
+                  "clear cached area data",
+                  "cache area derivation results",
+                  "clamp numeric values in ledger",
+                  "read raw state from filesystem",
+                  "worker ledger area bucket calculation",
+                  "build ledger row from state",
+                  "core",
+                  "worker",
+                  "ledger"
+                ],
+                "symbols": [
+                  "LedgerRow",
+                  "RawState",
+                  "str",
+                  "isPidAlive",
+                  "readStateFile",
+                  "areaBucket",
+                  "deriveArea",
+                  "deriveAreaCached",
+                  "clearAreaCache",
+                  "headCommitMs",
+                  "clearHeadCache",
+                  "headMovedSince",
+                  "buildRow",
+                  "recentWorkers",
+                  "humanAge",
+                  "clamp",
+                  "formatWorkerDigest"
+                ],
+                "size": 13043,
+                "mod_time": 1790490145677092395
+              }
+            }
+          },
+          "herdr": {
+            "synonym_key": "src/herdr",
+            "full_path": "/Users/kentaylor/developer/picode/src/herdr",
+            "type": "directory",
+            "synonyms": [
+              "herdr event listener folder",
+              "herdr socket connection module",
+              "herdr pane tracking subsystem",
+              "herdr directory for event handling",
+              "herdr listener component",
+              "herdr module for socket events",
+              "herdr folder for tracking panes",
+              "herdr"
+            ],
+            "size": 96,
+            "mod_time": 1790281370939102401,
+            "children": {
+              "listener.ts": {
+                "synonym_key": "src/herdr/listener.ts",
+                "full_path": "/Users/kentaylor/developer/picode/src/herdr/listener.ts",
+                "type": "file",
+                "synonyms": [
+                  "connect to herdr socket",
+                  "destroy herdr socket connection",
+                  "format herdr event",
+                  "get listener handle",
+                  "track number of panes",
+                  "clear timers for listener",
+                  "check startup grace period",
+                  "determine herdr socket path",
+                  "handle herdr events",
+                  "create herdr listener",
+                  "herdr",
+                  "listener"
+                ],
+                "symbols": [
+                  "HerdrEvent",
+                  "herdrSocketPath",
+                  "formatEvent",
+                  "HerdrListenerHandle",
+                  "setListenerHandle",
+                  "getListenerHandle",
+                  "trackPane",
+                  "untrackPane",
+                  "getTrackedPaneCount",
+                  "startHerdrListener",
+                  "log",
+                  "inStartupGrace",
+                  "clearTimers",
+                  "destroySocket",
+                  "scheduleReconnect",
+                  "resetHeartbeat",
+                  "connectSocket"
+                ],
+                "size": 10361,
+                "mod_time": 1790281370939625113
+              }
+            }
+          },
+          "inbox.ts": {
+            "synonym_key": "src/inbox.ts",
+            "full_path": "/Users/kentaylor/developer/picode/src/inbox.ts",
+            "type": "file",
+            "synonyms": [
+              "create inbox instance",
+              "inject batch of messages",
+              "create inject batch",
+              "check deadlines for inbox",
+              "deliver message to inbox",
+              "can inject messages",
+              "send options and results",
+              "manage inbox for picode",
+              "batch injection into inbox",
+              "deadline checking for messages",
+              "src",
+              "inbox"
+            ],
+            "symbols": [
+              "Injection",
+              "InjectBatch",
+              "createInjectBatch",
+              "SendResult",
+              "SendOptions",
+              "Inbox",
+              "createInbox",
+              "canInject",
+              "schedulePendingRetry",
+              "inject",
+              "noteCompactionStart",
+              "noteCompactionEnd",
+              "noteRunStarted",
+              "isTargetLive",
+              "resolveTargets",
+              "sendEnvelope",
+              "sendToMany",
+              "findMissingTargets",
+              "resolveBarriers",
+              "renderEnvelope",
+              "deliver",
+              "emit",
+              "drainInbox",
+              "checkDeadlines",
+              "onInjected",
+              "onInject"
+            ],
+            "size": 24988,
+            "mod_time": 1790281834578556119
+          },
+          "index.ts": {
+            "synonym_key": "src/index.ts",
+            "full_path": "/Users/kentaylor/developer/picode/src/index.ts",
+            "type": "file",
+            "synonyms": [
+              "application entry point",
+              "main index file for project",
+              "wire up commands and adapters",
+              "initialize inbox and lifecycle",
+              "export renderers and commands",
+              "bundle application modules",
+              "startup file for picode",
+              "src",
+              "index",
+              "ts"
+            ],
+            "size": 3447,
+            "mod_time": 1789571366222544297
+          },
+          "journal.ts": {
+            "synonym_key": "src/journal.ts",
+            "full_path": "/Users/kentaylor/developer/picode/src/journal.ts",
+            "type": "file",
+            "synonyms": [
+              "build journal prompt",
+              "compact journal entry",
+              "decide if compaction needed",
+              "clip journal message",
+              "fork journal entry",
+              "check if entry is compaction",
+              "get journal entry subject",
+              "get journal entry timestamp",
+              "journal message type",
+              "journal compaction logic",
+              "src",
+              "journal"
+            ],
+            "symbols": [
+              "JournalMessage",
+              "clip",
+              "textOf",
+              "renderJournalMessage",
+              "buildJournalPrompt",
+              "isCompactionEntry",
+              "splitJournalEntries",
+              "entryTimestamp",
+              "entrySubject",
+              "compactEntry",
+              "journalFingerprint",
+              "isDuplicateOfLastEntry",
+              "journalMode",
+              "journalSignature",
+              "shouldJournal",
+              "piSelfCommand",
+              "journalForkArgs",
+              "forkJournalEntry",
+              "decideCompaction",
+              "compactJournal"
+            ],
+            "size": 20652,
+            "mod_time": 1787582027394362997
+          },
+          "lifecycle.ts": {
+            "synonym_key": "src/lifecycle.ts",
+            "full_path": "/Users/kentaylor/developer/picode/src/lifecycle.ts",
+            "type": "file",
+            "synonyms": [
+              "manage agent lifecycle events",
+              "register lifecycle hooks",
+              "arm situation report timer",
+              "current situation report signature",
+              "extract body from rendered response",
+              "extract first line from message",
+              "fork journal for thread",
+              "detect system prompt sections",
+              "check thread identity",
+              "track picode activity",
+              "determine resting state",
+              "lifecycle integration with roles and recall"
+            ],
+            "symbols": [
+              "hasSystemPromptSections",
+              "sitRepIntervalMs",
+              "sitRepMaxIdle",
+              "restingState",
+              "setHerdrPaneLabel",
+              "hasThreadIdentity",
+              "extractBodyFromRendered",
+              "extractFirstLine",
+              "registerLifecycle",
+              "trackedPaneCount",
+              "currentSitrepSignature",
+              "sitRepRunChangedNothing",
+              "stopSitRepTimer",
+              "notePicodeActivity",
+              "armSitRepTimer",
+              "streamGuard",
+              "forkJournalFor"
+            ],
+            "size": 37221,
+            "mod_time": 1791245118357786509
+          },
+          "prompts": {
+            "synonym_key": "src/prompts",
+            "full_path": "/Users/kentaylor/developer/picode/src/prompts",
+            "type": "directory",
+            "synonyms": [
+              "agent role prompt templates",
+              "collection of system prompts",
+              "prompt library for subagents",
+              "role-specific instruction files",
+              "markdown prompts for ai agents",
+              "bug hunter and builder prompts",
+              "designer and gauntlet prompts",
+              "prompt directory for agent personas",
+              "system prompt sections for roles",
+              "communication model prompt file",
+              "prompts"
+            ],
+            "size": 512,
+            "mod_time": 1791246139520097100,
+            "children": {
+              "bug-hunter.md": {
+                "synonym_key": "src/prompts/bug-hunter.md",
+                "full_path": "/Users/kentaylor/developer/picode/src/prompts/bug-hunter.md",
+                "type": "file",
+                "synonyms": [
+                  "bug hunter agent prompt",
+                  "instructions for finding bugs",
+                  "bug hunting role system prompt",
+                  "detect defects agent instructions",
+                  "qa bug discovery prompt",
+                  "bug hunter persona",
+                  "prompt for hunting software bugs",
+                  "defect finder subagent prompt",
+                  "prompts",
+                  "bug",
+                  "hunter",
+                  "md"
+                ],
+                "size": 1520,
+                "mod_time": 1786512485549482861
+              },
+              "builder.md": {
+                "synonym_key": "src/prompts/builder.md",
+                "full_path": "/Users/kentaylor/developer/picode/src/prompts/builder.md",
+                "type": "file",
+                "synonyms": [
+                  "builder agent prompt",
+                  "implementation agent system prompt",
+                  "code builder role instructions",
+                  "prompt for building features",
+                  "software construction agent prompt",
+                  "builder persona for coding",
+                  "development task builder prompt",
+                  "feature implementation instructions",
+                  "prompts",
+                  "builder",
+                  "md"
+                ],
+                "size": 6899,
+                "mod_time": 1787945846866776170
+              },
+              "communication-model.md": {
+                "synonym_key": "src/prompts/communication-model.md",
+                "full_path": "/Users/kentaylor/developer/picode/src/prompts/communication-model.md",
+                "type": "file",
+                "synonyms": [
+                  "communication model prompt",
+                  "agent communication style guide",
+                  "messaging protocol prompt for agents",
+                  "how agents should communicate",
+                  "communication behavior instructions",
+                  "collaboration communication prompt",
+                  "inter-agent communication model",
+                  "communication role system prompt",
+                  "prompts",
+                  "communication",
+                  "model",
+                  "md"
+                ],
+                "size": 7378,
+                "mod_time": 1788199889936265367
+              },
+              "designer.md": {
+                "synonym_key": "src/prompts/designer.md",
+                "full_path": "/Users/kentaylor/developer/picode/src/prompts/designer.md",
+                "type": "file",
+                "synonyms": [
+                  "designer agent prompt",
+                  "ui ux design role instructions",
+                  "design agent system prompt",
+                  "prompt for visual design tasks",
+                  "interface design persona",
+                  "product design subagent prompt",
+                  "frontend designer instructions",
+                  "designer role prompt template",
+                  "prompts",
+                  "designer",
+                  "md"
+                ],
+                "size": 16188,
+                "mod_time": 1787955618322975185
+              },
+              "gauntlet.md": {
+                "synonym_key": "src/prompts/gauntlet.md",
+                "full_path": "/Users/kentaylor/developer/picode/src/prompts/gauntlet.md",
+                "type": "file",
+                "synonyms": [
+                  "gauntlet agent prompt",
+                  "adversarial testing prompt",
+                  "stress test agent instructions",
+                  "gauntlet challenge role",
+                  "gauntlet evaluation prompt",
+                  "red team review prompt",
+                  "rigorous review agent persona",
+                  "gauntlet reviewer instructions",
+                  "prompts",
+                  "gauntlet",
+                  "md"
+                ],
+                "size": 12455,
+                "mod_time": 1787405236198890927
+              },
+              "herdr": {
+                "synonym_key": "src/prompts/herdr",
+                "full_path": "/Users/kentaylor/developer/picode/src/prompts/herdr",
+                "type": "directory",
+                "synonyms": [
+                  "herdr prompt folder",
+                  "herdr agent prompt",
+                  "herdr role instructions",
+                  "herdr system prompt",
+                  "herdr persona prompt",
+                  "herdr subagent prompt",
+                  "prompt files for herdr",
+                  "herdr prompt directory",
+                  "herdr"
+                ],
+                "size": 96,
+                "mod_time": 1790561139351550515,
+                "children": {
+                  "coordinator.md": {
+                    "synonym_key": "src/prompts/herdr/coordinator.md",
+                    "full_path": "/Users/kentaylor/developer/picode/src/prompts/herdr/coordinator.md",
+                    "type": "file",
+                    "synonyms": [
+                      "coordinate multiple agents",
+                      "orchestrate multi-agent workflow",
+                      "delegate tasks to specialist agents",
+                      "manage agent collaboration",
+                      "route work between agents",
+                      "supervise agent execution",
+                      "assign roles and responsibilities",
+                      "combine outputs from agents",
+                      "herdr",
+                      "coordinator",
+                      "md"
+                    ],
+                    "size": 29343,
+                    "mod_time": 1791246181129650823
+                  }
+                }
+              },
+              "planner.md": {
+                "synonym_key": "src/prompts/planner.md",
+                "full_path": "/Users/kentaylor/developer/picode/src/prompts/planner.md",
+                "type": "file",
+                "synonyms": [
+                  "break down goals into tasks",
+                  "create implementation plan",
+                  "decompose project into steps",
+                  "sequence work for agents",
+                  "generate roadmap prompt",
+                  "planning phase assistant",
+                  "task breakdown strategy",
+                  "plan before execution",
+                  "prompts",
+                  "planner",
+                  "md"
+                ],
+                "size": 2502,
+                "mod_time": 1786512485550642363
+              },
+              "reviewer.md": {
+                "synonym_key": "src/prompts/reviewer.md",
+                "full_path": "/Users/kentaylor/developer/picode/src/prompts/reviewer.md",
+                "type": "file",
+                "synonyms": [
+                  "review code changes",
+                  "critique agent output",
+                  "provide constructive feedback",
+                  "evaluate implementation quality",
+                  "code review prompt",
+                  "quality assurance reviewer",
+                  "inspect submitted work",
+                  "assess correctness of solution",
+                  "prompts",
+                  "reviewer",
+                  "md"
+                ],
+                "size": 1532,
+                "mod_time": 1788005413557844065
+              },
+              "round-table.md": {
+                "synonym_key": "src/prompts/round-table.md",
+                "full_path": "/Users/kentaylor/developer/picode/src/prompts/round-table.md",
+                "type": "file",
+                "synonyms": [
+                  "facilitate multi-agent discussion",
+                  "gather multiple perspectives",
+                  "reach consensus among agents",
+                  "structured group deliberation",
+                  "panel discussion format",
+                  "collaborative brainstorming session",
+                  "compare different agent opinions",
+                  "moderate round table debate",
+                  "prompts",
+                  "round",
+                  "table",
+                  "md"
+                ],
+                "size": 755,
+                "mod_time": 1787776670511493196
+              },
+              "runner.md": {
+                "synonym_key": "src/prompts/runner.md",
+                "full_path": "/Users/kentaylor/developer/picode/src/prompts/runner.md",
+                "type": "file",
+                "synonyms": [
+                  "execute planned tasks",
+                  "run commands and actions",
+                  "task execution agent",
+                  "perform steps from plan",
+                  "carry out assigned work",
+                  "operational runner prompt",
+                  "automate task execution",
+                  "execute agent instructions",
+                  "prompts",
+                  "runner",
+                  "md"
+                ],
+                "size": 2438,
+                "mod_time": 1786512485551375031
+              },
+              "scout.md": {
+                "synonym_key": "src/prompts/scout.md",
+                "full_path": "/Users/kentaylor/developer/picode/src/prompts/scout.md",
+                "type": "file",
+                "synonyms": [
+                  "explore codebase for context",
+                  "gather information before planning",
+                  "reconnaissance agent prompt",
+                  "search and discover resources",
+                  "survey project structure",
+                  "investigate unknowns",
+                  "information gathering scout",
+                  "scan environment for relevant files",
+                  "prompts",
+                  "scout",
+                  "md"
+                ],
+                "size": 2559,
+                "mod_time": 1787862791906372174
+              },
+              "tester.md": {
+                "synonym_key": "src/prompts/tester.md",
+                "full_path": "/Users/kentaylor/developer/picode/src/prompts/tester.md",
+                "type": "file",
+                "synonyms": [
+                  "write and run tests",
+                  "verify implementation correctness",
+                  "test agent prompt",
+                  "quality testing assistant",
+                  "validate code behavior",
+                  "create test cases",
+                  "run test suite",
+                  "check for regressions",
+                  "prompts",
+                  "tester",
+                  "md"
+                ],
+                "size": 1480,
+                "mod_time": 1786512485551951282
+              },
+              "visionary.md": {
+                "synonym_key": "src/prompts/visionary.md",
+                "full_path": "/Users/kentaylor/developer/picode/src/prompts/visionary.md",
+                "type": "file",
+                "synonyms": [
+                  "propose innovative solutions",
+                  "long-term vision prompt",
+                  "creative ideation agent",
+                  "explore future possibilities",
+                  "strategic foresight",
+                  "brainstorm novel approaches",
+                  "envision product direction",
+                  "generate big-picture ideas",
+                  "prompts",
+                  "visionary",
+                  "md"
+                ],
+                "size": 1759,
+                "mod_time": 1786294727495680871
+              },
+              "worker-base.md": {
+                "synonym_key": "src/prompts/worker-base.md",
+                "full_path": "/Users/kentaylor/developer/picode/src/prompts/worker-base.md",
+                "type": "file",
+                "synonyms": [
+                  "worker base prompt",
+                  "base prompt for worker",
+                  "worker agent instructions",
+                  "prompt template for worker",
+                  "worker role prompt",
+                  "worker system prompt",
+                  "prompts",
+                  "worker",
+                  "base",
+                  "md"
+                ],
+                "size": 2847,
+                "mod_time": 1789571456918204155
+              }
+            }
+          },
+          "renderers.ts": {
+            "synonym_key": "src/renderers.ts",
+            "full_path": "/Users/kentaylor/developer/picode/src/renderers.ts",
+            "type": "file",
+            "synonyms": [
+              "render system messages",
+              "render envelope messages",
+              "format message text",
+              "draw system box",
+              "display system box",
+              "system message renderer",
+              "envelope message renderer",
+              "tui message rendering",
+              "src",
+              "renderers",
+              "ts"
+            ],
+            "symbols": [
+              "messageText",
+              "envelopeMessageRenderer",
+              "systemMessageRenderer",
+              "systemBox"
+            ],
+            "size": 3657,
+            "mod_time": 1790067792878275915
+          },
+          "restate": {
+            "synonym_key": "src/restate",
+            "full_path": "/Users/kentaylor/developer/picode/src/restate",
+            "type": "directory",
+            "synonyms": [
+              "restate integration",
+              "restate adapter",
+              "restate service",
+              "restate journal",
+              "restate message queue",
+              "restate inbox drain",
+              "restate"
+            ],
+            "size": 160,
+            "mod_time": 1784833321273143609,
+            "children": {
+              "adapter.ts": {
+                "synonym_key": "src/restate/adapter.ts",
+                "full_path": "/Users/kentaylor/developer/picode/src/restate/adapter.ts",
+                "type": "file",
+                "synonyms": [
+                  "acquire journal lock",
+                  "append to journal",
+                  "configure restate adapter",
+                  "count queued messages",
+                  "create restate adapter",
+                  "delete journal entry",
+                  "drain inbox",
+                  "enqueue message",
+                  "finalize drain",
+                  "list pcodes",
+                  "restate",
+                  "adapter"
+                ],
+                "symbols": [
+                  "createRestateAdapter",
+                  "picode",
+                  "configure",
+                  "loadPicodeState",
+                  "savePicodeState",
+                  "appendJournal",
+                  "readJournal",
+                  "setJournal",
+                  "deleteJournal",
+                  "acquireJournalLock",
+                  "releaseJournalLock",
+                  "listPcodes",
+                  "threadExists",
+                  "countQueued",
+                  "enqueueMessage",
+                  "drainInbox",
+                  "finalizeDrain",
+                  "watchInbox"
+                ],
+                "size": 4665,
+                "mod_time": 1784665521153448586
+              },
+              "service.ts": {
+                "synonym_key": "src/restate/service.ts",
+                "full_path": "/Users/kentaylor/developer/picode/src/restate/service.ts",
+                "type": "file",
+                "synonyms": [
+                  "picodeobjectapi definition",
+                  "picoderegistryapi definition",
+                  "restate service api",
+                  "picode registry api",
+                  "launch wake process",
+                  "child process wake launch",
+                  "restate sdk service",
+                  "picode object api",
+                  "registry api for picodes",
+                  "wake launch integration",
+                  "restate",
+                  "service"
+                ],
+                "symbols": [
+                  "PicodeObjectApi",
+                  "PicodeRegistryApi"
+                ],
+                "size": 6858,
+                "mod_time": 1784909031068467218
+              },
+              "wake-launch.ts": {
+                "synonym_key": "src/restate/wake-launch.ts",
+                "full_path": "/Users/kentaylor/developer/picode/src/restate/wake-launch.ts",
+                "type": "file",
+                "synonyms": [
+                  "build wake launch",
+                  "wake launch builder",
+                  "construct wake launch",
+                  "create wake launch command",
+                  "wake launch utility",
+                  "launch wake process",
+                  "restate",
+                  "wake",
+                  "launch",
+                  "ts"
+                ],
+                "symbols": [
+                  "buildWakeLaunch"
+                ],
+                "size": 1838,
+                "mod_time": 1784385378129977965
+              }
+            }
+          },
+          "runtime": {
+            "synonym_key": "src/runtime",
+            "full_path": "/Users/kentaylor/developer/picode/src/runtime",
+            "type": "directory",
+            "synonyms": [
+              "runtime detection",
+              "runtime directory",
+              "runtime utilities",
+              "runtime environment detection",
+              "runtime kind detection",
+              "runtime"
+            ],
+            "size": 96,
+            "mod_time": 1791245035777047871,
+            "children": {
+              "detect.ts": {
+                "synonym_key": "src/runtime/detect.ts",
+                "full_path": "/Users/kentaylor/developer/picode/src/runtime/detect.ts",
+                "type": "file",
+                "synonyms": [
+                  "detect runtime kind",
+                  "runtime detection",
+                  "identify runtime",
+                  "runtime kind detection",
+                  "detect execution environment",
+                  "runtime detector",
+                  "runtime",
+                  "detect",
+                  "ts"
+                ],
+                "symbols": [
+                  "RuntimeKind",
+                  "detectRuntime"
+                ],
+                "size": 695,
+                "mod_time": 1791245040520063974
+              }
+            }
+          },
+          "state.ts": {
+            "synonym_key": "src/state.ts",
+            "full_path": "/Users/kentaylor/developer/picode/src/state.ts",
+            "type": "file",
+            "synonyms": [
+              "persist picode state to local filesystem",
+              "compact state journal entries",
+              "fork picode journal",
+              "read journal from disk",
+              "start heartbeat for picode liveness",
+              "check if process id is alive",
+              "list active pcodes",
+              "create picode store",
+              "initialize state store on startup",
+              "shutdown state store",
+              "src",
+              "state"
+            ],
+            "symbols": [
+              "isPidAlive",
+              "createPicodeStore",
+              "transition",
+              "persist",
+              "init",
+              "shutdown",
+              "listPcodes",
+              "threadExists",
+              "readJournal",
+              "forkJournal",
+              "compactJournal",
+              "startHeartbeat",
+              "stopHeartbeat",
+              "startWatcher",
+              "stopWatcher"
+            ],
+            "size": 14268,
+            "mod_time": 1790212330051860915
+          },
+          "tools": {
+            "synonym_key": "src/tools",
+            "full_path": "/Users/kentaylor/developer/picode/src/tools",
+            "type": "directory",
+            "synonyms": [
+              "agent tool modules",
+              "tool registration implementations",
+              "directory of cleanup control finish introspection messaging tools",
+              "picode tool command handlers",
+              "tools for coding agent interactions",
+              "cleanup-panes control finish introspection messaging modules",
+              "tools"
+            ],
+            "size": 576,
+            "mod_time": 1791245035779557047,
+            "children": {
+              "cleanup-panes.ts": {
+                "synonym_key": "src/tools/cleanup-panes.ts",
+                "full_path": "/Users/kentaylor/developer/picode/src/tools/cleanup-panes.ts",
+                "type": "file",
+                "synonyms": [
+                  "clean up stale panes",
+                  "remove orphaned panes",
+                  "close panes via herdr",
+                  "run herdr command as json",
+                  "register pane cleanup tool",
+                  "execute pane cleanup command",
+                  "prune leftover panes",
+                  "delete panes after task",
+                  "tools",
+                  "cleanup",
+                  "panes",
+                  "ts"
+                ],
+                "symbols": [
+                  "herdr",
+                  "herdrJson",
+                  "registerCleanupPanesTool",
+                  "execute"
+                ],
+                "size": 12348,
+                "mod_time": 1790067978030152763
+              },
+              "control.ts": {
+                "synonym_key": "src/tools/control.ts",
+                "full_path": "/Users/kentaylor/developer/picode/src/tools/control.ts",
+                "type": "file",
+                "synonyms": [
+                  "control picode lifecycle",
+                  "manage picode operations",
+                  "start stop picode instances",
+                  "send control command to inbox",
+                  "register control tools",
+                  "execute picode control action",
+                  "operate on picode processes",
+                  "administration tool for picodes",
+                  "tools",
+                  "control",
+                  "ts"
+                ],
+                "symbols": [
+                  "registerControlTools",
+                  "execute"
+                ],
+                "size": 2236,
+                "mod_time": 1784493867334669819
+              },
+              "finish.ts": {
+                "synonym_key": "src/tools/finish.ts",
+                "full_path": "/Users/kentaylor/developer/picode/src/tools/finish.ts",
+                "type": "file",
+                "synonyms": [
+                  "finish task and hand off",
+                  "complete work item",
+                  "submit final report",
+                  "generate default finish report",
+                  "handoff to next agent",
+                  "register finish tool",
+                  "close out task",
+                  "send finish notification to inbox",
+                  "tools",
+                  "finish",
+                  "ts"
+                ],
+                "symbols": [
+                  "defaultReport",
+                  "registerFinishTool",
+                  "execute"
+                ],
+                "size": 5909,
+                "mod_time": 1790067978033230392
+              },
+              "index.ts": {
+                "synonym_key": "src/tools/index.ts",
+                "full_path": "/Users/kentaylor/developer/picode/src/tools/index.ts",
+                "type": "file",
+                "synonyms": [
+                  "register all agent tools",
+                  "tool registration entry point",
+                  "wire cleanup control finish tools",
+                  "aggregate tool modules",
+                  "initialize tool suite",
+                  "expose tools to coding agent",
+                  "index of tool registrations",
+                  "tools",
+                  "index",
+                  "ts"
+                ],
+                "symbols": [
+                  "registerTools"
+                ],
+                "size": 1868,
+                "mod_time": 1791245040520338350
+              },
+              "introspection.ts": {
+                "synonym_key": "src/tools/introspection.ts",
+                "full_path": "/Users/kentaylor/developer/picode/src/tools/introspection.ts",
+                "type": "file",
+                "synonyms": [
+                  "inspect worker ledger",
+                  "read journal for debugging",
+                  "introspect worker state",
+                  "query worker activity",
+                  "format ledger output",
+                  "register introspection tools",
+                  "debug worker journal",
+                  "show worker history",
+                  "tools",
+                  "introspection",
+                  "ts"
+                ],
+                "symbols": [
+                  "registerIntrospectionTools",
+                  "execute"
+                ],
+                "size": 9206,
+                "mod_time": 1791246314265389163
+              },
+              "messaging.ts": {
+                "synonym_key": "src/tools/messaging.ts",
+                "full_path": "/Users/kentaylor/developer/picode/src/tools/messaging.ts",
+                "type": "file",
+                "synonyms": [
+                  "send message to agent inbox",
+                  "arm messaging barrier",
+                  "validate message body size",
+                  "register messaging tools",
+                  "inter-agent communication tool",
+                  "receive inbox message",
+                  "limit message payload size",
+                  "message synchronization barrier",
+                  "tools",
+                  "messaging",
+                  "ts"
+                ],
+                "symbols": [
+                  "checkBodySize",
+                  "armBarrier",
+                  "registerMessagingTools",
+                  "execute"
+                ],
+                "size": 13500,
+                "mod_time": 1790067978016793163
+              },
+              "pane-read.ts": {
+                "synonym_key": "src/tools/pane-read.ts",
+                "full_path": "/Users/kentaylor/developer/picode/src/tools/pane-read.ts",
+                "type": "file",
+                "synonyms": [
+                  "read output from a terminal pane",
+                  "capture pane buffer content",
+                  "register tool to read pane text",
+                  "execute herdr command to read pane",
+                  "fetch current pane output for agent",
+                  "inspect content of a split pane",
+                  "tool for reading coding agent pane",
+                  "tools",
+                  "pane",
+                  "read",
+                  "ts"
+                ],
+                "symbols": [
+                  "herdr",
+                  "registerPaneReadTool",
+                  "execute"
+                ],
+                "size": 5316,
+                "mod_time": 1790067978018524332
+              },
+              "panes.ts": {
+                "synonym_key": "src/tools/panes.ts",
+                "full_path": "/Users/kentaylor/developer/picode/src/tools/panes.ts",
+                "type": "file",
+                "synonyms": [
+                  "list all terminal panes",
+                  "summarize active pane state",
+                  "enumerate available panes",
+                  "register tool to list panes",
+                  "execute herdr pane listing",
+                  "parse herdr json pane summaries",
+                  "get pane inventory for workspace",
+                  "show pane summary",
+                  "tools",
+                  "panes",
+                  "ts"
+                ],
+                "symbols": [
+                  "herdr",
+                  "herdrJson",
+                  "PaneSummary",
+                  "registerPanesTool",
+                  "execute"
+                ],
+                "size": 9752,
+                "mod_time": 1790067978016965830
+              },
+              "purge.ts": {
+                "synonym_key": "src/tools/purge.ts",
+                "full_path": "/Users/kentaylor/developer/picode/src/tools/purge.ts",
+                "type": "file",
+                "synonyms": [
+                  "remove stale worker ledger entries",
+                  "clean up expired pcode state",
+                  "purge stale pcodes",
+                  "read state json for cleanup",
+                  "find project root for purge",
+                  "detect stale status in ledger",
+                  "delete old worker state files",
+                  "run purge cleanup command",
+                  "check if pcode is stale",
+                  "tools",
+                  "purge",
+                  "ts"
+                ],
+                "symbols": [
+                  "findProjectRoot",
+                  "StateFile",
+                  "PurgeCleanup",
+                  "emptyPurgeCleanup",
+                  "LedgerStore",
+                  "referencedPicodeIds",
+                  "reconcilePurgedPcodes",
+                  "readStateJson",
+                  "isStale",
+                  "effectiveStatus",
+                  "purgeStalePcodes",
+                  "registerPurgeTool",
+                  "execute"
+                ],
+                "size": 7294,
+                "mod_time": 1790067978031067222
+              },
+              "revive.ts": {
+                "synonym_key": "src/tools/revive.ts",
+                "full_path": "/Users/kentaylor/developer/picode/src/tools/revive.ts",
+                "type": "file",
+                "synonyms": [
+                  "revive dead terminal pane",
+                  "restart crashed worker process",
+                  "check if process id is alive",
+                  "find dead pane by picode id",
+                  "validate picode identifier",
+                  "recover worker from ledger",
+                  "register tool to revive panes",
+                  "execute herdr revive command",
+                  "handoff revive dead worker",
+                  "tools",
+                  "revive",
+                  "ts"
+                ],
+                "symbols": [
+                  "herdr",
+                  "herdrJson",
+                  "isPidAlive",
+                  "validatePicodeId",
+                  "findDeadPane",
+                  "registerReviveTool",
+                  "execute"
+                ],
+                "size": 16933,
+                "mod_time": 1791246139504025670
+              },
+              "round-table.ts": {
+                "synonym_key": "src/tools/round-table.ts",
+                "full_path": "/Users/kentaylor/developer/picode/src/tools/round-table.ts",
+                "type": "file",
+                "synonyms": [
+                  "run round table discussion",
+                  "register round table tools",
+                  "coordinate multi-agent conversation",
+                  "validate participant identifier",
+                  "collect participant messages from inbox",
+                  "orchestrate round table among agents",
+                  "execute herdr round table command",
+                  "recall registry for round table",
+                  "tools",
+                  "round",
+                  "table",
+                  "ts"
+                ],
+                "symbols": [
+                  "herdr",
+                  "herdrJson",
+                  "validParticipantId",
+                  "registerRoundTableTools",
+                  "execute"
+                ],
+                "size": 7077,
+                "mod_time": 1787782449633852214
+              },
+              "run.ts": {
+                "synonym_key": "src/tools/run.ts",
+                "full_path": "/Users/kentaylor/developer/picode/src/tools/run.ts",
+                "type": "file",
+                "synonyms": [
+                  "run shell command in pane",
+                  "execute command and capture output",
+                  "write command script to temp file",
+                  "parse exit code from command output",
+                  "extract output after sentinel",
+                  "create sentinel for command completion",
+                  "clean command output before returning",
+                  "register tool to run commands",
+                  "tools",
+                  "run",
+                  "ts"
+                ],
+                "symbols": [
+                  "makeSentinel",
+                  "writeCommandScript",
+                  "parseExitCode",
+                  "extractOutputFromWait",
+                  "cleanOutput",
+                  "registerRunTool",
+                  "execute"
+                ],
+                "size": 15022,
+                "mod_time": 1785075173449143120
+              },
+              "shared.ts": {
+                "synonym_key": "src/tools/shared.ts",
+                "full_path": "/Users/kentaylor/developer/picode/src/tools/shared.ts",
+                "type": "file",
+                "synonyms": [
+                  "shared utility functions for tools",
+                  "check if pane belongs to workspace",
+                  "compute effective agent status",
+                  "extract pane information",
+                  "extract role from pane label",
+                  "identify protected tab label",
+                  "validate pane identifier",
+                  "quiet tool result for tui",
+                  "shell quote command arguments",
+                  "tools",
+                  "shared",
+                  "ts"
+                ],
+                "symbols": [
+                  "quietToolResult",
+                  "quietCallRenderer",
+                  "err",
+                  "extractRole",
+                  "effectiveAgentStatus",
+                  "isProtectedTabLabel",
+                  "tabLabelMap",
+                  "isValidPaneId",
+                  "belongsToWorkspace",
+                  "extractPaneInfo",
+                  "shellQuote"
+                ],
+                "size": 6982,
+                "mod_time": 1790068100363820654
+              },
+              "spawn.ts": {
+                "synonym_key": "src/tools/spawn.ts",
+                "full_path": "/Users/kentaylor/developer/picode/src/tools/spawn.ts",
+                "type": "file",
+                "synonyms": [
+                  "spawn new worker pane",
+                  "create split pane for worker",
+                  "build worker launch command",
+                  "find empty pane to spawn",
+                  "count panes in tab",
+                  "determine split direction",
+                  "fetch pane snapshot",
+                  "get split target for new pane",
+                  "register tool to spawn worker",
+                  "find existing pane for worker",
+                  "tools",
+                  "spawn"
+                ],
+                "symbols": [
+                  "isPidAlive",
+                  "herdr",
+                  "herdrJson",
+                  "validateRole",
+                  "resolveModel",
+                  "resolveTheme",
+                  "resolveThinking",
+                  "buildWorkerLaunchCommand",
+                  "SplitTarget",
+                  "isCoordinatorLabel",
+                  "SnapshotData",
+                  "fetchSnapshot",
+                  "countPanesInTab",
+                  "solePaneInTab",
+                  "getSplitTarget",
+                  "computeDirection",
+                  "threadIdExists",
+                  "uniquePicodeId",
+                  "findExistingPane",
+                  "findEmptyPane",
+                  "registerSpawnTool",
+                  "execute"
+                ],
+                "size": 34051,
+                "mod_time": 1790067978032591516
+              },
+              "tab-close.ts": {
+                "synonym_key": "src/tools/tab-close.ts",
+                "full_path": "/Users/kentaylor/developer/picode/src/tools/tab-close.ts",
+                "type": "file",
+                "synonyms": [
+                  "tools",
+                  "tab",
+                  "close",
+                  "ts"
+                ],
+                "symbols": [
+                  "herdr",
+                  "herdrJson",
+                  "registerTabCloseTool",
+                  "execute"
+                ],
+                "size": 5998,
+                "mod_time": 1788452663492218245
+              },
+              "tab-create.ts": {
+                "synonym_key": "src/tools/tab-create.ts",
+                "full_path": "/Users/kentaylor/developer/picode/src/tools/tab-create.ts",
+                "type": "file",
+                "synonyms": [
+                  "tools",
+                  "tab",
+                  "create",
+                  "ts"
+                ],
+                "symbols": [
+                  "herdr",
+                  "herdrJson",
+                  "validateLabel",
+                  "registerTabCreateTool",
+                  "execute"
+                ],
+                "size": 4050,
+                "mod_time": 1786118849996149217
+              }
+            }
+          }
+        }
+      },
+      "test": {
+        "synonym_key": "test",
+        "full_path": "/Users/kentaylor/developer/picode/test",
+        "type": "directory",
+        "synonyms": [
+          "test"
+        ],
+        "size": 320,
+        "mod_time": 1791245035780260842,
+        "children": {
+          "cache-diagnostics.test.ts": {
+            "synonym_key": "test/cache-diagnostics.test.ts",
+            "full_path": "/Users/kentaylor/developer/picode/test/cache-diagnostics.test.ts",
+            "type": "file",
+            "synonyms": [
+              "test",
+              "cache",
+              "diagnostics",
+              "ts"
+            ],
+            "symbols": [
+              "tempDir",
+              "assistantEntry"
+            ],
+            "size": 14486,
+            "mod_time": 1790490145678081397
+          },
+          "e2e-restate.test.ts": {
+            "synonym_key": "test/e2e-restate.test.ts",
+            "full_path": "/Users/kentaylor/developer/picode/test/e2e-restate.test.ts",
+            "type": "file",
+            "synonyms": [
+              "test",
+              "e2e",
+              "restate",
+              "ts"
+            ],
+            "symbols": [
+              "baseState",
+              "envelope"
+            ],
+            "size": 4827,
+            "mod_time": 1784385377897066649
+          },
+          "e2e.test.ts": {
+            "synonym_key": "test/e2e.test.ts",
+            "full_path": "/Users/kentaylor/developer/picode/test/e2e.test.ts",
+            "type": "file",
+            "synonyms": [
+              "test",
+              "e2e",
+              "ts"
+            ],
+            "symbols": [
+              "runPi",
+              "readState",
+              "readJournal",
+              "inboxFiles",
+              "seedThread",
+              "seedEnvelope"
+            ],
+            "size": 14910,
+            "mod_time": 1784385377892332573
+          },
+          "mcp.test.ts": {
+            "synonym_key": "test/mcp.test.ts",
+            "full_path": "/Users/kentaylor/developer/picode/test/mcp.test.ts",
+            "type": "file",
+            "synonyms": [
+              "test",
+              "mcp",
+              "ts"
+            ],
+            "symbols": [
+              "RpcResponse",
+              "McpClient",
+              "constructor",
+              "request",
+              "notify",
+              "call",
+              "pid",
+              "waitExit",
+              "signal",
+              "kill",
+              "connect",
+              "readState",
+              "inboxFiles",
+              "enqueueRaw",
+              "spawnClient"
+            ],
+            "size": 18977,
+            "mod_time": 1784385439442021251
+          },
+          "revive.test.ts": {
+            "synonym_key": "test/revive.test.ts",
+            "full_path": "/Users/kentaylor/developer/picode/test/revive.test.ts",
+            "type": "file",
+            "synonyms": [
+              "test",
+              "revive",
+              "ts"
+            ],
+            "symbols": [
+              "tempDir",
+              "picodeData",
+              "writeSession",
+              "writeState",
+              "row",
+              "Sent",
+              "finishHarness",
+              "owed",
+              "result",
+              "ToolResult",
+              "outcome",
+              "stateFile",
+              "reviveHarness",
+              "revive"
+            ],
+            "size": 23568,
+            "mod_time": 1790490187014424299
+          },
+          "round-table.test.ts": {
+            "synonym_key": "test/round-table.test.ts",
+            "full_path": "/Users/kentaylor/developer/picode/test/round-table.test.ts",
+            "type": "file",
+            "synonyms": [
+              "test round-table tool behavior",
+              "verify round-table message exchange",
+              "round-table integration with recall registry",
+              "test system prompt for round table",
+              "test inbox state updates during round table",
+              "temp directory setup for round-table tests",
+              "simulate multi-agent round-table conversation",
+              "test state persistence in round-table",
+              "test recall registry interaction in round table",
+              "test",
+              "round",
+              "table"
+            ],
+            "symbols": [
+              "tempDir"
+            ],
+            "size": 4504,
+            "mod_time": 1790212330052489625
+          },
+          "runtime.test.ts": {
+            "synonym_key": "test/runtime.test.ts",
+            "full_path": "/Users/kentaylor/developer/picode/test/runtime.test.ts",
+            "type": "file",
+            "synonyms": [
+              "test runtime detection",
+              "verify runtime environment detection",
+              "clear runtime detection cache",
+              "test detect function from runtime/detect",
+              "assert runtime type in tests",
+              "node test runtime detection",
+              "reset runtime detection state",
+              "test platform detection logic",
+              "test",
+              "runtime",
+              "ts"
+            ],
+            "symbols": [
+              "clear"
+            ],
+            "size": 1811,
+            "mod_time": 1791245072683493503
+          },
+          "unit.test.ts": {
+            "synonym_key": "test/unit.test.ts",
+            "full_path": "/Users/kentaylor/developer/picode/test/unit.test.ts",
+            "type": "file",
+            "synonyms": [
+              "unit tests for command handling",
+              "test tool invocation abstractions",
+              "test custom entry serialization",
+              "test lifecycle entry handling",
+              "test sent message formatting",
+              "test local filesystem adapter",
+              "test command models",
+              "test completable response types",
+              "test notification types",
+              "test harness utilities for unit tests",
+              "test adapter type definitions",
+              "test core formatting utilities"
+            ],
+            "symbols": [
+              "Call",
+              "Notify",
+              "ToolResult",
+              "AnyTool",
+              "AnyCommand",
+              "makeHarness",
+              "idle",
+              "Harness",
+              "callTool",
+              "callCommand",
+              "seedRemoteThread",
+              "seedEnvelope",
+              "inboxFileCount",
+              "readInboxFile",
+              "stamp",
+              "nowStamp",
+              "journalEntry",
+              "writeJournal",
+              "owedRecord",
+              "CustomEntry",
+              "LifecycleEntry",
+              "SentCustom",
+              "SentMessage",
+              "makeLifecycleHarness",
+              "makeCtx",
+              "setFlag",
+              "fire",
+              "activeTools",
+              "seedObligation",
+              "envelope",
+              "requestEnvelope",
+              "bareStore",
+              "seedWorker",
+              "sitrepHarness",
+              "closeSitrepHarness",
+              "tick",
+              "runCtx",
+              "activeHarness",
+              "owe",
+              "mockModel",
+              "makePi",
+              "baseState",
+              "wireEnvelope",
+              "createFakeAdapter",
+              "configure",
+              "loadPicodeState",
+              "savePicodeState",
+              "listPcodes",
+              "threadExists",
+              "countQueued",
+              "enqueueMessage",
+              "drainInbox",
+              "finalizeDrain",
+              "watchInbox",
+              "stubPiWith",
+              "runCli",
+              "seedCoordination",
+              "mkCtx",
+              "mkPi",
+              "renderEnvelope",
+              "renderSystem",
+              "Completable",
+              "agentDir",
+              "seed",
+              "system",
+              "globalFile",
+              "projectFile"
+            ],
+            "size": 224297,
+            "mod_time": 1791246314267774295
+          }
+        }
+      },
+      "themes": {
+        "synonym_key": "themes",
+        "full_path": "/Users/kentaylor/developer/picode/themes",
+        "type": "directory",
+        "synonyms": [
+          "color theme presets",
+          "terminal color schemes",
+          "editor syntax highlighting themes",
+          "dark mode color palettes",
+          "theme configuration files",
+          "ui color theme collection",
+          "json theme definitions",
+          "application appearance themes",
+          "custom color schemes for terminal",
+          "themes"
+        ],
+        "size": 288,
+        "mod_time": 1786329328890362727,
+        "children": {
+          "catppuccin-mocha.json": {
+            "synonym_key": "themes/catppuccin-mocha.json",
+            "full_path": "/Users/kentaylor/developer/picode/themes/catppuccin-mocha.json",
+            "type": "file",
+            "synonyms": [
+              "catppuccin mocha color theme",
+              "catppuccin mocha palette",
+              "mocha dark theme json",
+              "catppuccin mocha syntax highlighting",
+              "catppuccin mocha terminal colors",
+              "catppuccin mocha ui theme",
+              "catppuccin mocha color scheme",
+              "catppuccin mocha editor theme",
+              "catppuccin mocha theme configuration",
+              "themes",
+              "catppuccin",
+              "mocha"
+            ],
+            "size": 2493,
+            "mod_time": 1784385378018852555
+          },
+          "dracula.json": {
+            "synonym_key": "themes/dracula.json",
+            "full_path": "/Users/kentaylor/developer/picode/themes/dracula.json",
+            "type": "file",
+            "synonyms": [
+              "dracula color theme",
+              "dracula dark theme palette",
+              "dracula syntax highlighting scheme",
+              "dracula terminal color scheme",
+              "dracula editor theme",
+              "dracula ui theme",
+              "dracula theme json configuration",
+              "dracula color palette",
+              "dracula theme for code editor",
+              "dracula dark mode colors",
+              "themes",
+              "dracula"
+            ],
+            "size": 2207,
+            "mod_time": 1784385378026446695
+          },
+          "gruvbox-dark.json": {
+            "synonym_key": "themes/gruvbox-dark.json",
+            "full_path": "/Users/kentaylor/developer/picode/themes/gruvbox-dark.json",
+            "type": "file",
+            "synonyms": [
+              "gruvbox dark color theme",
+              "gruvbox dark palette",
+              "gruvbox dark syntax highlighting",
+              "gruvbox dark terminal colors",
+              "gruvbox dark theme json",
+              "gruvbox dark ui theme",
+              "gruvbox dark editor scheme",
+              "gruvbox dark color scheme",
+              "gruvbox dark theme configuration",
+              "gruvbox dark mode colors",
+              "themes",
+              "gruvbox"
+            ],
+            "size": 2336,
+            "mod_time": 1784385378015050777
+          },
+          "matrix.json": {
+            "synonym_key": "themes/matrix.json",
+            "full_path": "/Users/kentaylor/developer/picode/themes/matrix.json",
+            "type": "file",
+            "synonyms": [
+              "matrix color theme",
+              "matrix green terminal theme",
+              "matrix digital rain color scheme",
+              "matrix hacker theme",
+              "matrix dark ui theme",
+              "matrix theme json",
+              "matrix green on black palette",
+              "matrix console color scheme",
+              "matrix code editor theme",
+              "matrix terminal colors",
+              "themes",
+              "matrix"
+            ],
+            "size": 2598,
+            "mod_time": 1784385378037661028
+          },
+          "nord.json": {
+            "synonym_key": "themes/nord.json",
+            "full_path": "/Users/kentaylor/developer/picode/themes/nord.json",
+            "type": "file",
+            "synonyms": [
+              "apply nord color scheme",
+              "define nord theme palette",
+              "set nord syntax colors",
+              "use nord theme in editor",
+              "customize nord theme colors",
+              "nord ui color tokens",
+              "nord terminal color theme",
+              "nord dark mode palette",
+              "themes",
+              "nord",
+              "json"
+            ],
+            "size": 2328,
+            "mod_time": 1784385378033916459
+          },
+          "rose-pine.json": {
+            "synonym_key": "themes/rose-pine.json",
+            "full_path": "/Users/kentaylor/developer/picode/themes/rose-pine.json",
+            "type": "file",
+            "synonyms": [
+              "apply rose pine color scheme",
+              "define rose pine theme palette",
+              "set rose pine syntax colors",
+              "use rose pine theme in editor",
+              "customize rose pine theme colors",
+              "rose pine ui color tokens",
+              "rose pine terminal color theme",
+              "rose pine dark mode palette",
+              "themes",
+              "rose",
+              "pine",
+              "json"
+            ],
+            "size": 2329,
+            "mod_time": 1784385378030360349
+          },
+          "tokyo-night.json": {
+            "synonym_key": "themes/tokyo-night.json",
+            "full_path": "/Users/kentaylor/developer/picode/themes/tokyo-night.json",
+            "type": "file",
+            "synonyms": [
+              "apply tokyo night color scheme",
+              "define tokyo night theme palette",
+              "set tokyo night syntax colors",
+              "use tokyo night theme in editor",
+              "customize tokyo night theme colors",
+              "tokyo night ui color tokens",
+              "tokyo night terminal color theme",
+              "tokyo night dark mode palette",
+              "themes",
+              "tokyo",
+              "night",
+              "json"
+            ],
+            "size": 2211,
+            "mod_time": 1784385378022663833
+          }
+        }
+      },
+      "tsconfig.json": {
+        "synonym_key": "tsconfig.json",
+        "full_path": "/Users/kentaylor/developer/picode/tsconfig.json",
+        "type": "file",
+        "synonyms": [
+          "configure typescript compiler options",
+          "typescript project configuration",
+          "enable strict type checking",
+          "set typescript module resolution",
+          "typescript target and lib settings",
+          "include and exclude typescript files",
+          "path mapping typescript config",
+          "typescript build settings",
+          "picode",
+          "tsconfig",
+          "json"
+        ],
+        "size": 369,
+        "mod_time": 1784385377996861225
+      }
+    }
+  }
+}

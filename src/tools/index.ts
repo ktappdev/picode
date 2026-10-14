@@ -12,7 +12,6 @@ import { registerCleanupPanesTool } from "./cleanup-panes";
 import { registerPanesTool } from "./panes";
 import { registerPaneReadTool } from "./pane-read";
 import { registerRunTool } from "./run";
-import { registerRoundTableTools } from "./round-table";
 import { registerFinishTool } from "./finish";
 import { registerReviveTool } from "./revive";
 
@@ -34,7 +33,6 @@ export function registerTools(pi: ExtensionAPI, store: PicodeStore, inbox: Inbox
   registerPanesTool(pi);
   registerPaneReadTool(pi);
   registerRunTool(pi);
-  registerRoundTableTools(pi, store, inbox);
   registerReviveTool(pi, store, inbox);
   registerPurgeTool(pi, store);
   registerFinishTool(pi, store, inbox);

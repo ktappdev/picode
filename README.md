@@ -2,17 +2,17 @@
 
 **Herdr gives your coding agents a place to run. Picode gives those agents a way to work together.** Together, they turn a set of independent [Pi](https://github.com/earendil-works/pi-coding-agent) sessions into a coordinated team: a Picode coordinator assigns work, Herdr launches and manages worker panes, and the workers report back through durable Picode mailboxes.
 
-Picode is designed to work **fully with [Herdr](https://herdr.dev/)**. Herdr handles the live runtime—workspaces, tabs, panes, agent status, and session recovery. Picode handles team coordination—roles, task messages, reply tracking, journals, and handoffs. Each tool has a distinct job; together they let you delegate across agents without losing the work or the conversation.
+Picode is designed to work **fully with [Herdr](https://herdr.dev/)**. Herdr handles the live runtime—workspaces, tabs, panes, agent status, and session recovery. Picode handles team coordination—roles, task messages, reply tracking, papercut reports, and handoffs. Each tool has a distinct job; together they let you delegate across agents without losing the work or the conversation.
 
 **Start here:** [Install Herdr](https://herdr.dev/docs/install/) · [Install Picode](#install) · [How the integration works](#how-picode-and-herdr-work-together)
 
 ## The relationship: Herdr runs the team; Picode coordinates it
 
-|                                          | Herdr                                                                                                    | Picode                                                                                                             |
-| ---------------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| **Owns**                                 | Agent runtime and terminal layout: workspaces, tabs, panes, process/session lifecycle, and agent status. | Cross-agent collaboration: identities and roles, durable messages, reply obligations, journals, and task handoffs. |
-| **When the coordinator delegates**       | Creates or reuses a worker pane, launches Pi, and keeps the worker visible and manageable.               | Chooses the worker role, sends its task, tracks the reply, and preserves coordination state across restarts.       |
-| **When a worker finishes or gets stuck** | Reports pane/agent lifecycle and exposes the worker's terminal and session.                              | Records the worker's report and handoff; lets the coordinator inspect or recover the work.                         |
+|                                          | Herdr                                                                                                    | Picode                                                                                                                     |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| **Owns**                                 | Agent runtime and terminal layout: workspaces, tabs, panes, process/session lifecycle, and agent status. | Cross-agent collaboration: identities and roles, durable messages, reply obligations, papercut reports, and task handoffs. |
+| **When the coordinator delegates**       | Creates or reuses a worker pane, launches Pi, and keeps the worker visible and manageable.               | Chooses the worker role, sends its task, tracks the reply, and preserves coordination state across restarts.               |
+| **When a worker finishes or gets stuck** | Reports pane/agent lifecycle and exposes the worker's terminal and session.                              | Records the worker's report and handoff; lets the coordinator inspect or recover the work.                                 |
 
 Herdr is not a replacement for Picode's mailboxes, and Picode is not a terminal multiplexer. Herdr controls **where and when agents run**; Picode controls **how they communicate and coordinate**. Worker panes remain ordinary Herdr-managed Pi sessions, with their own session histories and Picode identities.
 
@@ -22,7 +22,7 @@ Herdr is not a replacement for Picode's mailboxes, and Picode is not a terminal 
 - Workers launched into Herdr panes, automatically assigned roles such as `builder`, `reviewer`, or `explorer`.
 - Durable Picode messages with correlated replies, so a worker's response is not just transient terminal text.
 - Herdr-aware pane and tab management: reuse workers, open tabs when a tab is full, inspect pane output, and clean up stale panes.
-- Worker journals and handoff notes that help the coordinator continue work across turns and sessions.
+- Shared papercut reporting for tool, harness, and setup friction, plus worker handoff notes for continuation.
 - A human CLI and slash commands for monitoring and steering the team.
 
 ## Install
@@ -105,7 +105,7 @@ Picode is opt-in: a Pi session becomes a picode only when started with `--picode
 1. **You start a coordinator in Herdr.** Picode detects the Herdr pane identity and enables its Herdr-aware coordinator tools.
 2. **The coordinator dispatches a task.** Picode selects a role and creates a durable task message; its `spawn_worker` tool asks Herdr to reuse a suitable pane or create a worker pane, then launches Pi with the worker's Picode identity.
 3. **Herdr manages the running worker.** It owns the pane and session lifecycle. Picode labels the pane with the worker's role, tracks relevant worker panes, and can react to pane-exit events.
-4. **The worker reports through Picode.** The worker sends its result to the coordinator using `picode_send` / `picode_finish`. Messages, outstanding replies, journals, and handoff notes live in the project’s Picode data—not in Herdr’s terminal output.
+4. **The worker reports through Picode.** The worker sends its result to the coordinator using `picode_send` / `picode_finish`. Messages, outstanding replies, papercut reports, and handoff notes live in the project’s Picode data—not in Herdr’s terminal output.
 5. **The coordinator follows up.** It can check Herdr pane status/output, reuse or revive a worker when appropriate, and clean up stale worker panes. Picode's durable state lets coordination survive individual Pi turns and process restarts.
 
 This division is important: **Herdr's agent status is not the same as a Picode reply.** A pane can be idle or done without having sent its required message. Picode tracks the reply obligation separately and can inspect the Herdr pane when a worker goes silent.
@@ -161,9 +161,9 @@ Messages show up as `[<kind> from <sender> #<id>]`. The kind (request, reply, re
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `picode_send`       | Send an envelope to one name, `a,b`, `*`, or `role:<role>`. Supports `expects`, `re`, `urgency` (`interrupt` redirects a worker mid-task), `deliverAfterSeconds`, `wait=true` to arm a barrier inline. |
 | `picode_wait`       | Wait for all or any of several outstanding replies (a barrier). Accepts `deadlineSeconds` and an optional `message` injected on resolution.                                                            |
-| `picode_status`     | Read this picode's state, obligations, owed replies, barriers, and journal.                                                                                                                            |
+| `picode_status`     | Read this picode's state, obligations, owed replies, barriers, and open papercut count.                                                                                                                |
 | `picode_list`       | List all known threads in the workspace. `recent=true` adds the recent-workers digest (exact ids, derived areas, context age, what each left unverified) — use it before `revive_closed_session`.      |
-| `picode_journal`    | Read another picode's journal, filtered by `tail` or `lookbackMinutes`.                                                                                                                                |
+| `picode_journal`    | Report tool/harness/setup papercuts or list open issues from the shared Markdown journal. Old work journals remain readable as archives.                                                               |
 | `picode_suspend`    | Mark this picode On Hold. The inbox queues until resume.                                                                                                                                               |
 | `picode_resume`     | Resume from On Hold and drain queued messages.                                                                                                                                                         |
 | `picode_panes`      | Survey panes/windows in the current runtime scope: status, role, and cleanup suggestions. Read-only surveillance.                                                                                      |
@@ -178,14 +178,14 @@ Messages show up as `[<kind> from <sender> #<id>]`. The kind (request, reply, re
 
 | Command                    | Purpose                                              |
 | -------------------------- | ---------------------------------------------------- |
-| `/picode-status`           | Show state and the latest journal entry.             |
+| `/picode-status`           | Show state and the open papercut count.              |
 | `/picode-list`             | List all known threads.                              |
 | `/picode-send <to> <body>` | Send a high-urgency note to another picode.          |
 | `/picode-suspend`          | Mark On Hold.                                        |
 | `/picode-resume`           | Resume from On Hold.                                 |
 | `/picode-models`           | Show, set, or reset per-role worker model config.    |
 | `/picode-thinking`         | Show, set, or reset per-role worker thinking levels. |
-| `/picode-journal`          | View, trim, clear, or compact the journal.           |
+| `/picode-journal`          | View papercuts and mark issues solved.               |
 | `/picode-quiet`            | Toggle the quiet operator screen (display only).     |
 
 `/picode-quiet` hides picode's traffic rows — envelope batches, system prompts, and quiet-tool call rows — without changing behavior: messages, obligations, journal, status, and the model's context are untouched. Steered (⚠) and interrupt (⛔) envelopes stay visible, and expanding any row still shows it. Usage: `/picode-quiet [on | off | status] [--project]`. The saved setting resolves `PICODE_QUIET_TUI=1|0` env → project `<git-root>/.picode/quiet-tui.json` → global `~/.pi/agent/.picode/quiet-tui.json` → loud (default).
@@ -200,7 +200,7 @@ Each picode has a role that shapes its system prompt. The role is auto-detected 
 | `builder`            | Worker  | Implements code changes, edits files, runs type checks.                                                                                                                               |
 | `reviewer`           | Worker  | Reviews diffs, audits for bugs, security, and quality. Read-only.                                                                                                                     |
 | `scout` / `explorer` | Worker  | Explores the codebase, finds files, answers architecture questions. Read-only. Summarizes findings instead of dumping raw output.                                                     |
-| `bug-hunter`         | Worker  | Hunts bugs by reading code, session entries, and journals. Reports root cause and a suggested fix but does not implement it. Read-only.                                               |
+| `bug-hunter`         | Worker  | Hunts bugs by reading code, session entries, task envelopes, and handoff notes. Reports root cause and a suggested fix but does not implement it. Read-only.                          |
 | `tester`             | Worker  | Writes and runs tests, reproduces bugs, checks coverage.                                                                                                                              |
 | `designer`           | Worker  | Designs and implements frontend UI. Reads existing frontend patterns, keeps scope to UI work, and reports any required cross-layer changes.                                           |
 | `visionary`          | Worker  | Reads attached or local images and reports grounded observations. Read-only; requires a multimodal model.                                                                             |
@@ -225,8 +225,7 @@ When a picode has the `coordinator` role (auto-detected from the name `coordinat
 - **Reuses panes.** It checks existing panes first and reuses idle or done workers instead of spawning duplicates.
 - **Adaptive layout.** Workers split in the direction that keeps new panes close to square. Grid-aware splitting avoids tall stacks. Empty panes are claimed instead of splitting. The coordinator stays at 50 percent on the left and the worker area fills the right half.
 - **Structured dispatch.** Tasks go out as Objective, Context, Constraints, Action Steps, Deliverables, and Prerequisites.
-- **Recall Round Table.** For ambiguous decisions, `picode_round_table` resumes one exact stopped worker as a read-only consultation. It can use retained context only, replies with a contribution or `PASS`, and shuts down immediately. Recall records are local to `.picode/recall-sessions.json`; they require the same host and saved Pi session file, including when Picode uses Restate for mail storage.
-- **Revivable workers.** Worker prompts carry a **Recent workers** digest: the last few workers, the directories each one actually touched (derived from its saved session, not self-reported), whether it is still live, and what it left unverified. When new work lands in territory a stopped worker already mapped, the coordinator can bring that same agent back on duty with `revive_closed_session(picode_id, task)` — full tools, its journal, its mailbox, and its own conversation context intact — instead of starting a fresh worker cold. It is deliberately harder to reach for than `spawn_worker`: a task is required, and the result reports how stale the revived context is (`context_age_minutes`, `head_moved_since_exit`), because a worker resuming an outdated view of the tree will edit confidently and wrongly. One at a time, never in parallel.
+- **Revivable workers.** Worker prompts carry a **Recent workers** digest: the last few workers, the directories each one actually touched (derived from its saved session, not self-reported), whether it is still live, and what it left unverified. When new work lands in territory a stopped worker already mapped, the coordinator can bring that same agent back on duty with `revive_closed_session(picode_id, task)` — full tools, its handoff note, its mailbox, and its own conversation context intact — instead of starting a fresh worker cold. It is deliberately harder to reach for than `spawn_worker`: a task is required, and the result reports how stale the revived context is (`context_age_minutes`, `head_moved_since_exit`), because a worker resuming an outdated view of the tree will edit confidently and wrongly. One at a time, never in parallel.
 - **Worker handoff notes.** Workers close an assigned task with `picode_finish` rather than a plain "done" send: one call records a durable handoff (what landed, what was left unverified) and sends the final report. The note lives at `.picode/picodes/<id>/handoff.json` and is written by the worker, never the coordinator — it knows what actually happened, whereas the coordinator only knows what it asked for. A worker whose pane was killed leaves no note, and still appears in the ledger.
 - **Self-improving.** When the coordinator finds a gap in its own rules, it writes the fix to a per-project prompt override file.
 
@@ -240,9 +239,7 @@ Model defaults live globally at `~/.pi/agent/.picode/models.json`. Optional proj
   "reviewer": "anthropic/claude-haiku-4",
   "explorer": "anthropic/claude-haiku-4",
   "visionary": "opencode-go/mimo-v2.5",
-  "default": "anthropic/claude-sonnet-4",
-  "journal": "deepseek/deepseek-v4-flash",
-  "journal-cadence": "done"
+  "default": "anthropic/claude-sonnet-4"
 }
 ```
 
@@ -252,8 +249,7 @@ Resolution order: **project role/default → global role/default → built-in ro
 - It falls back to the `default` key, then to the built-in default model.
 - The coordinator reads the merged config and passes the resolved model to each spawned worker.
 - `visionary` must point to a multimodal model; do not leave it on a text-only `default` model.
-- `"journal"` sets the model for journal fork entries. If unset, inherits the picode's own model — use a cheap model to avoid quota/balance errors on the coordinator's model.
-- `"journal-cadence"` sets the journal cadence: `"turn"`, `"done"` (default), or `"off"`.
+- Old `"journal"` and `"journal-cadence"` settings are ignored; papercut reporting needs no separate model or cadence.
 - `/picode-models` asks whether to edit global defaults or project overrides.
 
 | Command                                            | Effect                                     |
@@ -323,25 +319,45 @@ Your custom prompt content here...
 
 Sample overrides to copy live in [`examples/prompts/`](examples/prompts/).
 
-## The journal
+## The papercut journal
 
-The coordinator keeps a journal: a forked model call that summarizes its state. Workers don't journal — their context is the task envelope, and nobody reads a worker's journal. Runs in the background, never interrupts work.
+Journaling now records **tool, harness, and setup friction**, not work completed. Coordinators and workers report explicitly with `picode_journal(action="report", ...)`; there are no automatic summaries, background model calls, or compaction.
 
-- **Cadence control.** Default is `done` — one entry per run at agent_end. Set to `turn` for one entry per turn (rate-limited to one per two minutes on same-task turns), or `off` to disable. Configure via `/picode-models` → `(journal cadence)`, `--picode-journal <turn|done|off>`, or the `"journal-cadence"` key in either global or project `models.json`.
-- **Journal model.** The model used for journal forks. Set via `/picode-models` → `journal`, `--picode-journal-model <model>`, or the `"journal"` key in either global or project `models.json`. If unset, inherits the picode's own model — which can fail (e.g. 402 balance errors) if that model is out of quota. Fresh installs default to a cheap model (`deepseek/deepseek-v4-flash`).
-- **Compaction.** When the journal passes 200 entries, the oldest ones are summarized into a single block, keeping the most recent 50 verbatim. There is a 24-hour cooldown between compactions.
-- **Duplicate suppression.** An entry is skipped when its Working on or Done line matches the previous one.
+One shared file, **`.picode/issues.md`**, is the source of truth. Issues survive worker cleanup/purge. It is workspace-local even when coordination uses Restate: agents on different machines need a shared workspace filesystem to share this log.
 
-Manage it through the slash command:
+Reports include a stable ID, reporter/time, affected area, observed problem, impact, workaround, and operator help needed. Matching **open** title/area pairs accumulate repeat reports; a recurrence after resolution gets a new ID. Reuse the existing title/area rather than rephrasing them.
 
-| Subcommand                | Effect                                                    |
-| ------------------------- | --------------------------------------------------------- |
-| `/picode-journal`         | Show the last 12 entries.                                 |
-| `/picode-journal tail N`  | Show the last N entries.                                  |
-| `/picode-journal status`  | Entry count, file size, oldest and newest timestamps.     |
-| `/picode-journal trim N`  | Keep only the last N entries.                             |
-| `/picode-journal clear`   | Delete the journal file.                                  |
-| `/picode-journal compact` | Force compaction now, even under the 200-entry threshold. |
+```md
+## PC-001 — Tool unavailable despite appearing in instructions
+
+- [ ] Solved
+- Reported: 2026-10-11T10:00:00.000Z · builder · builder-1
+- Area: tools
+- Reports: 1
+- Problem: example_inspect returned “Tool not found”.
+- Impact: Had to find another way to inspect the output.
+- Workaround: Used bash.
+- Help needed: Correct the instructions or enable the tool.
+```
+
+Report actionable friction, not routine failed commands, ordinary application bugs, expected failing tests, or task progress. Never include secrets. Nonblocking issues are logged quietly; **blockers must also be escalated immediately** via worker → coordinator → operator. A workaround does not count as a fix, and listing issues does not assign agents to fix them.
+
+Only the operator marks issues solved:
+
+| Command                               | Effect                                |
+| ------------------------------------- | ------------------------------------- |
+| `/picode-journal`                     | List open issues.                     |
+| `/picode-journal solved`              | List solved issues.                   |
+| `/picode-journal all`                 | List both.                            |
+| `/picode-journal show PC-001`         | Show details and resolution notes.    |
+| `/picode-journal solve PC-001 [note]` | Mark solved, keeping the history.     |
+| `/picode-journal status`              | Open/solved counts and file location. |
+
+You can also check an issue's `- [x] Solved` box directly in Markdown. Preserve its ID, heading format, and Solved checkbox, and edit while agents are idle to avoid racing a report. Tool writes lock the complete read-modify-write transaction and replace the file atomically.
+
+Without Pi running, use `node bin/picode-cli.mjs journal` or `node bin/picode-cli.mjs journal solve PC-001 "Enabled the tool"` (add `--dir PATH` for another workspace). The MCP server exposes the same report/list actions, but no solve action.
+
+Existing per-picode `journal.md` files are left untouched as **legacy work archives**; they are not replayed on startup. Read one with `picode_journal(action="archive", id="worker-id")` (old id-only calls still work). They remain subject to the existing stale-picode purge policy. Old model/cadence settings and `--picode-journal` / `--picode-journal-model` flags are accepted but ignored. The old trim/clear/compact commands are removed so they cannot erase issue history.
 
 ## Prompt-cache diagnostics
 
@@ -362,7 +378,7 @@ node bin/picode-cli.mjs list                      # table of all threads
 node bin/picode-cli.mjs status link               # one picode's full coordination state
 node bin/picode-cli.mjs status link --json        # same, as machine-readable JSON
 node bin/picode-cli.mjs watch                     # live coordination board
-node bin/picode-cli.mjs tail link                 # follow one picode's state, journal, and messages
+node bin/picode-cli.mjs tail link                 # follow one picode's state/messages and shared papercuts
 node bin/picode-cli.mjs inbox link                # pending and recent messages
 node bin/picode-cli.mjs send link "status?" --expects       # ask, tracked
 node bin/picode-cli.mjs send link "looks good" --re link/01ABC…  # reply, settles the debt
@@ -398,7 +414,7 @@ There is also `bin/postbox-hook.mjs`, a Claude Code hook that does push-style de
 
 ## Storage backends
 
-**Local filesystem (default).** Zero dependencies. State lives in `.picode/picodes/<id>/state.json`, `journal.md`, and `inbox/` (messages are enqueued atomically with a rename, and read in FIFO order thanks to ULID-sorted filenames).
+**Local filesystem (default).** Zero dependencies. Coordination state lives in `.picode/picodes/<id>/state.json` and `inbox/`; papercuts live separately in `.picode/issues.md` (messages are enqueued atomically with a rename, and read in FIFO order thanks to ULID-sorted filenames).
 
 **Restate backend.** A durable backend that can wake a stopped picode. A `deliverAfter` envelope coming due for a stopped picode causes the companion service to spawn pi back up, because the mailbox and its timer live in Restate rather than in the process that armed it.
 
@@ -445,8 +461,7 @@ Known limitations versus the local backend: `watchInbox` polls every two seconds
 - `--picode-id <id>`: stable identity for this picode, for example `coordinator` or `worker-a`. This is also the opt-in trigger. Omit it and the extension does nothing.
 - `--picode-role <role>`: role label, targetable via `picode_send to="role:<role>"`. Optional. Auto-detected from the id (exact match or prefix: `builder-1` becomes `builder`).
 - `--picode-parent <id>`: parent picode id, the escalation target. Optional. Auto-defaults to `coordinator` for non-coordinator threads.
-- `--picode-journal <turn|done|off>`: journal cadence. Default is `done`. Overrides `.picode/models.json` `"journal-cadence"` key.
-- `--picode-journal-model <model>`: model for the journal fork. Default is the picode's own model. Overrides `.picode/models.json` `"journal"` key. A pinned model must resolve on the machine the picode runs on, or journaling fails loudly on stderr.
+- `--picode-journal <value>` and `--picode-journal-model <model>`: deprecated compatibility flags, accepted but ignored. Use explicit papercut reporting instead.
 - `--picode-storage <local|restate>`: storage backend. Default is `local`.
 - `--picode-storage-url <url>`: backend connection URL. Ignored by the local backend.
 

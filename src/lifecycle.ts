@@ -9,25 +9,15 @@ import { clearInterruptPreempt, interruptPreemptBlockResult } from "./core/inter
 import { threadModelPrompt } from "./core/system-prompt";
 import { registerCacheDiagnostics } from "./cache-diagnostics";
 import {
-  journalMode,
-  shouldJournal,
-  buildJournalPrompt,
-  splitJournalEntries,
-  JOURNAL_CONTEXT_MAX_MESSAGES,
-} from "./journal";
-import {
   advanceSitrep,
   initialSitrepStreak,
   resolveSitrepMaxIdle,
   sitrepSignature,
 } from "./core/sitrep";
 import { roleEmoji } from "./core/roles";
-import { modelsConfigPaths } from "./core/model-config";
 import { resolveQuietTui, setQuietTui } from "./core/quiet-tui";
 import { purgeStalePcodes, referencedPicodeIds } from "./tools/purge";
-import { saveRecallParticipant } from "./core/recall-registry";
 import { isProtectedTabLabel, tabLabelMap } from "./tools/shared";
-import { nowIso } from "./core/time";
 import {
   startHerdrListener,
   setListenerHandle,
@@ -67,14 +57,8 @@ function sitRepMaxIdle(): number {
   return resolveSitrepMaxIdle(process.env.PICODE_SITREP_MAX_IDLE);
 }
 
-/** How long after injecting a sit-rep the run still counts as "ours" for
- *  journal suppression. Bounds the blast radius of a sit-rep whose turn never
- *  ran: it must not silence the journal for an unrelated later run. */
-const SITREP_RUN_WINDOW_MS = 120_000;
-
-/** Wiring into pi's event stream: state transitions across the turn cycle,
- *  the silent-debtor nudge, journal cadence triggers, and the picode-model
- *  system prompt. */
+/** Wiring into pi's event stream: state transitions, the silent-debtor
+ * nudge, and the picode-model system prompt. */
 
 /** Where a picode settles between turns: On Hold must survive the turn
  *  boundary instead of being stomped to open/done (§11.1). */
@@ -86,11 +70,9 @@ function restingState(store: PicodeStore, whenFree: PicodeState): PicodeState {
 /** Rename this pane in herdr so the label shows role emoji + name
  *  (e.g. 🧭 coordinator). Uses $HERDR_PANE_ID — never rely on focused pane.
  *  Startup-only, so execSync is fine. Errors logged, not fatal. */
-function setHerdrPaneLabel(store: PicodeStore, isRoundTable = false): void {
+function setHerdrPaneLabel(store: PicodeStore): void {
   if (process.env.HERDR_ENV !== "1" || !process.env.HERDR_PANE_ID) return;
-  const label = isRoundTable
-    ? `🗣️ Round Table · ${store.picodeId}`
-    : `${roleEmoji(store.role)} ${store.role ?? "worker"}`;
+  const label = `${roleEmoji(store.role)} ${store.role ?? "worker"}`;
   try {
     execSync(`herdr pane rename "${process.env.HERDR_PANE_ID}" "${label}"`, {
       stdio: "pipe",
@@ -107,9 +89,9 @@ function setHerdrPaneLabel(store: PicodeStore, isRoundTable = false): void {
  *
  *  Forked sessions are excluded: `--fork` copies all entries (including
  *  picode-identity) into a new session with a `parentSession` header. Without
- *  this guard, a journal fork would inherit the coordinator's identity,
- *  activate, persist state over the real picode, and fork another journal —
- *  the ghost-chain bug. A fork is never the same picode, even if it carries
+ *  this guard, a fork could inherit the coordinator's identity, activate,
+ *  and persist state over the real picode (the old journal ghost-chain bug).
+ *  A fork is never the same picode, even if it carries
  *  the identity entry. */
 function hasThreadIdentity(ctx: ExtensionContext): boolean {
   try {
@@ -161,14 +143,6 @@ export function extractFirstLine(body: string): string {
 
 export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: Inbox) {
   let toolUsedThisTurn = false;
-  // True from the first operator prompt of a run until agent_end settles the
-  // journal decision. Drives shouldJournal's "done" phase — see journal.ts.
-  let userPromptThisRun = false;
-  // Message entries already covered by a journal fork this session. The next
-  // fork summarizes only what came after, capped to the most recent
-  // JOURNAL_CONTEXT_MAX_MESSAGES — journal cost stays O(recent run), never
-  // O(session).
-  let journaledMessageCount = 0;
   // Opt-in gate (§2.3 — participation is opt-in): this extension only turns
   // a directory into a picode workspace when explicitly asked —
   // --picode-id on this launch, or a picode-identity entry already stamped
@@ -177,7 +151,6 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
   // children, which never inherit participation) never gets a .picode/ dir,
   // a random identity, the picode_* tools, or the picode-model system prompt.
   let active = false;
-  let isRoundTable = false;
   let stopHerdrListener: HerdrListenerHandle | null = null;
   let runtimeKind: RuntimeKind = "none";
   const trackedPaneCount = () => getTrackedPaneCount();
@@ -190,12 +163,6 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
   let sitRepEligible = false;
   let sitRepCtx: ExtensionContext | null = null;
   let sitRepStreak = initialSitrepStreak();
-  // Set while a sit-rep run is in flight so the journal can tell a no-op check
-  // apart from real work and skip its forked model call (see
-  // sitRepRunChangedNothing).
-  let sitRepRunAt = 0;
-  let sitRepRunSignature: string | null = null;
-
   /** The picture a sit-rep inspects, right now. */
   function currentSitrepSignature(): string {
     return sitrepSignature({
@@ -204,18 +171,6 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
       barriers: store.barriers.map(b => b.id),
       owed: store.owed.map(o => o.id),
     });
-  }
-
-  /** True when this run was started by the sit-rep timer and nothing
-   *  structural has moved since it injected. A check that found nothing must
-   *  not also pay for a forked journal entry — that would be a second model
-   *  call for the same no-op. */
-  function sitRepRunChangedNothing(): boolean {
-    return (
-      sitRepRunSignature !== null &&
-      Date.now() - sitRepRunAt < SITREP_RUN_WINDOW_MS &&
-      sitRepRunSignature === currentSitrepSignature()
-    );
   }
 
   function stopSitRepTimer(): void {
@@ -228,7 +183,6 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
    *  sit-rep's own injection — that would reset the very cap it enforces. */
   function notePicodeActivity(): void {
     sitRepStreak = initialSitrepStreak();
-    sitRepRunSignature = null;
     if (sitRepEligible && sitRepCtx && !sitRepTimer) armSitRepTimer(sitRepCtx);
   }
 
@@ -267,9 +221,6 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
         );
         return;
       }
-
-      sitRepRunAt = Date.now();
-      sitRepRunSignature = signature;
 
       // Inject sit-rep as followUp (non-interrupting — waits for current
       // turn). A picode-system CustomMessage keeps it collapsed on the quiet
@@ -317,7 +268,6 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
 
     const flagId = pi.getFlag("picode-id");
     const picodeShorthand = pi.getFlag("picode");
-    isRoundTable = pi.getFlag("picode-round-table") === true;
     // --picode (boolean) defaults to coordinator when no --picode-id given
     const resolvedId =
       typeof flagId === "string" && flagId.length > 0
@@ -346,8 +296,6 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
         "picode_run",
         "picode_tab_create",
         "picode_tab_close",
-        "picode_round_table",
-        "picode_round_table_reply",
         "picode_finish",
         "revive_closed_session",
       ]);
@@ -375,23 +323,8 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
     // (refreshed again by /picode-quiet).
     setQuietTui(resolveQuietTui(ctx.cwd).value);
 
-    if (!isRoundTable && store.role !== "coordinator" && store.sessionFile) {
-      saveRecallParticipant(ctx.cwd, {
-        id: store.picodeId,
-        role: store.role,
-        sessionFile: store.sessionFile,
-        cwd: ctx.cwd,
-        updatedAt: nowIso(),
-      });
-    }
-
-    // A new session's agent starts from the base system prompt; the picode
-    // thread-model block is assembled per prompt()-driven run (see the
-    // before_agent_start handler below). The journal slice marker resets too
-    // — a fresh session's entries must not be skipped by the old session's
-    // count.
+    // Reset diagnostics when switching sessions; rules remain per-run sections.
     cacheDiagnostics.reset();
-    journaledMessageCount = 0;
 
     try {
       runtimeKind = detectRuntime();
@@ -471,19 +404,10 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
       }
     }
 
-    // Startup resume context (coordinator only): append project context
-    // without waking the model. The journal is the coordinator's memory —
-    // inject the last entries plus outstanding coordination state so the next
-    // operator prompt can re-orient without having to remember to call
-    // picode_status. Workers stay cold — their context is the task envelope.
+    // Restore outstanding coordination state passively. Work journals are
+    // archives, not current task memory; papercuts are read on demand.
     if (store.role === "coordinator") {
       const parts: string[] = [];
-      const journal = await store.readJournal(store.picodeId);
-      if (journal) {
-        const entries = journal.split(/\n(?=<!--)/).filter(Boolean);
-        const recent = entries.slice(-5).join("\n");
-        parts.push(`[picode-system] Startup resume — your last journal entries:\n${recent}`);
-      }
       if (store.obligations.length) {
         parts.push(
           `[picode-system] Outstanding obligations: ${store.obligations.map(o => o.id).join(", ")}`,
@@ -496,13 +420,8 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
         parts.push(`[picode-system] Active barriers: ${store.barriers.map(b => b.id).join(", ")}`);
       }
       if (parts.length) {
-        parts.push(
-          "[picode-system] Reading the entries above: they are chronological — the LAST entry is the current state, earlier entries are history. Never re-ask the user about a decision, question, or request that a later entry shows was answered, resolved, or dropped. If the last entry lists something open, verify it is still true before acting on it or asking the user. If an open item is a question awaiting the user's answer, surface it in ONE short line — the user has already seen the details; do not re-present analysis, evidence, or decision menus, and do not re-run orientation tool calls to re-derive them. If the user's reply resolves or drops anything, say so plainly in your response so the journal entry records the closure.",
-        );
-      }
-      if (parts.length) {
         setImmediate(() => {
-          // The full resume context (journal, obligations, owed, barriers)
+          // The coordination context (obligations, owed, barriers)
           // rides as a collapsed picode-system message appended to context
           // without triggering a turn. The next operator prompt supplies the
           // turn that re-orients the coordinator.
@@ -522,7 +441,7 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
     // Current-task widget: workers only (§ — coordinator routes, doesn't
     // have a single task). Use onInject hook so every drained envelope
     // updates the widget with the first line of the most recent request body.
-    if (!isRoundTable && store.role !== "coordinator") {
+    if (store.role !== "coordinator") {
       inbox.onInject = (parts: Injection[], injectCtx: ExtensionContext) => {
         const taskParts = parts.filter(p => /^\[(request|reply\+request) from /.test(p.text));
         if (taskParts.length > 0) {
@@ -539,12 +458,10 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
 
     // Set the terminal title so the role is visible in window lists and tmux
     // status bars, even when the user is not in herdr.
-    const titleRole = isRoundTable
-      ? `🗣️ Round Table · ${store.picodeId}`
-      : `${roleEmoji(store.role)} ${store.role ?? "worker"}`;
+    const titleRole = `${roleEmoji(store.role)} ${store.role ?? "worker"}`;
     ctx.ui.setTitle(`pi · ${titleRole} · ${basename(ctx.cwd)}`);
     if (runtimeKind === "herdr") {
-      setHerdrPaneLabel(store, isRoundTable);
+      setHerdrPaneLabel(store);
     }
 
     // Read-only roles keep inspection tools but cannot modify files. Runner
@@ -558,20 +475,10 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
       "runner",
       "visionary",
     ]);
-    if (isRoundTable) {
-      pi.setActiveTools(["picode_round_table_reply"]);
-    } else if (READ_ONLY_ROLES.has(store.role)) {
+    if (READ_ONLY_ROLES.has(store.role)) {
       const DENIED = new Set(["write", "edit", "picode_run"]);
       if (store.role === "coordinator") DENIED.add("bash");
       const filtered = pi.getActiveTools().filter(name => !DENIED.has(name));
-      pi.setActiveTools(filtered);
-    }
-    // Journaling is coordinator-only: hide picode_journal from workers so they
-    // are never tempted to spend a tool call reading a journal that (a) is
-    // always empty for them and (b) they are not supposed to use. picode_status
-    // stays — it is the worker's own-state recovery path (owed replies).
-    if (!isRoundTable && store.role !== "coordinator") {
-      const filtered = pi.getActiveTools().filter(name => name !== "picode_journal");
       pi.setActiveTools(filtered);
     }
     // Defer initial drain to next tick — calling the send API synchronously
@@ -625,60 +532,12 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
     if (active) await store.shutdown(event.reason);
   });
 
-  // Build the bounded journal prompt — the messages since the last fork,
-  // capped to the most recent JOURNAL_CONTEXT_MAX_MESSAGES — and fire the
-  // print-mode fork. No session access or no new messages → nothing to
-  // summarize, no model call.
-  const forkJournalFor = async (ctx: ExtensionContext): Promise<void> => {
-    let entries: unknown[] = [];
-    try {
-      entries = ctx.sessionManager.getEntries();
-    } catch {
-      return;
-    }
-    if (!Array.isArray(entries)) return;
-    const messages = entries
-      .map(e =>
-        (e as { type?: string; message?: unknown }).type === "message"
-          ? (e as { message?: unknown }).message
-          : undefined,
-      )
-      .filter(
-        (m): m is { role: string; [key: string]: unknown } =>
-          !!m && typeof (m as { role?: unknown }).role === "string",
-      );
-    const start = Math.max(journaledMessageCount, messages.length - JOURNAL_CONTEXT_MAX_MESSAGES);
-    const slice = messages.slice(start);
-    journaledMessageCount = messages.length;
-    if (slice.length === 0) return;
-    let previousEntry: string | undefined;
-    try {
-      const journal = await store.readJournal(store.picodeId);
-      previousEntry = journal ? splitJournalEntries(journal).at(-1) : undefined;
-    } catch {
-      // Continuity anchor is best-effort.
-    }
-    // Without a pinned journal model, fork on the session's own last model —
-    // it just ran, so it resolves on this machine by construction.
-    let fallbackModel: string | undefined;
-    for (let i = entries.length - 1; i >= 0; i--) {
-      const m = (entries[i] as { message?: { role?: string; provider?: string; model?: string } })
-        .message;
-      if (m?.role === "assistant" && m.provider && m.model) {
-        fallbackModel = `${m.provider}/${m.model}`;
-        break;
-      }
-    }
-    store.forkJournal(buildJournalPrompt(slice, previousEntry), fallbackModel);
-  };
-
   pi.on("input", async event => {
     if (!active) return;
     // Extension-sourced input is picode's own machinery (envelope injections,
-    // system prompts) — the "did the operator speak" signal is for humans and
+    // system prompts) — the operator-activity signal is for humans and
     // RPC clients only.
     if (event.source !== "extension") {
-      userPromptThisRun = true;
       // The operator is back: give an idle or self-paused sit-rep timer a
       // fresh baseline and let it check again.
       notePicodeActivity();
@@ -764,16 +623,6 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
       }
     }
 
-    const modelPaths = modelsConfigPaths(ctx.cwd);
-    if (
-      !sitRepRunChangedNothing() &&
-      !isRoundTable &&
-      journalMode(pi, modelPaths.project, store.role, modelPaths.global) === "turn" &&
-      shouldJournal(store, toolUsedThisTurn, "turn")
-    ) {
-      await forkJournalFor(ctx);
-    }
-
     // The turn boundary is the documented "Open" moment — pick up anything
     // the watcher couldn't deliver while the injection gate was closed.
     await inbox.drainInbox(ctx);
@@ -787,31 +636,6 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
     // consecutive silent runs — that's what makes the streak>=2 escalation
     // in turn_end's guard reachable at all.
     store.owedNudgePending = false;
-    const modelPaths = modelsConfigPaths(ctx.cwd);
-    const mode = isRoundTable
-      ? "off"
-      : journalMode(pi, modelPaths.project, store.role, modelPaths.global);
-    // A sit-rep that found nothing is not journal news: skip the fork so the
-    // no-op costs one model call instead of two. The run marker is cleared
-    // either way — it describes this run only.
-    const noNewsSitRep = sitRepRunChangedNothing();
-    sitRepRunSignature = null;
-    const write =
-      !noNewsSitRep &&
-      (mode === "done"
-        ? shouldJournal(store, toolUsedThisTurn, "done", userPromptThisRun)
-        : mode === "turn" && shouldJournal(store, toolUsedThisTurn, "run-end"));
-    userPromptThisRun = false;
-    if (write) {
-      await forkJournalFor(ctx);
-    }
-
-    // Auto-compact if journal grew past threshold. Fire-and-forget. Only
-    // at run end — not per turn — to avoid racing the normal journal writes.
-    if (journalMode(pi, modelPaths.project, store.role, modelPaths.global) !== "off") {
-      store.compactJournal();
-    }
-
     // Messages steered from agent_end handlers are still consumed: pi checks
     // its queues once more after these handlers settle and continues the run.
     await inbox.drainInbox(ctx);
@@ -840,10 +664,7 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
     const revived =
       typeof revivedFlag === "string" && revivedFlag ? { since: revivedFlag } : undefined;
 
-    const picodePrompt = threadModelPrompt(store, {
-      roundTable: isRoundTable,
-      revived,
-    });
+    const picodePrompt = threadModelPrompt(store, { revived });
     const basePrompt = event.systemPrompt;
     if (hasSystemPromptSections(event.systemPromptOptions)) {
       // One section, holding stable rules only. The rules must be byte-stable

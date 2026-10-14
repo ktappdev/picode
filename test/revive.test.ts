@@ -52,9 +52,6 @@ function picodeData(role: string): PicodeData {
     barriers: [],
     owedNudgePending: false,
     owedSilentStreak: 0,
-    lastJournalSignature: null,
-    lastJournalAt: 0,
-    journalDebt: false,
   };
 }
 
@@ -361,14 +358,6 @@ describe("worker ledger: prompt wiring", () => {
     assert.match(prompt, /current fact/);
     // Byte-stable across runs: same `since`, same prompt.
     assert.equal(threadModelPrompt(picodeData("builder"), { revived: { since } }), prompt);
-  });
-
-  it("keeps a Round Table consultation free of the revival caveat", () => {
-    const prompt = threadModelPrompt(picodeData("builder"), {
-      roundTable: true,
-      revived: { since: new Date().toISOString() },
-    });
-    assert.doesNotMatch(prompt, /You were revived/);
   });
 });
 

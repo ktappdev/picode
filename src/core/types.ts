@@ -186,16 +186,9 @@ export interface PicodeStore extends PicodeData {
   init: (cwd: string, ctx: ExtensionContext) => Promise<void>;
   shutdown: (reason: string) => Promise<void>;
   listPcodes: () => Promise<PicodeSummary[]>;
-  /** Undefined on backends without the JournalAdapter extension. */
+  /** Read-only legacy work archive; undefined without JournalAdapter. */
   readJournal: (picodeId: string) => Promise<string | undefined>;
   threadExists: (picodeId: string) => Promise<boolean>;
-  /** Forks a bounded journal-keeper prompt (see journal.ts buildJournalPrompt)
-   *  in a throwaway print-mode pi and appends its five-line entry.
-   *  fallbackModel (the session's own last model) is used only when neither
-   *  the CLI flag nor models.json pins a journal model. */
-  forkJournal: (prompt: string, fallbackModel?: string) => void;
-  /** Fire-and-forget: if journal exceeds threshold, summarize oldest into one block. */
-  compactJournal: () => void;
   startHeartbeat: (onTick?: () => void | Promise<void>) => void;
   stopHeartbeat: () => void;
   startWatcher: (drainInbox: (ctx: ExtensionContext) => void, ctx: ExtensionContext) => void;
@@ -227,16 +220,4 @@ export interface PicodeData {
    *  capped — used only to pick reminder severity, not to gate whether one
    *  fires. Reset by any tool use, including the send that clears the debt. */
   owedSilentStreak: number;
-  /** In-memory only: fingerprint of (state, obligations, barriers) as of
-   *  the last journal write — lets turn_end skip forking a journal entry when
-   *  a turn produced no tool call and nothing structural changed. */
-  lastJournalSignature: string | null;
-  /** In-memory only: epoch ms of the last journal fork — rate-limits per-turn
-   *  journaling so a long run of quick tool turns doesn't produce one
-   *  near-duplicate entry (and one forked model call) per turn. */
-  lastJournalAt: number;
-  /** In-memory only: set when a turn's journal entry was rate-limited away —
-   *  the run owes one wrap-up entry at agent_end so the final state of the
-   *  work is never lost to the rate limit. */
-  journalDebt: boolean;
 }
