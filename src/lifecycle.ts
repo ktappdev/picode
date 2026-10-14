@@ -12,7 +12,9 @@ import {
   advanceSitrep,
   initialSitrepStreak,
   resolveSitrepMaxIdle,
+  sitrepActionable,
   sitrepSignature,
+  type SitrepInputs,
 } from "./core/sitrep";
 import { roleEmoji } from "./core/roles";
 import { resolveQuietTui, setQuietTui } from "./core/quiet-tui";
@@ -164,13 +166,13 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
   let sitRepCtx: ExtensionContext | null = null;
   let sitRepStreak = initialSitrepStreak();
   /** The picture a sit-rep inspects, right now. */
-  function currentSitrepSignature(): string {
-    return sitrepSignature({
+  function currentSitrepInputs(): SitrepInputs {
+    return {
       trackedPanes: trackedPaneCount(),
       obligations: store.obligations.map(o => o.id),
       barriers: store.barriers.map(b => b.id),
       owed: store.owed.map(o => o.id),
-    });
+    };
   }
 
   function stopSitRepTimer(): void {
@@ -199,12 +201,17 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
       if (!inbox.canInject()) {
         return;
       }
-      // Skip if no tracked panes — nothing to sit-rep about
-      if (trackedPaneCount() === 0) {
+      // Only wake the model when coordination is actually in flight — a reply
+      // this picode is waiting on, an armed barrier, or a reply it owes. Idle
+      // worker panes that already answered need nothing: they are reusable
+      // context, and treating their pane as the gate is what made sit-reps
+      // fire after the work was delivered.
+      const inputs = currentSitrepInputs();
+      if (!sitrepActionable(inputs)) {
         return;
       }
 
-      const signature = currentSitrepSignature();
+      const signature = sitrepSignature(inputs);
       const maxIdle = sitRepMaxIdle();
       const { streak, decision } = advanceSitrep(sitRepStreak, signature, maxIdle);
       sitRepStreak = streak;
@@ -227,7 +234,7 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
       // operator screen; Pi still fires before_agent_start for the triggered
       // run, so Picode's system-prompt sections are re-applied.
       const sitrep =
-        "[picode-system] Periodic sit-rep: run picode_panes(), picode_list(), and picode_status(tail=5). Check for: (1) zombie workers — working but no recent activity, (2) stale barriers — expired deadlines, (3) idle workers that could be reused or closed. Act on findings — close zombies, purge stale barriers, reassign idle workers. Don't just report.";
+        "[picode-system] Periodic sit-rep: coordination is still in flight. Run picode_panes(), picode_list(), and picode_status(tail=5). Check for: (1) zombie workers — working but no recent activity, (2) stale barriers — expired deadlines from dead picodes. Act on real problems — close zombie panes (cleanup_panes), purge stale barriers (picode_purge), answer any reply you owe. Leave idle workers that already replied alone: they are reusable context, not clutter. Don't just report.";
       pi.sendMessage(
         { customType: "picode-system", content: sitrep, display: true, details: {} },
         { triggerTurn: true, deliverAs: "followUp" },

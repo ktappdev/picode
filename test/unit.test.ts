@@ -87,6 +87,7 @@ import {
   advanceSitrep,
   initialSitrepStreak,
   resolveSitrepMaxIdle,
+  sitrepActionable,
   sitrepSignature,
   SITREP_MAX_IDLE_DEFAULT,
 } from "../src/core/sitrep";
@@ -2520,6 +2521,14 @@ describe("core: bounded sit-rep policy", () => {
     assert.deepStrictEqual(decisions, ["inject", "inject", "inject", "inject", "pause"]);
   });
 
+  it("only counts real coordination work as actionable, never idle panes", () => {
+    const idle = { obligations: [], barriers: [], owed: [] };
+    assert.strictEqual(sitrepActionable(idle), false, "idle panes alone must not wake the model");
+    assert.strictEqual(sitrepActionable({ ...idle, obligations: ["w/q1"] }), true);
+    assert.strictEqual(sitrepActionable({ ...idle, barriers: ["b1"] }), true);
+    assert.strictEqual(sitrepActionable({ ...idle, owed: ["boss/q1"] }), true);
+  });
+
   it("a changed picture resets the streak", () => {
     let streak = initialSitrepStreak();
     for (let i = 0; i < 3; i++) streak = advanceSitrep(streak, "a", 3).streak;
@@ -2564,6 +2573,15 @@ describe("lifecycle: bounded sit-reps", () => {
     return h;
   }
 
+  function busy(h: ReturnType<typeof makeLifecycleHarness>) {
+    h.store.obligations.push({
+      id: "helper/q1",
+      to: "helper",
+      summary: "waiting on a reply",
+      sentAt: new Date().toISOString(),
+    });
+  }
+
   /** Restore the sit-rep knobs and close the handles the harness opened. */
   function closeSitrepHarness(h: ReturnType<typeof makeLifecycleHarness>) {
     h.store.stopHeartbeat();
@@ -2573,9 +2591,29 @@ describe("lifecycle: bounded sit-reps", () => {
     }
   }
 
+  it("does not wake the coordinator for idle worker panes with nothing in flight", async () => {
+    mock.timers.enable({ apis: ["setInterval"] });
+    const h = await sitrepHarness(3);
+    try {
+      // trackedPaneCount() is stubbed to 1 by the harness, but there is no
+      // obligation, barrier, or owed reply — the reported "work is done and
+      // panes are sitting idle" case. No tick may wake the model.
+      for (let i = 0; i < 5; i++) mock.timers.tick(1000);
+      assert.strictEqual(
+        h.sentMessages.filter(m => m.customType === "picode-system").length,
+        0,
+        "idle panes are not a reason to run a full agent turn",
+      );
+      closeSitrepHarness(h);
+    } finally {
+      mock.timers.reset();
+    }
+  });
+
   it("pauses after the idle cap and re-arms when the operator speaks", async () => {
     mock.timers.enable({ apis: ["setInterval"] });
     const h = await sitrepHarness(2);
+    busy(h);
     try {
       const tick = () => mock.timers.tick(1000);
       const sitreps = () => h.sentMessages.filter(m => m.customType === "picode-system");
@@ -2606,6 +2644,7 @@ describe("lifecycle: bounded sit-reps", () => {
   it("a delivered envelope re-arms a paused timer", async () => {
     mock.timers.enable({ apis: ["setInterval"] });
     const h = await sitrepHarness(1);
+    busy(h);
     try {
       const sitreps = () => h.sentMessages.filter(m => m.customType === "picode-system");
       mock.timers.tick(1000); // baseline
@@ -2628,6 +2667,7 @@ describe("lifecycle: bounded sit-reps", () => {
   it("sit-reps and normal runs never create automatic work summaries", async () => {
     mock.timers.enable({ apis: ["setInterval"] });
     const h = await sitrepHarness(3);
+    busy(h);
     try {
       mock.timers.tick(1000);
       await h.fire("tool_execution_start", h.makeCtx(), {});

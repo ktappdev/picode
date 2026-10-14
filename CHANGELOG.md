@@ -15,6 +15,7 @@ All notable changes to picode are documented here. Format follows [Keep a Change
 ### Fixed
 
 - Isolated sit-rep tests from the developer's global journal-cadence preference.
+- **Sit-reps no longer fire while the work is finished.** The periodic sit-rep was gated on tracked worker panes, so an idle worker that had already replied kept waking the coordinator for a full agent run every ten minutes until the empty-check cap paused it — the coordinator's own "the task is delivered, what do I do with these panes?" loop. A sit-rep now only runs when coordination is actually in flight: a reply this picode is waiting on, an armed barrier, or a reply it owes. Idle workers that answered are reusable context, not unfinished work, and the injected prompt now says so explicitly instead of telling the coordinator to "reassign or close idle workers". `src/core/sitrep.ts`, `src/lifecycle.ts`, `src/prompts/herdr/coordinator.md`.
 
 ## [0.6.0] — 2026-09-16
 

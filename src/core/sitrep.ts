@@ -1,8 +1,11 @@
 /** Bounded idle polling for the coordinator's periodic sit-rep timer.
  *
- *  The timer exists so a coordinator that still owns worker panes re-checks
- *  their health (zombies, stale barriers, reusable idlers) every
- *  PICODE_SITREP_INTERVAL_MS. Each check is not a poll but a full agent run
+ *  The timer exists so a coordinator with coordination still in flight — a
+ *  reply it is waiting on, an armed barrier, or a reply it owes — re-checks
+ *  worker health every PICODE_SITREP_INTERVAL_MS. A picture with nothing in
+ *  flight (workers finished and replied) is skipped before the model is ever
+ *  woken: an idle pane is reusable context, not a reason for a full agent run.
+ *  Each check that does run is not a poll but a full agent run
  *  over the coordinator's whole context — measured at ~470k tokens of prefill
  *  per turn on a long-lived coordinator — so a picture that never changes must
  *  not be re-checked forever. After SITREP_MAX_IDLE consecutive checks find
@@ -28,7 +31,10 @@ export function resolveSitrepMaxIdle(raw: string | undefined): number {
 
 /** The inputs a sit-rep can actually act on. */
 export interface SitrepInputs {
-  /** Worker panes this picode still owns (herdr tracked-pane count). */
+  /** Worker panes this picode still owns (herdr tracked-pane count). Part of
+   *  the change fingerprint (a pane opening/closing is news) but NOT the gate:
+   *  idle panes alone must never wake the coordinator — see
+   *  `sitrepActionable`. */
   trackedPanes: number;
   obligations: string[];
   barriers: string[];
@@ -47,6 +53,20 @@ export function sitrepSignature(input: SitrepInputs): string {
   return [input.trackedPanes, ids(input.obligations), ids(input.barriers), ids(input.owed)].join(
     "|",
   );
+}
+
+/** True when a sit-rep has something it can actually act on: a reply this
+ *  picode is still waiting for, an armed barrier, or a reply it owes.
+ *
+ *  Idle worker panes are deliberately excluded. A worker that finished and
+ *  replied is reusable context, not unfinished work — keying the wake-up on
+ *  tracked pane count alone is what made the coordinator run a full agent
+ *  turn every ten minutes for hours after a task was delivered, deciding what
+ *  to do with panes that needed nothing. */
+export function sitrepActionable(
+  input: Pick<SitrepInputs, "obligations" | "barriers" | "owed">,
+): boolean {
+  return input.obligations.length > 0 || input.barriers.length > 0 || input.owed.length > 0;
 }
 
 /** How many consecutive checks have seen the same picture, and what it was. */
