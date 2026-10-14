@@ -74,7 +74,7 @@ export function createPicodeStore(
       await store.persist();
       ctx?.ui.setStatus(
         "picode",
-        `${roleEmoji(store.role)} ${store.role ?? "worker"}: ${store.state}`,
+        `📬 picode · ${roleEmoji(store.role)} ${store.role ?? "worker"}: ${store.state}`,
       );
     },
 
@@ -280,7 +280,7 @@ export function createPicodeStore(
         await store.persist();
         ctx.ui.setStatus(
           "picode",
-          `${roleEmoji(store.role)} ${store.role ?? "worker"}: ${store.state}`,
+          `📬 picode · ${roleEmoji(store.role)} ${store.role ?? "worker"}: ${store.state}`,
         );
       } finally {
         // Always release the init lock, even if persist or checks threw.

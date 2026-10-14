@@ -138,15 +138,18 @@ interface SplitTarget {
 const MIN_PANE_RATIO = 0.2; // pane must be ≥20% of workspace dimension to be split candidate
 const MIN_RESULT_RATIO = 0.15; // resulting pane must be ≥15% of workspace dimension
 
-function isCoordinatorLabel(label: string): boolean {
-  const stripped = label
-    .replace(
-      /[\u{26AA}\u{1F9ED}\u{1F528}\u{1F50D}\u{1F9EA}\u{1F3A8}\u{1F41B}\u{1F4CB}\u{2699}\u{1F3C3}]\s*/u,
-      "",
-    )
+/** True when a pane label names the coordinator, e.g. "📬 picode ⚪ coordinator"
+ *  or the legacy "⚪ coordinator". The role is the label's last word; the
+ *  picode badge and the role emoji are decoration. Exported for tests: this
+ *  gates the hard "never split the coordinator pane" rule, so a parsing
+ *  regression must be caught before it can cost the user their command pane. */
+export function isCoordinatorLabel(label: string): boolean {
+  const words = label
+    // Drop emoji, dots, and punctuation; keep letters, digits, spaces, hyphens.
+    .replace(/[^\p{L}\p{N}\s-]+/gu, " ")
     .trim()
-    .toLowerCase();
-  return stripped === "coordinator";
+    .split(/\s+/);
+  return (words[words.length - 1] || "").toLowerCase() === "coordinator";
 }
 
 /** Fetch and parse the herdr API snapshot once. Returns panes, layouts, and

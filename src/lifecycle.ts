@@ -69,12 +69,15 @@ function restingState(store: PicodeStore, whenFree: PicodeState): PicodeState {
   return whenFree;
 }
 
-/** Rename this pane in herdr so the label shows role emoji + name
- *  (e.g. 🧭 coordinator). Uses $HERDR_PANE_ID — never rely on focused pane.
- *  Startup-only, so execSync is fine. Errors logged, not fatal. */
+/** Rename this pane in herdr so the label names picode and the role
+ *  (e.g. 📬 picode ⚪ coordinator). The leading badge is what tells a picode
+ *  pane apart from a plain pi pane at a glance; the role stays the last word
+ *  so pane-role parsing (extractRole) keeps working. Uses $HERDR_PANE_ID —
+ *  never rely on focused pane. Startup-only, so execSync is fine. Errors
+ *  logged, not fatal. */
 function setHerdrPaneLabel(store: PicodeStore): void {
   if (process.env.HERDR_ENV !== "1" || !process.env.HERDR_PANE_ID) return;
-  const label = `${roleEmoji(store.role)} ${store.role ?? "worker"}`;
+  const label = `📬 picode ${roleEmoji(store.role)} ${store.role ?? "worker"}`;
   try {
     execSync(`herdr pane rename "${process.env.HERDR_PANE_ID}" "${label}"`, {
       stdio: "pipe",
@@ -464,9 +467,19 @@ export function registerLifecycle(pi: ExtensionAPI, store: PicodeStore, inbox: I
     }
 
     // Set the terminal title so the role is visible in window lists and tmux
-    // status bars, even when the user is not in herdr.
+    // status bars, even when the user is not in herdr. The leading "picode"
+    // is what distinguishes a picode session from a plain pi one at a glance.
     const titleRole = `${roleEmoji(store.role)} ${store.role ?? "worker"}`;
-    ctx.ui.setTitle(`pi · ${titleRole} · ${basename(ctx.cwd)}`);
+    ctx.ui.setTitle(`picode · ${titleRole} · ${basename(ctx.cwd)}`);
+    // A plain pi session and a fresh picode session render identically, and
+    // the role emoji alone does not say "picode". Stamp a persistent badge
+    // above the editor so the pane is identifiable before any work — or any
+    // worker panes — appear.
+    if (ctx.hasUI) {
+      ctx.ui.setWidget("picode-badge", [`📬 picode · ${titleRole}`], {
+        placement: "aboveEditor",
+      });
+    }
     if (runtimeKind === "herdr") {
       setHerdrPaneLabel(store);
     }

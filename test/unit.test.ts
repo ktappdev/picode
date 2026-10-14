@@ -54,7 +54,12 @@ import {
 } from "../src/tools/shared";
 import { envelopeMessageRenderer, systemMessageRenderer } from "../src/renderers";
 import { isQuietTui, resolveQuietTui, setQuietTui } from "../src/core/quiet-tui";
-import { countPanesInTab, solePaneInTab, resolveThinking } from "../src/tools/spawn";
+import {
+  countPanesInTab,
+  solePaneInTab,
+  resolveThinking,
+  isCoordinatorLabel,
+} from "../src/tools/spawn";
 import {
   readThinkingConfig,
   thinkingConfigPaths,
@@ -4758,6 +4763,19 @@ describe("tools/spawn: workspace lock (no herdr needed)", () => {
       delete process.env.HERDR_PANE_ID;
       delete process.env.HERDR_TAB_ID;
     }
+  });
+});
+
+describe("tools/spawn: coordinator pane label", () => {
+  it("recognizes the coordinator through the picode badge and role emoji", () => {
+    // The badge added to every picode pane must not defeat the hard "never
+    // split the coordinator" guard.
+    assert.strictEqual(isCoordinatorLabel("📬 picode ⚪ coordinator"), true);
+    assert.strictEqual(isCoordinatorLabel("⚪ coordinator"), true);
+    assert.strictEqual(isCoordinatorLabel("coordinator"), true);
+    assert.strictEqual(isCoordinatorLabel("📬 picode 🔨 builder"), false);
+    assert.strictEqual(isCoordinatorLabel("builder-1"), false);
+    assert.strictEqual(isCoordinatorLabel(""), false);
   });
 });
 
