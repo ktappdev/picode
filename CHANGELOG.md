@@ -6,7 +6,7 @@ All notable changes to picode are documented here. Format follows [Keep a Change
 
 ### Changed
 
-- **Work journaling replaced by a papercut journal.** Coordinators and workers explicitly report tool, harness, and setup friction through `picode_journal` into shared `.picode/issues.md`; repeat open issues accumulate evidence. Operators mark issues solved with `/picode-journal solve PC-001 [note]`, the monitoring CLI, or a Markdown checkbox. No automatic summaries, model forks, or compaction; old work journals remain read-only archives and obsolete model/cadence settings are ignored. CLI and MCP share the same atomic, cross-process-safe file storage, independently of the coordination backend.
+- **Work journaling replaced by a papercut journal.** Coordinators and workers review their session context at the end of each work run and explicitly report actionable tool, harness, and setup friction before their final response/report through `picode_journal` into shared `.picode/issues.md`; repeat open issues accumulate evidence. Operators mark issues solved with `/picode-journal solve PC-001 [note]`, the monitoring CLI, or a Markdown checkbox. No automatic summaries, model forks, or compaction; old work journals remain read-only archives and obsolete model/cadence settings are ignored. CLI and MCP share the same atomic, cross-process-safe file storage, independently of the coordination backend.
 
 ### Added
 

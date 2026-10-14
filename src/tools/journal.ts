@@ -15,9 +15,9 @@ export function registerJournalTool(pi: ExtensionAPI, store: PicodeStore) {
     name: "picode_journal",
     label: "Picode Papercuts",
     description:
-      "Report or list tool, harness, and setup friction in the shared .picode/issues.md papercut journal. Default: list open issues. Report observed problems, impact, workarounds, and help needed, not task progress or ordinary application bugs. Agents cannot mark issues solved; the operator uses /picode-journal solve. action=archive with a picode id reads an old work journal (read-only compatibility).",
+      "Report or list tool, harness, and setup friction in the shared .picode/issues.md papercut journal. Default: list open issues. At the end of a work run, review its session context and report observed problems, impact, workarounds, and help needed before your final report/response. Do not interrupt work to log nonblocking friction, and write nothing for a clean run. Do not report task progress or ordinary application bugs. Agents cannot mark issues solved; the operator uses /picode-journal solve. action=archive with a picode id reads an old work journal (read-only compatibility).",
     promptSnippet:
-      "Report actionable tool/harness/setup papercuts or list open issues. No work summaries; never log secrets. Escalate blockers separately to your coordinator/operator.",
+      "Review tool/harness/setup friction at the end of your work run and report actionable papercuts before finishing; clean run = no report. No work summaries or secrets. Escalate blockers immediately; defer nonblocking logging.",
     parameters: Type.Object({
       action: Type.Optional(
         Type.Union([Type.Literal("list"), Type.Literal("report"), Type.Literal("archive")]),

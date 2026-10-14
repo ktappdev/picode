@@ -321,7 +321,9 @@ Sample overrides to copy live in [`examples/prompts/`](examples/prompts/).
 
 ## The papercut journal
 
-Journaling now records **tool, harness, and setup friction**, not work completed. Coordinators and workers report explicitly with `picode_journal(action="report", ...)`; there are no automatic summaries, background model calls, or compaction.
+Journaling now records **tool, harness, and setup friction**, not work completed. At the end of each work run, coordinators and workers briefly review their session context for actionable papercuts, then report findings with `picode_journal(action="report", ...)` before their final response/report or yielding control. Workers closing a task do this before `picode_finish`. Clean runs produce no entries; the same occurrence is not reported again in later runs. Agents keep working through nonblocking friction rather than stopping to catalog it mid-task.
+
+This is a prompt-directed retrospective within the existing run, not a background summarizer or an `agent_end` hook that wakes the model again. There are no automatic summaries, separate model calls, or compaction.
 
 One shared file, **`.picode/issues.md`**, is the source of truth. Issues survive worker cleanup/purge. It is workspace-local even when coordination uses Restate: agents on different machines need a shared workspace filesystem to share this log.
 
@@ -340,7 +342,7 @@ Reports include a stable ID, reporter/time, affected area, observed problem, imp
 - Help needed: Correct the instructions or enable the tool.
 ```
 
-Report actionable friction, not routine failed commands, ordinary application bugs, expected failing tests, or task progress. Never include secrets. Nonblocking issues are logged quietly; **blockers must also be escalated immediately** via worker → coordinator → operator. A workaround does not count as a fix, and listing issues does not assign agents to fix them.
+Report actionable friction, not routine failed commands, ordinary application bugs, expected failing tests, or task progress. Never include secrets. Nonblocking issues are logged quietly at the end of the run; **blockers must be escalated immediately rather than waiting for the retrospective** via worker → coordinator → operator. A workaround does not count as a fix, and listing issues does not assign agents to fix them.
 
 Only the operator marks issues solved:
 

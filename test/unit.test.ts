@@ -4361,7 +4361,9 @@ describe("role and prompt contracts", () => {
       owedNudgePending: false,
       owedSilentStreak: 0,
     });
-    assert.match(worker, /shared papercut log/);
+    assert.match(worker, /At the end of each work run/);
+    assert.match(worker, /do this before picode_finish/);
+    assert.match(worker, /If the run was clean, write nothing/);
     assert.match(worker, /only the operator marks issues solved/);
     assert.doesNotMatch(
       worker,
@@ -4384,7 +4386,12 @@ describe("role and prompt contracts", () => {
       owedNudgePending: false,
       owedSilentStreak: 0,
     });
-    assert.match(coord, /shared papercut log/);
+    assert.match(coord, /At the end of each work run/);
+    assert.match(
+      coord,
+      /coordinators do it before their final operator response or yielding to wait/,
+    );
+    assert.match(coord, /If blocked, ask for the specific help needed immediately/);
     assert.match(coord, /recover task context .* not the journal/);
   });
 });

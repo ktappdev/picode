@@ -574,7 +574,7 @@ const TOOLS = [
   {
     name: "picode_journal",
     description:
-      "Report or list tool, harness, and setup papercuts in shared .picode/issues.md. Default: open issues. Reports require title, area, problem, and impact; never include secrets or task progress. Reuse an open issue's title/area for repeats. Only the operator marks solved. Blockers must also be escalated via picode_send. action=archive (or legacy id-only calls) reads old work journals.",
+      "Report or list tool, harness, and setup papercuts in shared .picode/issues.md. Default: open issues. Before your final end-of-run response/report, look back over the run for actionable friction and report it; do not stop mid-task to log nonblocking papercuts, and write nothing for a clean run. Reports require title, area, problem, and impact; never include secrets or task progress. Reuse an open issue's title/area for repeats. Only the operator marks solved. Blockers must also be escalated via picode_send. action=archive (or legacy id-only calls) reads old work journals.",
     inputSchema: {
       type: "object",
       properties: {

@@ -28,9 +28,9 @@ export function registerFinishTool(pi: ExtensionAPI, store: PicodeStore, inbox: 
     name: "picode_finish",
     label: "Finish Work",
     description:
-      "Close out your assigned task: record a handoff note (what landed, what you left unverified) and send your final report to the coordinator in one call. Use this for your end-of-task report instead of picode_send — it is what a future revival of this thread reads to see what was actually left open.",
+      "Before closing out, briefly review this run for tool, harness, and setup papercuts and report actionable findings with picode_journal using action=report; write nothing if the run was clean. Then close out your assigned task: record a handoff note (what landed, what you left unverified) and send your final report to the coordinator in one call. Use this for your end-of-task report instead of picode_send — it is what a future revival of this thread reads to see what was actually left open.",
     promptSnippet:
-      "Finish your task: record a handoff note and send your final report (workers only).",
+      "Review the run and report any actionable papercuts with picode_journal first; then record a handoff note and send your final report (workers only).",
     parameters: Type.Object({
       outcome: Type.Union(
         [Type.Literal("completed"), Type.Literal("blocked"), Type.Literal("abandoned")],
