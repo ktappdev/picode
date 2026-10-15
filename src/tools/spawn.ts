@@ -1,7 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { execSync } from "child_process";
-import { readFileSync, existsSync } from "fs";
+import { readFileSync, existsSync, statSync } from "fs";
 import { join } from "path";
 import { loadModelsConfig, resolveModelForRole } from "../core/model-config";
 import {
@@ -544,6 +544,34 @@ function findEmptyPane(
   return null;
 }
 
+/** Poll for the worker's picode registration: the state.json written at its
+ *  session_start under .picode/picodes. herdr pins a booting pane at
+ *  agent_status "unknown" until its agent detection fires, so a slow pi
+ *  boot can outlast the idle-wait while the worker is perfectly fine —
+ *  which is how healthy spawns acquired a "did not become idle in 30s"
+ *  warning (PC-002/PC-006) and a picode_list lag. A state.json with an
+ *  mtime newer than the launch moment is proof of life; returns true the
+ *  moment it appears, false when the timeout lapses without it. */
+export async function pollWorkerRegistration(
+  picodesRoot: string,
+  picodeId: string,
+  sinceMs: number,
+  timeoutMs: number,
+  intervalMs = 2_000,
+): Promise<boolean> {
+  const statePath = join(picodesRoot, picodeId, "state.json");
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try {
+      if (statSync(statePath).mtimeMs >= sinceMs) return true;
+    } catch {
+      // Not registered yet.
+    }
+    if (Date.now() >= deadline) return false;
+    await new Promise(resolve => setTimeout(resolve, intervalMs));
+  }
+}
+
 export function registerSpawnTool(pi: ExtensionAPI, store: PicodeStore) {
   pi.registerTool({
     name: "spawn_worker",
@@ -793,6 +821,7 @@ export function registerSpawnTool(pi: ExtensionAPI, store: PicodeStore) {
         });
 
         // 9. Run launch command in new/claimed pane (not for reused panes)
+        const launchStartedAt = Date.now();
         if (!paneIdToUse) {
           // Safety net: if we claimed an empty pane, send Ctrl-C first to
           // kill any stale process that might intercept pane run text.
@@ -816,7 +845,23 @@ export function registerSpawnTool(pi: ExtensionAPI, store: PicodeStore) {
           try {
             herdr(`wait agent-status ${newPaneId} --status idle --timeout 30000`);
           } catch {
-            warning = "agent did not become idle within 30s timeout — may still be starting";
+            // herdr leaves a booting pane at agent_status "unknown" until its
+            // agent detection fires, so a slow pi boot can outlast the 30s
+            // wait with the worker perfectly fine. Before warning, poll for
+            // the worker's picode registration — a fresh state.json proves
+            // the worker is up, keeps the result warning-free for healthy
+            // spawns, and means picode_list can satisfy the exact-id check
+            // immediately (PC-002/PC-006).
+            const registered = await pollWorkerRegistration(
+              join(process.cwd(), ".picode", "picodes"),
+              uniqueId,
+              launchStartedAt,
+              30_000,
+            );
+            if (!registered) {
+              warning =
+                "agent did not become idle within 60s and never registered with picode — may still be starting, wedged, or failed to launch; inspect with picode_pane_read before re-dispatching";
+            }
           }
 
           // Soft signal: if tab has 4+ agent panes after this spawn, warn

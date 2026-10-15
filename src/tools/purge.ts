@@ -21,6 +21,8 @@ function findProjectRoot(): string {
 
 interface StateFile {
   id: string;
+  /** Writer process. Older state files may omit it. */
+  pid?: number;
   status: "running" | "stopped";
   state: string;
   lastSeen: string;
@@ -109,7 +111,29 @@ function readStateJson(dirPath: string): StateFile | null {
 }
 
 function isStale(s: StateFile): boolean {
-  return s.status === "stopped" || Date.now() - new Date(s.lastSeen).getTime() > STALE_MS;
+  if (s.status === "stopped") return true;
+  // A "running" picode whose writer process is gone can never heartbeat
+  // again, so waiting out STALE_MS only protects dead data. This is what
+  // makes a pane-closed worker purgeable immediately after its pane is
+  // closed instead of being skipped as "active (running)" for another
+  // minute of phantom liveness. PID reuse can only keep a truly-dead thread
+  // unpurged (matches the same check in threadIdExists), never purge a
+  // live one.
+  if (typeof s.pid === "number" && !isPidAlive(s.pid)) return true;
+  return Date.now() - new Date(s.lastSeen).getTime() > STALE_MS;
+}
+
+/** Check if a PID is alive (same logic as state.ts). */
+function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e: unknown) {
+    if (e instanceof Error && (e as NodeJS.ErrnoException).code === "ESRCH") {
+      return false;
+    }
+    return true; // EPERM or other — process exists
+  }
 }
 
 function effectiveStatus(s: StateFile): string {

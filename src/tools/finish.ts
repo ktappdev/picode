@@ -112,6 +112,15 @@ export function registerFinishTool(pi: ExtensionAPI, store: PicodeStore, inbox: 
       }
 
       const warnings: string[] = [];
+      if (owed) {
+        // PC-001: a handoff that settles a pending request doubles as the
+        // answer, and nothing told the worker that. Say so, so a worker
+        // closing out mid-assignment doesn't quietly clear the
+        // coordinator's obligation with a note that answers nothing.
+        warnings.push(
+          `This handoff settles the pending request (${owed.id}) — its body was delivered as the reply. Confirm it actually answers what that request asked; otherwise send the real answer via picode_send.`,
+        );
+      }
       if (!owed && store.owed.length > 1) {
         warnings.push(
           `${store.owed.length} owed replies outstanding and no re given — sent as a plain note, so those debts remain. Reply to them with picode_send.`,

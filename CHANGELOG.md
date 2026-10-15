@@ -4,7 +4,16 @@ All notable changes to picode are documented here. Format follows [Keep a Change
 
 ## Unreleased
 
+### Fixed
+
+- **Four papercut regressions from real coordinator runs** (security-audit-suite workspace, PC-001/002/005/006):
+  - `picode_finish` now says explicitly when a handoff settles a pending request — the handoff body doubles as the reply, and a worker closing out mid-assignment could silently clear the coordinator's obligation with a note that answered nothing.
+  - `spawn_worker` no longer emits the spurious "did not become idle within 30s" warning on healthy slow-boot spawns: when the idle-wait lapses, it polls up to 30s more for the worker's picode registration (state.json newer than the launch moment) and only warns when neither signal appeared; new workers are therefore visible in an immediate `picode_list` after the tool returns.
+  - `picode_purge` treats a `running`-state thread whose writer PID is dead as stale immediately, so a pane-closed worker is purgeable right after `cleanup_panes` instead of being skipped as "active (running)" until its heartbeat ages out.
+
 ### Changed
+
+- **Hypa removed from prompts and docs.** Picode no longer assumes Hypa compression tools: the coordinator's quick-lookup contract is now `read` on known paths (searches go to scout), the scout prompt drops the "Hypa first" rule in favor of lean bash + compact summaries, and the README no longer advertises the extension (its listed install repo was already a 404).
 
 - **Work journaling replaced by a papercut journal.** Coordinators and workers review their session context at the end of each work run and explicitly report actionable tool, harness, and setup friction before their final response/report through `picode_journal` into shared `.picode/issues.md`; repeat open issues accumulate evidence. Operators mark issues solved with `/picode-journal solve PC-001 [note]`, the monitoring CLI, or a Markdown checkbox. No automatic summaries, model forks, or compaction; old work journals remain read-only archives and obsolete model/cadence settings are ignored. CLI and MCP share the same atomic, cross-process-safe file storage, independently of the coordination backend.
 

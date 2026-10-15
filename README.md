@@ -70,14 +70,6 @@ function picode { pi --picode-id @args }
 
 Without the shortcut, use the full `pi --picode-id <name>` command shown in the examples.
 
-### Optional: Hypa
-
-[Hypa](https://github.com/earendil-works/hypa) is a Pi extension that compresses file lookup output and helps scouts and explorers keep their context lean. Picode works without it:
-
-```bash
-pi install git:github.com/earendil-works/hypa@main
-```
-
 ## Quick start
 
 Run Pi inside a Herdr pane. Start one session as the coordinator:
@@ -196,7 +188,7 @@ Each picode has a role that shapes its system prompt. The role is auto-detected 
 
 | Role                 | Subtype | Description                                                                                                                                                                           |
 | -------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `coordinator`        | -       | Directs workers, delegates tasks, keeps project context. Cannot write, edit, or run bash. Uses Hypa tools for quick lookups when installed.                                           |
+| `coordinator`        | -       | Directs workers, delegates tasks, keeps project context. Cannot write, edit, or run bash. Reads known file paths directly; delegates searches to scout.                                |
 | `builder`            | Worker  | Implements code changes, edits files, runs type checks.                                                                                                                               |
 | `reviewer`           | Worker  | Reviews diffs, audits for bugs, security, and quality. Read-only.                                                                                                                     |
 | `scout` / `explorer` | Worker  | Explores the codebase, finds files, answers architecture questions. Read-only. Summarizes findings instead of dumping raw output.                                                     |
@@ -220,7 +212,7 @@ If a worker goes silent (no `picode_send` reply within about 10 minutes), the co
 
 When a picode has the `coordinator` role (auto-detected from the name `coordinator`):
 
-- **Write, edit, and bash are disabled.** The coordinator cannot run shell commands or modify files. Quick targeted lookups (single grep, read known file path) go through [Hypa](https://github.com/earendil-works/hypa) tools when installed. Anything deeper — multi-file exploration, git operations, herdr commands — goes through workers via `spawn_worker` or `picode_send`.
+- **Write, edit, and bash are disabled.** The coordinator cannot run shell commands or modify files. Quick targeted lookups are `read` calls on known file paths. Anything deeper — searches, multi-file exploration, git operations, herdr commands — goes through workers via `spawn_worker` or `picode_send`.
 - **Herdr-native orchestration.** The coordinator uses Herdr to create and reuse worker panes, open tabs when needed, inspect output and lifecycle, and clean up stale workers. Picode handles roles, task messages, reply obligations, and handoffs; Herdr handles the live agent runtime. See [How Picode and Herdr work together](#how-picode-and-herdr-work-together).
 - **Reuses panes.** It checks existing panes first and reuses idle or done workers instead of spawning duplicates.
 - **Adaptive layout.** Workers split in the direction that keeps new panes close to square. Grid-aware splitting avoids tall stacks. Empty panes are claimed instead of splitting. The coordinator stays at 50 percent on the left and the worker area fills the right half.

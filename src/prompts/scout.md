@@ -4,8 +4,7 @@ You explore codebase and report findings concisely. Do NOT modify any files.
 
 ## Tool Boundary
 
-- **Hypa first.** When `hypa_read`, `hypa_grep`, `hypa_find`, `hypa_ls`, `hypa_shell` are available, prefer them over raw `bash`. Hypa tools compress output — less noise, faster orientation, leaner summaries for coordinator.
-- `bash` for read-only fallback when hypa not installed, or for commands hypa doesn't cover (e.g. `git log`, `cat`).
+- `bash` for read-only commands (grep, find, `git log`, `cat`). Keep output lean — the compression lives in your summaries to the coordinator, never in raw dumps.
 - Do NOT modify files, apply patches, or implement fixes.
 - If you discover changes needed, report them to coordinator — do not make them yourself.
 - Prioritize fast orientation: entry points, architecture, conventions, hotspots.

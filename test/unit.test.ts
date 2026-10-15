@@ -24,7 +24,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { execFile, execFileSync } from "node:child_process";
+import { execFile, execFileSync, spawnSync } from "node:child_process";
 import { promisify } from "node:util";
 import { createServer } from "node:net";
 import type {
@@ -59,6 +59,7 @@ import {
   solePaneInTab,
   resolveThinking,
   isCoordinatorLabel,
+  pollWorkerRegistration,
 } from "../src/tools/spawn";
 import {
   readThinkingConfig,
@@ -66,6 +67,7 @@ import {
   writeThinkingConfig,
 } from "../src/core/thinking-config";
 import { validateLabel } from "../src/tools/tab-create";
+import { purgeStalePcodes } from "../src/tools/purge";
 import { registerLifecycle, extractFirstLine } from "../src/lifecycle";
 import { getListenerHandle, setListenerHandle, startHerdrListener } from "../src/herdr/listener";
 import { deadlineFromSeconds } from "../src/core/time";
@@ -5613,5 +5615,112 @@ describe("operator quiet: session_start applies config", () => {
     assert.strictEqual(isQuietTui(), true);
     h.store.stopHeartbeat();
     h.store.stopWatcher();
+  });
+});
+
+// ── Pending papercut regressions ────────────────────────────────────
+
+describe("tools/finish: settling a pending request is visible (PC-001)", () => {
+  it("warns that the handoff body was delivered as the reply to the request it settles", async () => {
+    const h = makeHarness(tmpDir);
+    seedRemoteThread(h, "coordinator");
+    h.store.owed.push(owedRecord("coordinator", "coordinator/q1", "what changed?"));
+    const r = await callTool(h, "picode_finish", {
+      outcome: "completed",
+      changed: "did the thing",
+      leftUnverified: "nothing",
+    });
+    assert.strictEqual(r.details.ok, true);
+    assert.strictEqual(r.details.re, "coordinator/q1");
+    assert.match(r.content[0].text, /settles the pending request \(coordinator\/q1\)/);
+    assert.match(r.content[0].text, /send the real answer via picode_send/);
+  });
+
+  it("still warns plainly when finishing cannot settle multiple owed replies", async () => {
+    const h = makeHarness(tmpDir);
+    seedRemoteThread(h, "coordinator");
+    h.store.owed.push(owedRecord("coordinator", "coordinator/q1"));
+    h.store.owed.push(owedRecord("coordinator", "coordinator/q2"));
+    const r = await callTool(h, "picode_finish", {
+      outcome: "completed",
+      changed: "did the thing",
+      leftUnverified: "nothing",
+    });
+    assert.strictEqual(r.details.re, null);
+    assert.match(r.content[0].text, /2 owed replies outstanding/);
+  });
+});
+
+describe("tools/purge: pane-closed worker is purgeable (PC-005)", () => {
+  it("purges a running-state thread whose writer PID is dead, without waiting for lastSeen to age out", () => {
+    const project = join(tmpDir, "proj");
+    const dir = join(project, ".picode", "picodes", "builder-dead");
+    mkdirSync(dir, { recursive: true });
+    const child = spawnSync(process.execPath, ["-e", ""]);
+    writeFileSync(
+      join(dir, "state.json"),
+      JSON.stringify({
+        id: "builder-dead",
+        pid: child.pid,
+        status: "running",
+        state: "idle",
+        lastSeen: new Date().toISOString(),
+        obligations: [],
+        owed: [],
+      }),
+    );
+    const res = purgeStalePcodes(project, "coordinator", false);
+    assert.ok(res.purged.includes("builder-dead"), JSON.stringify(res));
+  });
+
+  it("still skips a running thread with a live PID and a fresh heartbeat", () => {
+    const project = join(tmpDir, "proj-live");
+    const dir = join(project, ".picode", "picodes", "builder-alive");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "state.json"),
+      JSON.stringify({
+        id: "builder-alive",
+        pid: process.pid,
+        status: "running",
+        state: "idle",
+        lastSeen: new Date().toISOString(),
+        obligations: [],
+        owed: [],
+      }),
+    );
+    const res = purgeStalePcodes(project, "coordinator", false);
+    assert.deepStrictEqual(res.purged, []);
+    const skip = res.skipped.find(s => s.id === "builder-alive");
+    assert.match(skip?.reason ?? "", /active \(running\)/);
+  });
+});
+
+describe("tools/spawn: pollWorkerRegistration (PC-002/PC-006)", () => {
+  it("returns true as soon as a state.json newer than the launch moment exists", async () => {
+    const root = join(tmpDir, ".picode", "picodes");
+    mkdirSync(join(root, "builder-fresh"), { recursive: true });
+    const since = Date.now();
+    writeFileSync(join(root, "builder-fresh", "state.json"), "{}");
+    assert.strictEqual(await pollWorkerRegistration(root, "builder-fresh", since, 5_000, 1), true);
+  });
+
+  it("returns false when registration never appears within the timeout", async () => {
+    const root = join(tmpDir, ".picode", "picodes");
+    mkdirSync(root, { recursive: true });
+    assert.strictEqual(await pollWorkerRegistration(root, "builder-none", Date.now(), 0, 0), false);
+  });
+
+  it("ignores a pre-existing state.json older than the launch moment", async () => {
+    const root = join(tmpDir, ".picode", "picodes");
+    const dir = join(root, "builder-stale");
+    mkdirSync(dir, { recursive: true });
+    const statePath = join(dir, "state.json");
+    writeFileSync(statePath, "{}");
+    utimesSync(statePath, new Date(1000), new Date(1000));
+    assert.strictEqual(
+      await pollWorkerRegistration(root, "builder-stale", Date.now(), 0, 0),
+      false,
+    );
   });
 });
