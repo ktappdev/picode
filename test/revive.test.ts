@@ -50,6 +50,7 @@ function picodeData(role: string): PicodeData {
     obligations: [],
     owed: [],
     barriers: [],
+    settled: [],
     owedNudgePending: false,
     owedSilentStreak: 0,
   };

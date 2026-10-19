@@ -64,6 +64,7 @@ export function createPicodeStore(
     obligations: [],
     owed: [],
     barriers: [],
+    settled: [],
     owedNudgePending: false,
     owedSilentStreak: 0,
 
@@ -93,6 +94,7 @@ export function createPicodeStore(
         obligations: store.obligations,
         owed: store.owed,
         barriers: store.barriers,
+        settled: store.settled,
         startedAt: store.startedAt,
         lastSeen: nowIso(),
         updatedAt: nowIso(),
@@ -170,6 +172,7 @@ export function createPicodeStore(
         store.obligations = s.obligations ?? [];
         store.owed = s.owed ?? [];
         store.barriers = s.barriers ?? [];
+        store.settled = s.settled ?? [];
         store.state =
           s.state === "done" || s.state === "stopped"
             ? "idle"

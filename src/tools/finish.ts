@@ -2,6 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { PicodeStore } from "../core/types";
 import { writeHandoff, type HandoffNote, type HandoffOutcome } from "../core/handoff";
+import { sameEnvelopeId } from "../core/ids";
 import { nowIso } from "../core/time";
 import type { Inbox } from "../inbox";
 import { err, quietCallRenderer, quietToolResult } from "./shared";
@@ -92,8 +93,10 @@ export function registerFinishTool(pi: ExtensionAPI, store: PicodeStore, inbox: 
       // Close an outstanding request when it is unambiguous. With several
       // owed replies, refuse to guess which one this closes — misdirecting a
       // reply is worse than leaving the correlation to the next send.
-      const owed = params.re
-        ? store.owed.find(o => o.id === params.re)
+      // owes — prefix-tolerantly, since agents echo ids by hand.
+      const reId = params.re;
+      const owed = reId
+        ? store.owed.find(o => sameEnvelopeId(o.id, reId))
         : store.owed.length === 1
           ? store.owed[0]
           : undefined;

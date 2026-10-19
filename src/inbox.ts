@@ -1,7 +1,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { PicodeStore, Envelope, Urgency } from "./core/types";
-import { STALE_MS, DEFAULT_OBLIGATION_DEADLINE_MS } from "./core/types";
-import { mintEnvelopeId } from "./core/ids";
+import { STALE_MS, DEFAULT_OBLIGATION_DEADLINE_MS, SETTLED_RING_MAX } from "./core/types";
+import { mintEnvelopeId, sameEnvelopeId } from "./core/ids";
 import { armInterruptPreempt } from "./core/interrupt";
 import { nowIso } from "./core/time";
 
@@ -330,9 +330,12 @@ export function createInbox(store: PicodeStore, pi: ExtensionAPI): Inbox {
       // unrelated owed entry must not discharge it: the owed record stays put
       // so picode_status and the owed-reply nudge keep surfacing it.
       // (picode_send layers a soft warning on top; this is the real gate.)
-      const owedMatch = store.owed.find(o => o.id === opts.re);
+      // Id correlation is prefix-tolerant (sameEnvelopeId): a reply echoing
+      // the bare ULID names the same envelope as its `<from>/<ulid>` form.
+      const reId = opts.re;
+      const owedMatch = store.owed.find(o => sameEnvelopeId(o.id, reId));
       if (owedMatch && owedMatch.from === to) {
-        store.owed = store.owed.filter(o => o.id !== opts.re);
+        store.owed = store.owed.filter(o => !sameEnvelopeId(o.id, reId));
         await store.persist();
       }
     }
@@ -373,6 +376,16 @@ export function createInbox(store: PicodeStore, pi: ExtensionAPI): Inbox {
     return missing;
   }
 
+  /** Remember that `id` has received at least one reply, deduped and
+   *  bounded to the last SETTLED_RING_MAX ids. Lets picode_wait (armed AFTER
+   *  the reply landed) tell "a reply already arrived — you just haven't seen
+   *  it yet" apart from "nothing has ever answered this id" (PC-001). */
+  function recordSettled(id: string): void {
+    const rest = store.settled.filter(s => !sameEnvelopeId(s.id, id));
+    rest.push({ id, settledAt: nowIso() });
+    store.settled = rest.slice(-SETTLED_RING_MAX);
+  }
+
   /** Resolve any barriers waiting on this envelope id. Returns "resolved"
    *  notices (and any barrier payload messages, §12.1) to fold into the same
    *  wake-up as the envelope, rather than firing separate injections. */
@@ -381,11 +394,11 @@ export function createInbox(store: PicodeStore, pi: ExtensionAPI): Inbox {
     const notes: string[] = [];
     const payloads: Injection[] = [];
     for (const b of store.barriers) {
-      if (!b.pending.includes(re)) {
+      const pending = b.pending.filter(id => !sameEnvelopeId(id, re));
+      if (pending.length === b.pending.length) {
         remaining.push(b);
         continue;
       }
-      const pending = b.pending.filter(id => id !== re);
       const done = b.mode === "any" || pending.length === 0;
       if (done) {
         notes.push(
@@ -428,11 +441,15 @@ export function createInbox(store: PicodeStore, pi: ExtensionAPI): Inbox {
       // picode the debt was recorded against may clear it (or resolve the
       // barriers armed over it, §12.1). A misdirected reply whose `re`
       // merely collides with someone else's obligation renders as a plain
-      // note and leaves the ledger and barriers untouched.
-      const obMatch = store.obligations.find(o => o.id === msg.re);
+      // note and leaves the ledger and barriers untouched. A reply echoing
+      // a bare ULID (no `<from>/` prefix) names the same envelope and counts
+      // — agents echo these ids by hand (sameEnvelopeId).
+      const reId = msg.re;
+      const obMatch = store.obligations.find(o => sameEnvelopeId(o.id, reId));
       if (!obMatch || obMatch.to === msg.from) {
-        store.obligations = store.obligations.filter(o => o.id !== msg.re);
-        const resolved = resolveBarriers(msg.re);
+        store.obligations = store.obligations.filter(o => !sameEnvelopeId(o.id, reId));
+        recordSettled(reId);
+        const resolved = resolveBarriers(reId);
         barrierNotes = resolved.notes;
         parts.push(...resolved.payloads);
       }
@@ -565,7 +582,7 @@ export function createInbox(store: PicodeStore, pi: ExtensionAPI): Inbox {
         b.nudged = true;
         mutated = true;
         parts.push({
-          text: `[barrier overdue "${b.id}"]: still waiting on ${b.mode} of ${b.pending.length} repl${b.pending.length === 1 ? "y" : "ies"} (${b.pending.join(", ")}) — none arrived by the deadline. Check in with the target picode(s), or the barrier will keep waiting silently.`,
+          text: `[barrier overdue "${b.id}"]: still waiting on ${b.mode} of ${b.pending.length} repl${b.pending.length === 1 ? "y" : "ies"} (${b.pending.join(", ")}) — none arrived by the deadline. Check in with the target picode(s), or cancel the barrier (picode_wait action="cancel", ids=["${b.id}"]) if it's waiting on a bad id — otherwise it will keep waiting silently.`,
           urgency: "high",
         });
       }

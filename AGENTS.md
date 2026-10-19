@@ -15,6 +15,17 @@
 
 **Version:** 0.6.0 (as of this writing)
 
+## Papercut Journal — Where Issues Get Reported
+
+Read this before touching "the journal reported issues" work — it is a system of its own:
+
+- **What it is:** picode's shared Markdown papercut log. Coordinators and workers report tool, harness, and setup friction at the end of each work run via `picode_journal` (reporting policy: `src/prompts/papercuts.md`). Storage is `bin/issue-journal.mjs` (full-transaction locking, atomic replacement); **`.picode/issues.md` is the source of truth**, shared by Pi, the CLI, and MCP. A workaround is not a fix — **only the operator marks issues solved** (`/picode-journal solve PC-001 [note]` in-session, `node bin/picode-cli.mjs journal solve PC-001 "note"`, or ticking the Markdown checkbox). Never close an issue from a fix alone.
+- **Where reports live (important):** in `.picode/issues.md` of the **workspace where the picode coordinator ran** — not in this repo. Reports _about picode_ land in other repos' workspaces (seen in the wild: `~/developer/secretnotes-go-backend/.picode/issues.md`, `~/developer/github-agent/.picode/issues.md`, `~/developer/security-audit-suite/.picode/issues.md`). This repo's own `.picode/issues.md` is often absent — when the operator says "the journal reported these issues", search sibling workspaces for `PC-\d+` headings before concluding there is nothing to do.
+- **IDs are per-file:** `## PC-001 — Title` headings numbered within one workspace's file. PC-001 in two workspaces are **different issues** (and old changelog/test names reuse the same numbers for long-fixed papercuts). When citing an issue in this repo, name its workspace — e.g. "secretnotes PC-002".
+- **Entry format:** `- [ ]` / `- [x]` Solved checkbox plus free-form `Problem:` / `Impact:` / `Workaround:` / `Help needed:` lines; repeat occurrences append evidence lines `Seen again: <iso-ts> · <picode> · <role> — ...`. `bin/issue-journal.mjs` rejects headings or checkboxes in the wrong shape.
+- **Reading it:** `node bin/picode-cli.mjs journal [--dir <workspace>]` (also `show`, `status`), or `/picode-journal [open|all|show PC-001]` in a live session.
+- **Triage discipline:** reports are written by models at end of run and **can misstate their own facts** (real case: a report claimed "both sends had expects=true"; one send had no `expects` at all, and the actual bug was something else entirely). Before designing a fix, verify against ground truth: the coordinator's session JSONL — the `sessionFile` path in the workspace's `.picode/picodes/coordinator/state.json`, under `~/.pi/agent/sessions/<workspace-slug>/` — contains every `toolCall` with exact params and every `toolResult` with timestamps. Fixes land in this repo; the journal entry stays open until the operator solves it.
+
 ## Architecture
 
 ### Directory Structure

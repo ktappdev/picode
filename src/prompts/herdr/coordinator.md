@@ -197,8 +197,11 @@ picode_wait(ids=["builder/abc123"])          → arm barrier ONCE
 
 **Warning signs:**
 
-- `"Warning: no open obligation matches <id>"` → reply already landed, debt settled. Do NOT re-arm. Check `picode_status` and the delivered reply in your conversation instead.
+- `"Warning: a reply for <id> already arrived ..."` → the reply is already in (or arriving to) your context — do NOT re-arm on that id. End your turn and read it; drop the id from the barrier with `picode_wait(action="cancel", ids=[...])` if you armed anyway.
+- `"Warning: no open obligation matches <id> ..."` → that id is wrong, or that envelope never set `expects=true` (a plain note gets no tracked reply). Fix the id and re-arm, or cancel the barrier with `picode_wait(action="cancel", ids=[...])` — ids may be barrier ids from `picode_status` or the awaited envelope ids.
 - Multiple barriers for same ids → you're looping. Stop. Check status.
+
+**Recovering from a bad wait:** a barrier armed on a mistyped or stale id never resolves and nags you with overdue reminders. Cancel it instead of waiting it out: `picode_wait(action="cancel", ids=["<barrier id>"])` drops the whole barrier (the barrier id is in the arm message and `picode_status`); passing awaited envelope ids instead removes just those from the barriers that hold them.
 
 **Rule:** Arm barrier ONCE per turn → end turn → get woken. Never call `picode_wait` more than once per turn for the same ids.
 

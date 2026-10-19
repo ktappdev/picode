@@ -49,3 +49,20 @@ export function ulid(now = Date.now()): string {
 export function mintEnvelopeId(from: string): string {
   return `${from}/${ulid()}`;
 }
+
+/** Correlate two envelope ids tolerantly. The canonical form is
+ *  `<from>/<ulid>`, but agents echo ids by hand from `[...]`/`re #...`
+ *  headers and sometimes drop the `<from>/` prefix — exact-match
+ *  correlation then silently never fires (observed in the wild: a barrier
+ *  on `coordinator/01ABC…` could not be settled by a reply echoing
+ *  `01ABC…`, and the coordinator hung on it). Two ids correlate when
+ *  equal, or when their post-`/` suffixes are equal and non-empty — a bare
+ *  ULID and its scoped form name the same envelope. Barrier ids (mintId)
+ *  carry no `/`, so they only ever match exactly; nothing echoes them. */
+export function sameEnvelopeId(a: string, b: string): boolean {
+  if (a === b) return true;
+  const tail = (s: string) => s.slice(s.lastIndexOf("/") + 1);
+  const ta = tail(a);
+  const tb = tail(b);
+  return ta.length > 0 && ta === tb;
+}

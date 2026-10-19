@@ -878,11 +878,7 @@
                   "adapter for pi coding agent",
                   "adapter"
                 ],
-                "symbols": [
-                  "AdapterOptions",
-                  "AdapterFactory",
-                  "createConfiguredAdapter"
-                ],
+                "symbols": ["AdapterOptions", "AdapterFactory", "createConfiguredAdapter"],
                 "size": 1458,
                 "mod_time": 1784385378142088221
               },
@@ -903,11 +899,7 @@
                   "types",
                   "ts"
                 ],
-                "symbols": [
-                  "StorageAdapter",
-                  "JournalAdapter",
-                  "PicodeAdapter"
-                ],
+                "symbols": ["StorageAdapter", "JournalAdapter", "PicodeAdapter"],
                 "size": 3708,
                 "mod_time": 1784665507458412971
               }
@@ -931,12 +923,7 @@
               "diagnostics",
               "ts"
             ],
-            "symbols": [
-              "explainMiss",
-              "registerCacheDiagnostics",
-              "reset",
-              "recordPrompt"
-            ],
+            "symbols": ["explainMiss", "registerCacheDiagnostics", "reset", "recordPrompt"],
             "size": 6762,
             "mod_time": 1790268462992821119
           },
@@ -1153,10 +1140,7 @@
                   "ids",
                   "ts"
                 ],
-                "symbols": [
-                  "mintId",
-                  "mintEnvelopeId"
-                ],
+                "symbols": ["mintId", "mintEnvelopeId"],
                 "size": 1805,
                 "mod_time": 1784385378082641613
               },
@@ -1209,10 +1193,7 @@
                   "ops",
                   "ts"
                 ],
-                "symbols": [
-                  "suspendThread",
-                  "resumeThread"
-                ],
+                "symbols": ["suspendThread", "resumeThread"],
                 "size": 978,
                 "mod_time": 1784385378100071867
               },
@@ -1286,10 +1267,7 @@
                   "roles",
                   "ts"
                 ],
-                "symbols": [
-                  "detectWorkerRole",
-                  "roleEmoji"
-                ],
+                "symbols": ["detectWorkerRole", "roleEmoji"],
                 "size": 1493,
                 "mod_time": 1787405236166146040
               },
@@ -1374,10 +1352,7 @@
                   "time",
                   "ts"
                 ],
-                "symbols": [
-                  "nowIso",
-                  "deadlineFromSeconds"
-                ],
+                "symbols": ["nowIso", "deadlineFromSeconds"],
                 "size": 1074,
                 "mod_time": 1784385378108292678
               },
@@ -2091,10 +2066,7 @@
                   "restate",
                   "service"
                 ],
-                "symbols": [
-                  "PicodeObjectApi",
-                  "PicodeRegistryApi"
-                ],
+                "symbols": ["PicodeObjectApi", "PicodeRegistryApi"],
                 "size": 6858,
                 "mod_time": 1784909031068467218
               },
@@ -2114,9 +2086,7 @@
                   "launch",
                   "ts"
                 ],
-                "symbols": [
-                  "buildWakeLaunch"
-                ],
+                "symbols": ["buildWakeLaunch"],
                 "size": 1838,
                 "mod_time": 1784385378129977965
               }
@@ -2152,10 +2122,7 @@
                   "detect",
                   "ts"
                 ],
-                "symbols": [
-                  "RuntimeKind",
-                  "detectRuntime"
-                ],
+                "symbols": ["RuntimeKind", "detectRuntime"],
                 "size": 695,
                 "mod_time": 1791245040520063974
               }
@@ -2233,12 +2200,7 @@
                   "panes",
                   "ts"
                 ],
-                "symbols": [
-                  "herdr",
-                  "herdrJson",
-                  "registerCleanupPanesTool",
-                  "execute"
-                ],
+                "symbols": ["herdr", "herdrJson", "registerCleanupPanesTool", "execute"],
                 "size": 12348,
                 "mod_time": 1790067978030152763
               },
@@ -2259,10 +2221,7 @@
                   "control",
                   "ts"
                 ],
-                "symbols": [
-                  "registerControlTools",
-                  "execute"
-                ],
+                "symbols": ["registerControlTools", "execute"],
                 "size": 2236,
                 "mod_time": 1784493867334669819
               },
@@ -2283,11 +2242,7 @@
                   "finish",
                   "ts"
                 ],
-                "symbols": [
-                  "defaultReport",
-                  "registerFinishTool",
-                  "execute"
-                ],
+                "symbols": ["defaultReport", "registerFinishTool", "execute"],
                 "size": 5909,
                 "mod_time": 1790067978033230392
               },
@@ -2307,9 +2262,7 @@
                   "index",
                   "ts"
                 ],
-                "symbols": [
-                  "registerTools"
-                ],
+                "symbols": ["registerTools"],
                 "size": 1868,
                 "mod_time": 1791245040520338350
               },
@@ -2330,10 +2283,7 @@
                   "introspection",
                   "ts"
                 ],
-                "symbols": [
-                  "registerIntrospectionTools",
-                  "execute"
-                ],
+                "symbols": ["registerIntrospectionTools", "execute"],
                 "size": 9206,
                 "mod_time": 1791246314265389163
               },
@@ -2354,12 +2304,7 @@
                   "messaging",
                   "ts"
                 ],
-                "symbols": [
-                  "checkBodySize",
-                  "armBarrier",
-                  "registerMessagingTools",
-                  "execute"
-                ],
+                "symbols": ["checkBodySize", "armBarrier", "registerMessagingTools", "execute"],
                 "size": 13500,
                 "mod_time": 1790067978016793163
               },
@@ -2380,11 +2325,7 @@
                   "read",
                   "ts"
                 ],
-                "symbols": [
-                  "herdr",
-                  "registerPaneReadTool",
-                  "execute"
-                ],
+                "symbols": ["herdr", "registerPaneReadTool", "execute"],
                 "size": 5316,
                 "mod_time": 1790067978018524332
               },
@@ -2405,13 +2346,7 @@
                   "panes",
                   "ts"
                 ],
-                "symbols": [
-                  "herdr",
-                  "herdrJson",
-                  "PaneSummary",
-                  "registerPanesTool",
-                  "execute"
-                ],
+                "symbols": ["herdr", "herdrJson", "PaneSummary", "registerPanesTool", "execute"],
                 "size": 9752,
                 "mod_time": 1790067978016965830
               },
@@ -2621,18 +2556,8 @@
                 "synonym_key": "src/tools/tab-close.ts",
                 "full_path": "/Users/kentaylor/developer/picode/src/tools/tab-close.ts",
                 "type": "file",
-                "synonyms": [
-                  "tools",
-                  "tab",
-                  "close",
-                  "ts"
-                ],
-                "symbols": [
-                  "herdr",
-                  "herdrJson",
-                  "registerTabCloseTool",
-                  "execute"
-                ],
+                "synonyms": ["tools", "tab", "close", "ts"],
+                "symbols": ["herdr", "herdrJson", "registerTabCloseTool", "execute"],
                 "size": 5998,
                 "mod_time": 1788452663492218245
               },
@@ -2640,12 +2565,7 @@
                 "synonym_key": "src/tools/tab-create.ts",
                 "full_path": "/Users/kentaylor/developer/picode/src/tools/tab-create.ts",
                 "type": "file",
-                "synonyms": [
-                  "tools",
-                  "tab",
-                  "create",
-                  "ts"
-                ],
+                "synonyms": ["tools", "tab", "create", "ts"],
                 "symbols": [
                   "herdr",
                   "herdrJson",
@@ -2664,9 +2584,7 @@
         "synonym_key": "test",
         "full_path": "/Users/kentaylor/developer/picode/test",
         "type": "directory",
-        "synonyms": [
-          "test"
-        ],
+        "synonyms": ["test"],
         "size": 320,
         "mod_time": 1791245035780260842,
         "children": {
@@ -2674,16 +2592,8 @@
             "synonym_key": "test/cache-diagnostics.test.ts",
             "full_path": "/Users/kentaylor/developer/picode/test/cache-diagnostics.test.ts",
             "type": "file",
-            "synonyms": [
-              "test",
-              "cache",
-              "diagnostics",
-              "ts"
-            ],
-            "symbols": [
-              "tempDir",
-              "assistantEntry"
-            ],
+            "synonyms": ["test", "cache", "diagnostics", "ts"],
+            "symbols": ["tempDir", "assistantEntry"],
             "size": 14486,
             "mod_time": 1790490145678081397
           },
@@ -2691,16 +2601,8 @@
             "synonym_key": "test/e2e-restate.test.ts",
             "full_path": "/Users/kentaylor/developer/picode/test/e2e-restate.test.ts",
             "type": "file",
-            "synonyms": [
-              "test",
-              "e2e",
-              "restate",
-              "ts"
-            ],
-            "symbols": [
-              "baseState",
-              "envelope"
-            ],
+            "synonyms": ["test", "e2e", "restate", "ts"],
+            "symbols": ["baseState", "envelope"],
             "size": 4827,
             "mod_time": 1784385377897066649
           },
@@ -2708,11 +2610,7 @@
             "synonym_key": "test/e2e.test.ts",
             "full_path": "/Users/kentaylor/developer/picode/test/e2e.test.ts",
             "type": "file",
-            "synonyms": [
-              "test",
-              "e2e",
-              "ts"
-            ],
+            "synonyms": ["test", "e2e", "ts"],
             "symbols": [
               "runPi",
               "readState",
@@ -2728,11 +2626,7 @@
             "synonym_key": "test/mcp.test.ts",
             "full_path": "/Users/kentaylor/developer/picode/test/mcp.test.ts",
             "type": "file",
-            "synonyms": [
-              "test",
-              "mcp",
-              "ts"
-            ],
+            "synonyms": ["test", "mcp", "ts"],
             "symbols": [
               "RpcResponse",
               "McpClient",
@@ -2757,11 +2651,7 @@
             "synonym_key": "test/revive.test.ts",
             "full_path": "/Users/kentaylor/developer/picode/test/revive.test.ts",
             "type": "file",
-            "synonyms": [
-              "test",
-              "revive",
-              "ts"
-            ],
+            "synonyms": ["test", "revive", "ts"],
             "symbols": [
               "tempDir",
               "picodeData",
@@ -2799,9 +2689,7 @@
               "round",
               "table"
             ],
-            "symbols": [
-              "tempDir"
-            ],
+            "symbols": ["tempDir"],
             "size": 4504,
             "mod_time": 1790212330052489625
           },
@@ -2822,9 +2710,7 @@
               "runtime",
               "ts"
             ],
-            "symbols": [
-              "clear"
-            ],
+            "symbols": ["clear"],
             "size": 1811,
             "mod_time": 1791245072683493503
           },

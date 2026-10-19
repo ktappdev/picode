@@ -81,6 +81,21 @@ export interface OwedReply {
   receivedAt: string;
 }
 
+/** A recently settled envelope id: at least one incoming reply carried
+ *  `re = id`, closing the matching obligation (or answering a plain note).
+ *  Kept as a bounded ring so `picode_wait` armed AFTER the reply landed can
+ *  still tell "a reply already arrived (you just haven't seen it yet)" apart
+ *  from "nothing has ever answered this id" (typo) — the exact confusion
+ *  behind papercut PC-001. Entries age out; a stale entry only costs a less
+ *  specific warning. */
+export interface SettledReply {
+  id: string;
+  settledAt: string;
+}
+
+/** How many settled ids to remember (oldest dropped first). */
+export const SETTLED_RING_MAX = 50;
+
 /** Waiting on multiple envelope ids: resolves when all (or any) get a reply.
  *  An optional `message` payload is injected on resolution — this is what
  *  subsumed the old local pub/sub subscriptions (§12.1). */
@@ -120,6 +135,9 @@ export interface StateFile {
   obligations: Obligation[];
   owed: OwedReply[];
   barriers: Barrier[];
+  /** Recently settled ids (bounded ring). Optional in the file so state
+   *  written before this field existed still loads. */
+  settled?: SettledReply[];
   startedAt: string;
   lastSeen: string;
   updatedAt: string;
@@ -210,6 +228,8 @@ export interface PicodeData {
   obligations: Obligation[];
   owed: OwedReply[];
   barriers: Barrier[];
+  /** Recently settled envelope ids (bounded ring, durable) — see SettledReply. */
+  settled: SettledReply[];
   /** In-memory only: true once a reminder about the current unaddressed owed
    *  replies has been queued, so consecutive silent+owed turns within one run
    *  don't each queue another stale copy. Re-armed at agent_end so a

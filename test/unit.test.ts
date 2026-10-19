@@ -1179,6 +1179,56 @@ describe("tools: picode_wait", () => {
     await callTool(h, "picode_wait", { ids: ["t1/a"], message: "now merge the results" });
     assert.strictEqual(h.store.barriers[0].message, "now merge the results");
   });
+
+  it("says a reply already arrived instead of 'no open obligation' when it landed before the wait (PC-001)", async () => {
+    const h = makeHarness(tmpDir);
+    seedRemoteThread(h, "alice");
+    const send = await callTool(h, "picode_send", { to: "alice", body: "do", expects: true });
+    const id = send.details.sent[0].id;
+    // The reply lands (discharging the obligation) before the model gets
+    // around to waiting — the exact real-world ordering behind PC-001.
+    seedEnvelope(h, h.store.picodeId, { from: "alice", re: id, body: "done" });
+    await h.inbox.drainInbox(h.ctx);
+    const r = await callTool(h, "picode_wait", { ids: [id] });
+    assert.match(r.content[0].text, /a reply for .* already arrived/);
+    assert.doesNotMatch(r.content[0].text, /no open obligation matches/);
+  });
+
+  it("cancel drops a whole barrier by barrier id (PC-002)", async () => {
+    const h = makeHarness(tmpDir);
+    const armed = await callTool(h, "picode_wait", { ids: ["t1/a", "t1/b"] });
+    const r = await callTool(h, "picode_wait", {
+      action: "cancel",
+      ids: [armed.details.barrier.id],
+    });
+    assert.strictEqual(h.store.barriers.length, 0);
+    assert.match(r.content[0].text, /Cancelled barrier /);
+  });
+
+  it("cancel removes one awaited id and leaves the rest (PC-002)", async () => {
+    const h = makeHarness(tmpDir);
+    await callTool(h, "picode_wait", { ids: ["t1/a", "t1/b"] });
+    await callTool(h, "picode_wait", { action: "cancel", ids: ["t1/a"] });
+    assert.deepStrictEqual(h.store.barriers[0].pending, ["t1/b"]);
+  });
+
+  it("a reply echoing the bare ULID still settles the request and its barrier (PC-002)", async () => {
+    const h = makeHarness(tmpDir);
+    seedRemoteThread(h, "alice");
+    const send = await callTool(h, "picode_send", { to: "alice", body: "do", expects: true });
+    const id = send.details.sent[0].id; // t1/<ulid>
+    await callTool(h, "picode_wait", { ids: [id] });
+    // Agents echo ids by hand and drop the `<from>/` prefix — correlation
+    // must still fire, or the barrier hangs forever.
+    seedEnvelope(h, h.store.picodeId, {
+      from: "alice",
+      re: id.slice(id.indexOf("/") + 1),
+      body: "done",
+    });
+    await h.inbox.drainInbox(h.ctx);
+    assert.strictEqual(h.store.barriers.length, 0);
+    assert.strictEqual(h.store.obligations.length, 0);
+  });
 });
 
 describe("tools: picode_suspend / picode_resume", () => {
@@ -4361,6 +4411,7 @@ describe("role and prompt contracts", () => {
       obligations: [],
       owed: [],
       barriers: [],
+      settled: [],
       owedNudgePending: false,
       owedSilentStreak: 0,
     });
@@ -4382,6 +4433,7 @@ describe("role and prompt contracts", () => {
       obligations: [],
       owed: [],
       barriers: [],
+      settled: [],
       owedNudgePending: false,
       owedSilentStreak: 0,
     });
@@ -4405,6 +4457,7 @@ describe("role and prompt contracts", () => {
       obligations: [],
       owed: [],
       barriers: [],
+      settled: [],
       owedNudgePending: false,
       owedSilentStreak: 0,
     });
@@ -4430,6 +4483,7 @@ describe("role and prompt contracts", () => {
       obligations: [],
       owed: [],
       barriers: [],
+      settled: [],
       owedNudgePending: false,
       owedSilentStreak: 0,
     });

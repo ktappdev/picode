@@ -1,7 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { Barrier, PicodeStore, Urgency } from "../core/types";
-import { mintId } from "../core/ids";
+import { mintId, sameEnvelopeId } from "../core/ids";
 import { deadlineFromSeconds, nowIso } from "../core/time";
 import type { Inbox } from "../inbox";
 import { err, quietCallRenderer, quietToolResult } from "./shared";
@@ -168,15 +168,16 @@ export function registerMessagingTools(pi: ExtensionAPI, store: PicodeStore, inb
       // is what actually protects the ledger. These catch likely mistakes
       // before the send goes out.
       const warnings: string[] = [];
-      if (params.re) {
-        const owedMatch = store.owed.find(o => o.id === params.re);
+      const reId = params.re;
+      if (reId) {
+        const owedMatch = store.owed.find(o => sameEnvelopeId(o.id, reId));
         if (!owedMatch) {
           warnings.push(
-            `Warning: no owed reply matches re "${params.re}" — check picode_status before sending, in case this reply is misdirected or stale.`,
+            `Warning: no owed reply matches re "${reId}" — check picode_status before sending, in case this reply is misdirected or stale.`,
           );
         } else if (!targets.includes(owedMatch.from)) {
           warnings.push(
-            `Warning: re "${params.re}" is owed to ${owedMatch.from}, not "${toSpec}" — double check the target.`,
+            `Warning: re "${reId}" is owed to ${owedMatch.from}, not "${toSpec}" — double check the target.`,
           );
         }
       }
@@ -256,14 +257,21 @@ export function registerMessagingTools(pi: ExtensionAPI, store: PicodeStore, inb
     name: "picode_wait",
     label: "Picode Wait",
     description:
-      "Wait for replies to outstanding requests (envelope ids from picode_send results / picode_status). When all (or any) of them receive a reply, you get a wake-up message — optionally with your own `message` payload injected alongside it. Non-blocking: end your turn after calling this.",
+      'Wait for replies to outstanding requests (envelope ids from picode_send results / picode_status). When all (or any) of them receive a reply, you get a wake-up message — optionally with your own `message` payload injected alongside it. Non-blocking: end your turn after calling this. To undo a bad barrier (e.g. a mistyped id that will never resolve), call again with action="cancel" — ids may be barrier ids (from picode_status) or the awaited envelope ids.',
     promptSnippet:
-      "Wait for replies to outstanding requests (non-blocking: end turn after calling).",
+      'Wait for replies to outstanding requests (non-blocking: end turn after calling). action="cancel" drops a barrier armed on a bad id.',
     parameters: Type.Object({
       ids: Type.Array(Type.String(), {
-        description: "The envelope ids to wait on (from picode_send results / picode_status)",
+        description:
+          'For action="wait": the envelope ids to wait on (from picode_send results / picode_status). For action="cancel": barrier ids (from picode_status) or awaited envelope ids.',
         minItems: 1,
       }),
+      action: Type.Optional(
+        Type.Union([Type.Literal("wait"), Type.Literal("cancel")], {
+          description:
+            '"wait" (default) arms a barrier; "cancel" drops pending barriers instead — use it when a barrier was armed on a wrong or stale id.',
+        }),
+      ),
       mode: Type.Optional(
         Type.Union([Type.Literal("all"), Type.Literal("any")], {
           description: 'Wake when "all" replies arrived (default) or on the first ("any")',
@@ -283,8 +291,59 @@ export function registerMessagingTools(pi: ExtensionAPI, store: PicodeStore, inb
       ),
     }),
     async execute(_id, params) {
-      const known = new Set(store.obligations.map(o => o.id));
-      const unknown = params.ids.filter(id => !known.has(id));
+      if (params.action === "cancel") {
+        const lines: string[] = [];
+        const matched = new Set<string>();
+        const remaining: typeof store.barriers = [];
+        for (const b of store.barriers) {
+          if (params.ids.some(x => x === b.id)) {
+            matched.add(b.id);
+            for (const p of b.pending) matched.add(p);
+            lines.push(`Cancelled barrier ${b.id} (was waiting on ${b.pending.join(", ")}).`);
+            continue;
+          }
+          const pending = b.pending.filter(p => !params.ids.some(x => sameEnvelopeId(x, p)));
+          if (pending.length === b.pending.length) {
+            remaining.push(b);
+            continue;
+          }
+          const dropped = b.pending.filter(p => !pending.includes(p));
+          for (const p of dropped) matched.add(p);
+          if (pending.length === 0) {
+            lines.push(`Cancelled barrier ${b.id} — nothing left to wait for.`);
+          } else {
+            lines.push(
+              `Removed ${dropped.join(", ")} from barrier ${b.id} — still waiting on ${b.mode} of ${pending.length}: ${pending.join(", ")}.`,
+            );
+            remaining.push({ ...b, pending });
+          }
+        }
+        const notFound = params.ids.filter(x => !matched.has(x));
+        if (notFound.length) {
+          lines.push(
+            `No barrier was waiting on ${notFound.join(", ")} — nothing to cancel for ${notFound.length === 1 ? "it" : "them"} (picode_status lists barrier ids and what they await).`,
+          );
+        }
+        store.barriers = remaining;
+        await store.persist();
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: lines.length ? lines.join("\n") : "No barriers are armed — nothing to cancel.",
+            },
+          ],
+          details: { ok: true, barriers: store.barriers },
+        };
+      }
+
+      const isOpen = (id: string) => store.obligations.some(o => sameEnvelopeId(o.id, id));
+      const answered = params.ids.filter(
+        id => !isOpen(id) && store.settled.some(s => sameEnvelopeId(s.id, id)),
+      );
+      const unknown = params.ids.filter(
+        id => !isOpen(id) && !store.settled.some(s => sameEnvelopeId(s.id, id)),
+      );
       const deadline = deadlineFromSeconds(params.deadlineSeconds);
       const barrier = await armBarrier(
         store,
@@ -293,14 +352,26 @@ export function registerMessagingTools(pi: ExtensionAPI, store: PicodeStore, inb
         deadline,
         params.message,
       );
-      const warn = unknown.length
-        ? `\nWarning: no open obligation matches ${unknown.join(", ")} — if no reply ever carries that id, the barrier never resolves.`
-        : "";
+      const warn: string[] = [];
+      if (answered.length) {
+        const stamped = answered.map(id => {
+          const s = store.settled.find(x => sameEnvelopeId(x.id, id));
+          return s ? `${id} (at ${s.settledAt})` : id;
+        });
+        warn.push(
+          `\nWarning: a reply for ${stamped.join(", ")} already arrived — it is already in (or arriving to) your context; do NOT re-arm on ${answered.length === 1 ? "it" : "them"}. This barrier resolves only if ANOTHER reply echoes that id — end your turn to read the reply, or drop ${answered.length === 1 ? "it" : "them"} with picode_wait action="cancel".`,
+        );
+      }
+      if (unknown.length) {
+        warn.push(
+          `\nWarning: no open obligation matches ${unknown.join(", ")} — ${unknown.length === 1 ? "it" : "they"} may be mistyped, or that send never set expects=true (a plain note gets no tracked reply). If no reply ever carries ${unknown.length === 1 ? "it" : "them"}, the barrier never resolves — fix the id, or cancel with picode_wait action="cancel".`,
+        );
+      }
       return {
         content: [
           {
             type: "text" as const,
-            text: `Barrier ${barrier.id} armed: waiting for ${barrier.mode} of ${barrier.pending.length} replies. You'll be woken when it resolves.${warn}`,
+            text: `Barrier ${barrier.id} armed: waiting for ${barrier.mode} of ${barrier.pending.length} replies. You'll be woken when it resolves.${warn.join("")}`,
           },
         ],
         details: { ok: true, barrier },
